@@ -1,39 +1,33 @@
 import { Award, Crown, Medal, ShieldCheck, Trophy } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { PageIntro } from '../components/common/PageIntro'
+import { getLeaderboard } from '../features/authentication/reward-api'
 import { useRole } from '../features/authentication/useRole'
-import {
-  demoMember,
-  leaderboardEntries,
-} from '../features/authentication/member-data'
 
 type LeaderboardMetric = 'points' | 'reports'
 
 export function LeaderboardPage() {
   const [metric, setMetric] = useState<LeaderboardMetric>('points')
-  const { role, user } = useRole()
+  const { user } = useRole()
+  const leaderboardQuery = useQuery({
+    queryKey: ['leaderboard'],
+    queryFn: getLeaderboard,
+  })
   const rankedEntries = useMemo(
-    () =>
-      leaderboardEntries
-        .map((entry) =>
-          entry.id === demoMember.id
-            ? {
-                ...entry,
-                points: role === 'user' && user ? user.points : entry.points,
-                validReports:
-                  role === 'user' && user
-                    ? (user.validReports ?? entry.validReports)
-                    : entry.validReports,
-                isCurrentUser: role === 'user',
-              }
-            : entry,
-        )
+    () => {
+      const entries = (leaderboardQuery.data ?? []).map((entry) => ({
+        ...entry,
+        isCurrentUser: entry.id === user?.id,
+      }))
+      return entries
         .sort((a, b) =>
-        metric === 'points'
-          ? b.points - a.points
-          : b.validReports - a.validReports,
-      ),
-    [metric, role, user],
+          metric === 'points'
+            ? b.points - a.points
+            : b.validReports - a.validReports,
+        )
+    },
+    [leaderboardQuery.data, metric, user?.id],
   )
 
   return (
@@ -87,13 +81,16 @@ export function LeaderboardPage() {
           ))}
         </div>
 
+        {leaderboardQuery.isLoading && <p className="empty-state">Loading community rankings...</p>}
+        {leaderboardQuery.isError && <p className="form-error">The leaderboard could not be loaded.</p>}
+
         <section className="leaderboard-table-panel">
           <header>
             <div>
               <h2>Community ranking</h2>
               <p>Only administrator-validated reports count toward the ranking.</p>
             </div>
-            <span>Updated daily</span>
+            <span>Live rankings</span>
           </header>
           <div className="leaderboard-table-wrap">
             <table className="leaderboard-table">
@@ -128,6 +125,9 @@ export function LeaderboardPage() {
               </tbody>
             </table>
           </div>
+          {!leaderboardQuery.isLoading && rankedEntries.length === 0 && (
+            <p className="empty-state">No registered contributors are ranked yet.</p>
+          )}
         </section>
       </div>
     </section>

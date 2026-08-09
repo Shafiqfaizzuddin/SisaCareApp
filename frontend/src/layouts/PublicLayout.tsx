@@ -67,7 +67,7 @@ export function PublicLayout() {
                   aria-label="Sign out"
                   title="Sign out"
                   onClick={() => {
-                    signOut()
+                    void signOut()
                     setMenuOpen(false)
                   }}
                 >
@@ -89,7 +89,7 @@ export function PublicLayout() {
                   type="button"
                   aria-label="Sign out"
                   title="Sign out"
-                  onClick={signOut}
+                  onClick={() => void signOut()}
                 >
                   <LogOut size={17} />
                 </button>

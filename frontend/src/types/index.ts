@@ -27,6 +27,10 @@ export interface Achievement {
   description: string
   pointsRequired: number
   title: string
+  criteriaType?: 'points' | 'valid_reports'
+  criteriaValue?: number
+  bonusPoints?: number
+  unlocked?: boolean
 }
 
 export interface LeaderboardEntry {
@@ -50,4 +54,59 @@ export interface ReportSummary {
   reporter: string
   reporterRole: 'guest' | 'user'
   validationStatus: ValidationStatus
+  reporterEmail?: string
+  userId?: string
+  imagePath?: string
+  latitude?: number
+  longitude?: number
+  generatedReport?: string
+  riskLevel?: string
+  modelName?: string
+  statusHistory?: ReportStatusHistoryEntry[]
+  validations?: ReportValidationEntry[]
+}
+
+export interface ReportStatusHistoryEntry {
+  id: string
+  previousStatus: ReportStatus
+  newStatus: ReportStatus
+  note?: string
+  changedAt: string
+  changedBy: string
+}
+
+export interface ReportValidationEntry {
+  id: string
+  status: Exclude<ValidationStatus, 'pending'>
+  note?: string
+  validatedAt: string
+  adminName: string
+}
+
+export interface RewardTransaction {
+  id: string
+  points: number
+  description: string
+  awardedAt: string
+  reportId?: string
+  rewardType: string
+}
+
+export interface TitleDefinition {
+  id: string
+  name: string
+  description: string
+  minimumPoints: number
+}
+
+export interface EducationalContent {
+  id: string
+  title: string
+  content: string
+  category: WasteCategory
+  imageUrl?: string
+  status: 'draft' | 'published'
+  publishedAt?: string
+  createdAt: string
+  updatedAt: string
 }

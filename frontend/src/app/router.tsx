@@ -3,6 +3,7 @@ import { AdminLayout } from '../layouts/AdminLayout'
 import { PublicLayout } from '../layouts/PublicLayout'
 import { RoleGuard } from '../components/common/RoleGuard'
 import { AdminDashboardPage } from '../pages/AdminDashboardPage'
+import { AdminEducationPage } from '../pages/AdminEducationPage'
 import { AdminLoginPage } from '../pages/AdminLoginPage'
 import { AdminReportDetailPage } from '../pages/AdminReportDetailPage'
 import { EducationPage } from '../pages/EducationPage'
@@ -50,6 +51,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <AdminDashboardPage /> },
       { path: 'reports/:reportId', element: <AdminReportDetailPage /> },
+      { path: 'education', element: <AdminEducationPage /> },
     ],
   },
   {

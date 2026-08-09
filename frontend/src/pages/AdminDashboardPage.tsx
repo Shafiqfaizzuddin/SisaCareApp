@@ -6,12 +6,16 @@ import {
   Search,
   TriangleAlert,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MetricCard } from '../components/admin/MetricCard'
 import { ReportStatus } from '../components/reports/ReportStatus'
-import { reportSummaries } from '../features/admin-reports/report-data'
 import { wasteCategoryOptions } from '../features/reporting/categories'
+import {
+  formatReportDate,
+  getAdminReports,
+} from '../features/reporting/report-api'
 import type { ReportStatus as ReportStatusValue, WasteCategory } from '../types'
 
 const categoryLabels = Object.fromEntries(
@@ -23,11 +27,16 @@ type StatusFilter = 'all' | ReportStatusValue
 export function AdminDashboardPage() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
+  const reportsQuery = useQuery({
+    queryKey: ['admin-reports'],
+    queryFn: getAdminReports,
+  })
+  const reports = useMemo(() => reportsQuery.data ?? [], [reportsQuery.data])
 
   const filteredReports = useMemo(() => {
     const query = search.trim().toLowerCase()
 
-    return reportSummaries.filter((report) => {
+    return reports.filter((report) => {
       const matchesSearch =
         !query ||
         report.reference.toLowerCase().includes(query) ||
@@ -36,7 +45,20 @@ export function AdminDashboardPage() {
 
       return matchesSearch && matchesStatus
     })
-  }, [search, status])
+  }, [reports, search, status])
+
+  const pendingCount = reports.filter(
+    (report) => report.validationStatus === 'pending',
+  ).length
+  const inProgressCount = reports.filter(
+    (report) => report.status === 'in_progress',
+  ).length
+  const completedCount = reports.filter(
+    (report) => report.status === 'completed',
+  ).length
+  const validCount = reports.filter(
+    (report) => report.validationStatus === 'valid',
+  ).length
 
   function downloadCsv() {
     const header = ['Reference', 'Category', 'Location', 'Submitted', 'Status']
@@ -62,7 +84,9 @@ export function AdminDashboardPage() {
     <>
       <header className="admin-page-heading">
         <div>
-          <p className="eyebrow">Saturday, 8 August</p>
+          <p className="eyebrow">
+            {new Intl.DateTimeFormat('en-MY', { dateStyle: 'full' }).format(new Date())}
+          </p>
           <h1>Operations overview</h1>
           <p>Review new reports and monitor active response work.</p>
         </div>
@@ -75,29 +99,29 @@ export function AdminDashboardPage() {
       <section className="metric-grid" aria-label="Report metrics">
         <MetricCard
           label="New reports"
-          value="18"
-          detail="+4 since yesterday"
+          value={String(pendingCount)}
+          detail="Awaiting validation"
           icon={TriangleAlert}
           tone="coral"
         />
         <MetricCard
           label="In progress"
-          value="42"
-          detail="7 due for review"
+          value={String(inProgressCount)}
+          detail="Active municipal cases"
           icon={Clock3}
           tone="amber"
         />
         <MetricCard
-          label="Resolved this week"
-          value="67"
-          detail="12% above average"
+          label="Completed"
+          value={String(completedCount)}
+          detail="Closed cases"
           icon={CheckCircle2}
           tone="green"
         />
         <MetricCard
-          label="Median response"
-          value="19h"
-          detail="3h faster this month"
+          label="Validated"
+          value={String(validCount)}
+          detail="Confirmed reports"
           icon={ArrowUpRight}
           tone="blue"
         />
@@ -157,7 +181,7 @@ export function AdminDashboardPage() {
                   </td>
                   <td>{categoryLabels[report.category]}</td>
                   <td className="report-table__location">{report.location}</td>
-                  <td>{report.submittedAt}</td>
+                  <td>{formatReportDate(report.submittedAt)}</td>
                   <td><ReportStatus status={report.status} /></td>
                   <td>
                     <Link
@@ -174,7 +198,13 @@ export function AdminDashboardPage() {
             </tbody>
           </table>
           {filteredReports.length === 0 && (
-            <p className="empty-state">No reports match the current filters.</p>
+            <p className="empty-state">
+              {reportsQuery.isLoading
+                ? 'Loading reports...'
+                : reportsQuery.isError
+                  ? 'Reports could not be loaded. Check your administrator access.'
+                  : 'No reports match the current filters.'}
+            </p>
           )}
         </div>
       </section>

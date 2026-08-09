@@ -1,9 +1,9 @@
 import {
+  BookOpen,
   ClipboardList,
   ExternalLink,
   LayoutDashboard,
   LogOut,
-  Settings,
 } from 'lucide-react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { Brand } from '../components/common/Brand'
@@ -25,17 +25,17 @@ export function AdminLayout() {
             <ClipboardList size={18} />
             Reports
           </NavLink>
-          <span className="admin-sidebar__disabled">
-            <Settings size={18} />
-            Settings
-          </span>
+          <NavLink to="/admin/education">
+            <BookOpen size={18} />
+            Education
+          </NavLink>
         </nav>
         <div className="admin-sidebar__footer">
           <Link to="/">
             <ExternalLink size={17} />
             Public site
           </Link>
-          <Link to="/" onClick={signOut}>
+          <Link to="/" onClick={() => void signOut()}>
             <LogOut size={17} />
             Sign out
           </Link>

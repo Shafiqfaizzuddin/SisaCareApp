@@ -14,6 +14,9 @@ export function ReportSuccessPage() {
   const state = location.state as {
     reference?: string
     isMember?: boolean
+    submittedAt?: string
+    awardedPoints?: number
+    validationBonus?: number
   } | null
   const reference = state?.reference ?? 'SCA-1051'
 
@@ -33,16 +36,23 @@ export function ReportSuccessPage() {
         <div className="reference-panel">
           <span>Report reference</span>
           <strong>{reference}</strong>
-          <small>Submitted 8 Aug 2026 at 20:54</small>
+          <small>
+            Submitted {state?.submittedAt
+              ? new Intl.DateTimeFormat('en-MY', {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                }).format(new Date(state.submittedAt))
+              : 'just now'}
+          </small>
         </div>
 
         {state?.isMember ? (
           <div className="reward-confirmation">
             <span><Award size={21} /></span>
             <div>
-              <strong>10 points added</strong>
+              <strong>{state.awardedPoints ?? 0} points added</strong>
               <p>
-                You can earn another 40 points when an administrator validates
+                You can earn another {state.validationBonus ?? 0} points when an administrator validates
                 this report.
               </p>
             </div>

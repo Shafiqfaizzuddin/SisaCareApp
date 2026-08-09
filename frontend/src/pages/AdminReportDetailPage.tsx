@@ -9,12 +9,19 @@ import {
   MapPin,
   UserRound,
 } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ReportStatus } from '../components/reports/ReportStatus'
-import { reportSummaries } from '../features/admin-reports/report-data'
-import { useRole } from '../features/authentication/useRole'
 import { wasteCategoryOptions } from '../features/reporting/categories'
+import {
+  formatReportDate,
+  getAdminReport,
+  getReportImageUrl,
+  getRewardRulePoints,
+  updateReportStatus,
+  validateReport,
+} from '../features/reporting/report-api'
 import type { ReportStatus as ReportStatusValue } from '../types'
 
 const statusOptions: { value: ReportStatusValue; label: string }[] = [
@@ -24,97 +31,136 @@ const statusOptions: { value: ReportStatusValue; label: string }[] = [
 ]
 
 export function AdminReportDetailPage() {
-  const { reportId } = useParams()
-  const { rewardMember } = useRole()
-  const report = reportSummaries.find((item) => item.id === reportId)
-  const [status, setStatus] = useState<ReportStatusValue>(
-    report?.status ?? 'processing',
-  )
-  const [validationStatus, setValidationStatus] = useState(
-    report?.validationStatus ?? 'pending',
-  )
+  const { reportId = '' } = useParams()
+  const queryClient = useQueryClient()
+  const [validationNote, setValidationNote] = useState('')
+  const [actionError, setActionError] = useState<string | null>(null)
+  const reportQuery = useQuery({
+    queryKey: ['admin-report', reportId],
+    queryFn: () => getAdminReport(reportId),
+    enabled: Boolean(reportId),
+  })
+  const rewardRules = useQuery({
+    queryKey: ['reward-rules'],
+    queryFn: getRewardRulePoints,
+  })
+  const imageQuery = useQuery({
+    queryKey: ['report-image', reportQuery.data?.imagePath],
+    queryFn: () => getReportImageUrl(reportQuery.data?.imagePath ?? ''),
+    enabled: Boolean(reportQuery.data?.imagePath),
+    staleTime: 20 * 60 * 1000,
+  })
 
-  function handleValidation(result: 'valid' | 'invalid') {
-    setValidationStatus(result)
-    setStatus(result === 'valid' ? 'in_progress' : 'completed')
-    if (result === 'valid' && report?.reporterRole === 'user') {
-      rewardMember(40, true)
-    }
+  async function refreshReports() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin-report', reportId] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-reports'] }),
+      queryClient.invalidateQueries({ queryKey: ['leaderboard'] }),
+    ])
   }
 
+  const validationMutation = useMutation({
+    mutationFn: (decision: 'valid' | 'invalid') =>
+      validateReport(reportId, decision, validationNote),
+    onSuccess: async () => {
+      setActionError(null)
+      await refreshReports()
+    },
+    onError: (error) => setActionError(error.message),
+  })
+
+  const statusMutation = useMutation({
+    mutationFn: (status: ReportStatusValue) => updateReportStatus(reportId, status),
+    onSuccess: async () => {
+      setActionError(null)
+      await refreshReports()
+    },
+    onError: (error) => setActionError(error.message),
+  })
+
+  if (reportQuery.isLoading) {
+    return <p className="empty-state empty-state--page">Loading report...</p>
+  }
+
+  const report = reportQuery.data
   if (!report) {
     return (
       <div className="empty-state empty-state--page">
         <h1>Report not found</h1>
-        <p>The requested report is not available in this workspace.</p>
+        <p>{reportQuery.error?.message ?? 'The requested report is not available.'}</p>
         <Link className="button button--secondary" to="/admin">
-          <ArrowLeft size={17} />
-          Back to dashboard
+          <ArrowLeft size={17} /> Back to dashboard
         </Link>
       </div>
     )
   }
 
-  const category = wasteCategoryOptions.find(
-    (option) => option.value === report.category,
-  )
+  const category = wasteCategoryOptions.find((option) => option.value === report.category)
+  const validation = report.validations?.[0]
 
   return (
     <>
-      <Link className="back-link" to="/admin">
-        <ArrowLeft size={16} />
-        All reports
-      </Link>
+      <Link className="back-link" to="/admin"><ArrowLeft size={16} /> All reports</Link>
       <header className="admin-page-heading admin-page-heading--detail">
         <div>
           <div className="admin-page-heading__meta">
             <span>{report.reference}</span>
-            <ReportStatus status={status} />
+            <ReportStatus status={report.status} />
           </div>
-          <h1>{category?.label}</h1>
+          <h1>{category?.label ?? 'Waste report'}</h1>
           <p>{report.location}</p>
         </div>
         <label className="status-control">
           <span>Update status</span>
           <select
-            value={status}
+            value={report.status}
+            disabled={statusMutation.isPending}
             onChange={(event) =>
-              setStatus(event.target.value as ReportStatusValue)
+              statusMutation.mutate(event.target.value as ReportStatusValue)
             }
           >
-            {statusOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
+            {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
       </header>
+
+      {actionError && <p className="form-error" role="alert">{actionError}</p>}
 
       <div className="report-detail-grid">
         <div className="report-detail-main">
           <section className="admin-panel evidence-panel">
             <header className="admin-panel__heading">
-              <div>
-                <h2>Submitted evidence</h2>
-                <p>Image received with the public report</p>
-              </div>
-              <span className="confidence">{report.confidence}% classification confidence</span>
+              <div><h2>Submitted evidence</h2><p>Private image attached to this report</p></div>
+              <span className="confidence">
+                {report.confidence > 0
+                  ? `${report.confidence}% classification confidence`
+                  : 'AI analysis pending'}
+              </span>
             </header>
-            <div className="evidence-placeholder">
-              <FileImage size={34} />
-              <strong>Image preview unavailable</strong>
-              <span>Evidence remains attached to this sample report.</span>
-            </div>
+            {imageQuery.data ? (
+              <img className="evidence-image" src={imageQuery.data} alt={`Waste evidence for ${report.reference}`} />
+            ) : (
+              <div className="evidence-placeholder">
+                <FileImage size={34} />
+                <strong>{imageQuery.isLoading ? 'Loading image...' : 'Image preview unavailable'}</strong>
+                <span>The evidence remains stored privately with this report.</span>
+              </div>
+            )}
           </section>
 
           <section className="admin-panel report-description">
-            <h2>Report description</h2>
+            <h2>Reporter description</h2>
             <p>{report.description}</p>
           </section>
 
+          <section className="admin-panel report-description">
+            <h2>AI-generated report</h2>
+            <p>{report.generatedReport ?? 'AI analysis has not been attached to this report yet.'}</p>
+            {report.riskLevel && <span className="role-label">Risk: {report.riskLevel}</span>}
+          </section>
+
           <section className="admin-panel map-panel">
-            <div className="map-placeholder" aria-label="Reported location map placeholder">
+            <div className="map-placeholder" aria-label="Reported location">
               <span className="map-placeholder__road map-placeholder__road--one" />
               <span className="map-placeholder__road map-placeholder__road--two" />
               <span className="map-placeholder__marker"><MapPin size={21} /></span>
@@ -122,6 +168,9 @@ export function AdminReportDetailPage() {
             <div>
               <h2>Reported location</h2>
               <p>{report.location}</p>
+              {report.latitude !== undefined && report.longitude !== undefined && (
+                <small>{report.latitude.toFixed(6)}, {report.longitude.toFixed(6)}</small>
+              )}
             </div>
           </section>
         </div>
@@ -130,61 +179,41 @@ export function AdminReportDetailPage() {
           <section className="admin-panel validation-panel">
             <div className="validation-panel__heading">
               <span><BadgeCheck size={20} /></span>
-              <div>
-                <h2>Report validation</h2>
-                <p>Confirm whether this report is valid before assigning rewards.</p>
-              </div>
+              <div><h2>Report validation</h2><p>Validation is final and separate from case progress.</p></div>
             </div>
-            {validationStatus === 'pending' ? (
+            {report.validationStatus === 'pending' ? (
               <>
                 {report.reporterRole === 'user' && (
                   <div className="reward-award-preview">
                     <Coins size={18} />
-                    <span>
-                      <strong>40 bonus points</strong>
-                      Awarded to {report.reporter} after validation
-                    </span>
+                    <span><strong>{rewardRules.data?.validation ?? 0} validation points</strong>Awarded once after a valid decision</span>
                   </div>
                 )}
+                <div className="field">
+                  <label htmlFor="validation-note">Validation note</label>
+                  <textarea
+                    id="validation-note"
+                    rows={3}
+                    value={validationNote}
+                    onChange={(event) => setValidationNote(event.target.value)}
+                    placeholder="Optional reason or review note"
+                  />
+                </div>
                 <div className="validation-actions">
-                  <button
-                    className="button button--primary"
-                    type="button"
-                    onClick={() => handleValidation('valid')}
-                  >
-                    <BadgeCheck size={17} />
-                    Mark as valid
+                  <button className="button button--primary" type="button" disabled={validationMutation.isPending} onClick={() => validationMutation.mutate('valid')}>
+                    <BadgeCheck size={17} /> Mark as valid
                   </button>
-                  <button
-                    className="button button--secondary"
-                    type="button"
-                    onClick={() => handleValidation('invalid')}
-                  >
-                    <CircleX size={17} />
-                    Reject
+                  <button className="button button--secondary" type="button" disabled={validationMutation.isPending} onClick={() => validationMutation.mutate('invalid')}>
+                    <CircleX size={17} /> Reject
                   </button>
                 </div>
               </>
             ) : (
-              <div
-                className={`validation-result validation-result--${validationStatus}`}
-              >
-                {validationStatus === 'valid' ? (
-                  <BadgeCheck size={20} />
-                ) : (
-                  <CircleX size={20} />
-                )}
+              <div className={`validation-result validation-result--${report.validationStatus}`}>
+                {report.validationStatus === 'valid' ? <BadgeCheck size={20} /> : <CircleX size={20} />}
                 <span>
-                  <strong>
-                    {validationStatus === 'valid'
-                      ? 'Validated report'
-                      : 'Invalid report'}
-                  </strong>
-                  {validationStatus === 'valid' && report.reporterRole === 'user'
-                    ? `40 bonus points awarded to ${report.reporter}.`
-                    : validationStatus === 'valid'
-                      ? 'Guest reports do not receive reward points.'
-                      : 'No reward points were awarded.'}
+                  <strong>{report.validationStatus === 'valid' ? 'Validated report' : 'Invalid report'}</strong>
+                  {validation?.note ?? `Decision recorded by ${validation?.adminName ?? 'an administrator'}.`}
                 </span>
               </div>
             )}
@@ -193,50 +222,32 @@ export function AdminReportDetailPage() {
           <section className="admin-panel detail-list">
             <h2>Report details</h2>
             <dl>
-              <div>
-                <dt><CalendarClock size={17} /> Submitted</dt>
-                <dd>{report.submittedAt}</dd>
-              </div>
+              <div><dt><CalendarClock size={17} /> Submitted</dt><dd>{formatReportDate(report.submittedAt)}</dd></div>
               <div>
                 <dt><UserRound size={17} /> Reporter</dt>
-                <dd>
-                  {report.reporter}
-                  <span className="role-label">
-                    {report.reporterRole === 'user' ? 'Registered user' : 'Guest'}
-                  </span>
-                </dd>
+                <dd>{report.reporter}<span className="role-label">{report.reporterRole === 'user' ? 'Registered user' : 'Guest'}</span></dd>
               </div>
-              <div>
-                <dt><MapPin size={17} /> District</dt>
-                <dd>Central district</dd>
-              </div>
+              {report.reporterEmail && <div><dt>Email</dt><dd>{report.reporterEmail}</dd></div>}
+              <div><dt><MapPin size={17} /> Location</dt><dd>{report.location}</dd></div>
             </dl>
           </section>
 
           <section className="admin-panel activity-panel">
             <h2>Activity</h2>
             <ol>
-              <li>
-                <span><CheckCircle2 size={15} /></span>
-                <div>
-                  <strong>Report received</strong>
-                  <small>8 Aug 2026, 09:42</small>
-                </div>
-              </li>
-              <li>
-                <span><CheckCircle2 size={15} /></span>
-                <div>
-                  <strong>Evidence classified</strong>
-                  <small>8 Aug 2026, 09:43</small>
-                </div>
-              </li>
-              <li className="activity-panel__pending">
-                <span />
-                <div>
-                  <strong>Awaiting assignment</strong>
-                  <small>Municipal review queue</small>
-                </div>
-              </li>
+              {[...(report.statusHistory ?? [])].map((entry) => (
+                <li key={entry.id}>
+                  <span><CheckCircle2 size={15} /></span>
+                  <div><strong>Status changed to {statusOptions.find((option) => option.value === entry.newStatus)?.label}</strong><small>{formatReportDate(entry.changedAt)} by {entry.changedBy}</small></div>
+                </li>
+              ))}
+              {[...(report.validations ?? [])].map((entry) => (
+                <li key={entry.id}>
+                  <span><CheckCircle2 size={15} /></span>
+                  <div><strong>Marked {entry.status}</strong><small>{formatReportDate(entry.validatedAt)} by {entry.adminName}</small></div>
+                </li>
+              ))}
+              <li><span><CheckCircle2 size={15} /></span><div><strong>Report received</strong><small>{formatReportDate(report.submittedAt)}</small></div></li>
             </ol>
           </section>
         </aside>

@@ -1,0 +1,2 @@
+-- History marker for a migration previously applied directly to the linked project.
+-- The remote public schema was empty when this repository was linked.

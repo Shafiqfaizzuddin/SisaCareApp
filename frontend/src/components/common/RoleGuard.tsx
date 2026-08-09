@@ -10,7 +10,16 @@ interface RoleGuardProps {
 }
 
 export function RoleGuard({ allow, redirectTo, children }: RoleGuardProps) {
-  const { role } = useRole()
+  const { authLoading, role } = useRole()
+
+  if (authLoading) {
+    return (
+      <main className="auth-loading" aria-live="polite">
+        <span className="auth-loading__spinner" aria-hidden="true" />
+        <p>Checking your session...</p>
+      </main>
+    )
+  }
 
   if (!allow.includes(role)) {
     return <Navigate to={redirectTo} replace />

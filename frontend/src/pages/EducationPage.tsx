@@ -1,9 +1,15 @@
 import { AlertTriangle, Camera, MapPin, ShieldAlert } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { WasteGuideCard } from '../components/education/WasteGuideCard'
 import { PageIntro } from '../components/common/PageIntro'
-import { educationTopics } from '../features/education/education-content'
+import { getPublishedEducation } from '../features/education/education-api'
 
 export function EducationPage() {
+  const contentQuery = useQuery({
+    queryKey: ['published-education'],
+    queryFn: getPublishedEducation,
+  })
+
   return (
     <>
       <section className="section education-page">
@@ -14,10 +20,15 @@ export function EducationPage() {
             description="Recognise common waste types, choose safer disposal options, and leave hazardous materials for trained personnel."
           />
           <div className="guide-grid">
-            {educationTopics.map((topic) => (
-              <WasteGuideCard key={topic.category} topic={topic} />
+            {(contentQuery.data ?? []).map((topic) => (
+              <WasteGuideCard key={topic.id} topic={topic} />
             ))}
           </div>
+          {contentQuery.isLoading && <p className="empty-state">Loading published guidance...</p>}
+          {contentQuery.isError && <p className="form-error">Educational content could not be loaded.</p>}
+          {!contentQuery.isLoading && contentQuery.data?.length === 0 && (
+            <p className="empty-state">No educational guidance has been published yet.</p>
+          )}
         </div>
       </section>
 

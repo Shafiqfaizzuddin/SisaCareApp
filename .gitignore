@@ -9,6 +9,8 @@ node_modules/
 **/node_modules/
 dist/
 **/dist/
+*.log
+**/*.log
 
 # Python
 .venv/

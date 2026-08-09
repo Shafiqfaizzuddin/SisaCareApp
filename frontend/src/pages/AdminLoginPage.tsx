@@ -10,13 +10,32 @@ import {
 
 export function AdminLoginPage() {
   const navigate = useNavigate()
-  const { signInAs } = useRole()
+  const { signIn, signOut } = useRole()
   const [credentials, setCredentials] =
     useState<AdminCredentials>(emptyAdminCredentials)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    signInAs('admin')
+    setError(null)
+    setSubmitting(true)
+
+    const result = await signIn(credentials.email, credentials.password)
+
+    if (result.error) {
+      setSubmitting(false)
+      setError(result.error)
+      return
+    }
+
+    if (result.role !== 'admin') {
+      await signOut()
+      setSubmitting(false)
+      setError('This account does not have administrator access.')
+      return
+    }
+
     navigate('/admin')
   }
 
@@ -51,6 +70,7 @@ export function AdminLoginPage() {
             <h2>Administrator sign in</h2>
             <p>Use your municipal account to continue.</p>
           </div>
+          {error && <p className="auth-alert auth-alert--error" role="alert">{error}</p>}
           <form onSubmit={handleSubmit}>
             <div className="field">
               <label htmlFor="admin-email">Work email</label>
@@ -70,10 +90,7 @@ export function AdminLoginPage() {
               />
             </div>
             <div className="field">
-              <div className="field__label-row">
-                <label htmlFor="admin-password">Password</label>
-                <button type="button">Forgot password?</button>
-              </div>
+              <label htmlFor="admin-password">Password</label>
               <input
                 id="admin-password"
                 type="password"
@@ -89,8 +106,12 @@ export function AdminLoginPage() {
                 required
               />
             </div>
-            <button className="button button--primary button--full" type="submit">
-              Sign in
+            <button
+              className="button button--primary button--full"
+              type="submit"
+              disabled={submitting}
+            >
+              {submitting ? 'Please wait...' : 'Sign in'}
             </button>
           </form>
           <p className="login-note">
