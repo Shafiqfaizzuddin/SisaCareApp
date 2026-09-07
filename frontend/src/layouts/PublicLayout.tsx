@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  BarChart3,
   LayoutDashboard,
   LogIn,
   LogOut,
@@ -47,11 +48,19 @@ export function PublicLayout() {
               <>
                 <Link
                   className="member-points"
-                  to="/account"
+                  to="/impact"
                   onClick={() => setMenuOpen(false)}
                 >
                   <Trophy size={16} />
                   {user.points} pts
+                </Link>
+                <Link
+                  className="button button--quiet"
+                  to="/impact"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <BarChart3 size={17} />
+                  My Impact
                 </Link>
                 <Link
                   className="member-profile-link"

@@ -10,6 +10,7 @@ import { EducationPage } from '../pages/EducationPage'
 import { HomePage } from '../pages/HomePage'
 import { LeaderboardPage } from '../pages/LeaderboardPage'
 import { MemberDashboardPage } from '../pages/MemberDashboardPage'
+import { MyImpactPage } from '../pages/MyImpactPage'
 import { ReportSuccessPage } from '../pages/ReportSuccessPage'
 import { SubmitReportPage } from '../pages/SubmitReportPage'
 import { UserLoginPage } from '../pages/UserLoginPage'
@@ -28,6 +29,14 @@ export const router = createBrowserRouter([
         element: (
           <RoleGuard allow={['user']} redirectTo="/login">
             <MemberDashboardPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: 'impact',
+        element: (
+          <RoleGuard allow={['user']} redirectTo="/login">
+            <MyImpactPage />
           </RoleGuard>
         ),
       },

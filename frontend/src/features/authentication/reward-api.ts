@@ -1,6 +1,7 @@
 import { supabase } from '../../lib/supabase'
 import type {
   Achievement,
+  CommunityImpact,
   LeaderboardEntry,
   RewardTransaction,
   TitleDefinition,
@@ -23,10 +24,37 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   return (data ?? []).map((entry) => ({
     id: String(entry.user_id),
     name: String(entry.full_name),
-    title: String(entry.current_title ?? 'Community Starter'),
+    title: String(entry.current_title ?? 'No title yet'),
     points: Number(entry.total_points ?? 0),
     validReports: Number(entry.valid_report_count ?? 0),
   }))
+}
+
+export async function getMyImpact(): Promise<CommunityImpact> {
+  const { data, error } = await supabase
+    .from('my_impact')
+    .select(`
+      total_points,
+      verified_reports,
+      cases_resolved,
+      locations_currently_handled,
+      achievements_unlocked,
+      current_title,
+      unread_impact_notifications
+    `)
+    .single()
+
+  if (error) throw error
+
+  return {
+    totalPoints: Number(data.total_points ?? 0),
+    verifiedReports: Number(data.verified_reports ?? 0),
+    casesResolved: Number(data.cases_resolved ?? 0),
+    locationsCurrentlyHandled: Number(data.locations_currently_handled ?? 0),
+    achievementsUnlocked: Number(data.achievements_unlocked ?? 0),
+    currentTitle: String(data.current_title ?? 'No title yet'),
+    unreadImpactNotifications: Number(data.unread_impact_notifications ?? 0),
+  }
 }
 
 export async function getMemberRewardData(userId: string): Promise<MemberRewardData> {
@@ -93,7 +121,7 @@ export async function getMemberRewardData(userId: string): Promise<MemberRewardD
         description: String(entry.description),
         pointsRequired:
           entry.criteria_type === 'points' ? Number(entry.criteria_value) : 0,
-        title: String(title?.title_name ?? 'Community Starter'),
+        title: String(title?.title_name ?? 'No title yet'),
         criteriaType: entry.criteria_type as 'points' | 'valid_reports',
         criteriaValue: Number(entry.criteria_value),
         bonusPoints: Number(entry.bonus_points ?? 0),

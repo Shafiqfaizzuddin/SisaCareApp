@@ -42,6 +42,16 @@ export interface LeaderboardEntry {
   isCurrentUser?: boolean
 }
 
+export interface CommunityImpact {
+  totalPoints: number
+  verifiedReports: number
+  casesResolved: number
+  locationsCurrentlyHandled: number
+  achievementsUnlocked: number
+  currentTitle: string
+  unreadImpactNotifications: number
+}
+
 export interface ReportSummary {
   id: string
   reference: string

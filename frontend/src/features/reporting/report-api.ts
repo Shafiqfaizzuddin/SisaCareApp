@@ -271,11 +271,20 @@ export async function getReportImageUrl(imagePath: string): Promise<string> {
 export async function getRewardRulePoints(): Promise<{
   submission: number
   validation: number
+  completion: number
 }> {
   const { data, error } = await supabase
     .from('reward_rules')
     .select('reward_type, points')
-    .in('reward_type', ['report_submitted', 'valid_report'])
+    .in('reward_type', [
+      'report_submitted',
+      'valid_report',
+      'admin_validation_bonus',
+      'clear_photo',
+      'accurate_location',
+      'useful_description',
+      'case_completed',
+    ])
 
   if (error) throw error
   const rules = new Map(
@@ -283,6 +292,12 @@ export async function getRewardRulePoints(): Promise<{
   )
   return {
     submission: rules.get('report_submitted') ?? 0,
-    validation: rules.get('valid_report') ?? 0,
+    validation:
+      (rules.get('valid_report') ?? 0) +
+      (rules.get('admin_validation_bonus') ?? 0) +
+      (rules.get('clear_photo') ?? 0) +
+      (rules.get('accurate_location') ?? 0) +
+      (rules.get('useful_description') ?? 0),
+    completion: rules.get('case_completed') ?? 0,
   }
 }

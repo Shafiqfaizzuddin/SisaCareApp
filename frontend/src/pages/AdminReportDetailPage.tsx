@@ -186,7 +186,7 @@ export function AdminReportDetailPage() {
                 {report.reporterRole === 'user' && (
                   <div className="reward-award-preview">
                     <Coins size={18} />
-                    <span><strong>{rewardRules.data?.validation ?? 0} validation points</strong>Awarded once after a valid decision</span>
+                    <span><strong>Up to {rewardRules.data?.validation ?? 0} validation points</strong>Quality checks add clear-photo, location, and description points</span>
                   </div>
                 )}
                 <div className="field">

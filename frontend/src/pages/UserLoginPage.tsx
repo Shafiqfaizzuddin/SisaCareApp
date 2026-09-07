@@ -221,8 +221,7 @@ export function UserLoginPage() {
             </button>
           </form>
           <p className="login-note">
-            Member accounts use secure email authentication. New accounts start
-            with the Community Starter title.
+            Member accounts use secure email authentication. Titles unlock after verified impact points.
           </p>
         </div>
       </section>

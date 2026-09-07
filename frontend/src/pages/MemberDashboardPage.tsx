@@ -53,7 +53,10 @@ export function MemberDashboardPage() {
             <span className="member-hero__avatar">{user.name.split(' ').map((part) => part[0]).join('')}</span>
             <div><p className="eyebrow">Registered member</p><h1>{user.name}</h1><span className="member-title"><Award size={15} /> {user.title}</span></div>
           </div>
-          <Link className="button button--primary" to="/report">Submit a new report <ArrowRight size={17} /></Link>
+          <div className="member-hero__actions">
+            <Link className="button button--secondary" to="/impact">My Impact <Trophy size={17} /></Link>
+            <Link className="button button--primary" to="/report">Submit a new report <ArrowRight size={17} /></Link>
+          </div>
         </header>
 
         <section className="member-stats" aria-label="Member reward summary">

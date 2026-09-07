@@ -21,7 +21,7 @@ function toUserProfile(profile: ProfileRow): UserProfile {
     email: profile.email,
     role: profile.role,
     points: profile.points,
-    title: profile.title,
+    title: profile.title || 'No title yet',
     validReports: profile.valid_reports,
   }
 }

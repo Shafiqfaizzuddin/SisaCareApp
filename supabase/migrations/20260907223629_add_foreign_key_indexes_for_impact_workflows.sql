@@ -1,0 +1,20 @@
+create index if not exists achievements_title_id_idx on public.achievements(title_id);
+create index if not exists ai_analyses_waste_category_id_idx on public.ai_analyses(waste_category_id);
+create index if not exists educational_content_created_by_idx on public.educational_content(created_by);
+create index if not exists profiles_current_title_id_idx on public.profiles(current_title_id);
+create index if not exists report_status_history_changed_by_idx on public.report_status_history(changed_by);
+create index if not exists report_validations_admin_id_idx on public.report_validations(admin_id);
+create index if not exists reports_duplicate_of_report_id_idx on public.reports(duplicate_of_report_id);
+create index if not exists reports_duplicate_status_idx on public.reports(duplicate_status);
+create index if not exists reports_location_recent_idx on public.reports(latitude, longitude, submitted_at desc)
+  where latitude is not null and longitude is not null;
+create index if not exists reports_selected_waste_category_id_idx on public.reports(selected_waste_category_id);
+create index if not exists reports_suspicious_status_idx on public.reports(suspicious_status);
+create index if not exists reports_user_validation_case_idx on public.reports(user_id, validation_status, case_status);
+create index if not exists reward_transactions_achievement_id_idx on public.reward_transactions(achievement_id);
+create index if not exists reward_transactions_report_id_idx on public.reward_transactions(report_id);
+create index if not exists reward_transactions_reward_rule_id_idx on public.reward_transactions(reward_rule_id);
+create index if not exists user_achievements_achievement_id_idx on public.user_achievements(achievement_id);
+create index if not exists user_notifications_report_idx on public.user_notifications(report_id);
+create index if not exists user_notifications_user_created_idx on public.user_notifications(user_id, created_at desc);
+create index if not exists user_titles_title_id_idx on public.user_titles(title_id);
