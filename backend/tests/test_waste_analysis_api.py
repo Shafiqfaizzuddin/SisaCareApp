@@ -64,6 +64,11 @@ def test_analyze_endpoint_returns_browser_accessible_image_urls(
     annotated_path.write_bytes(b"annotated")
     result = {**SUCCESS_RESULT, "annotated_image": str(annotated_path)}
     monkeypatch.setattr(waste_analysis, "analyze_waste_image", lambda _path: result)
+    monkeypatch.setattr(
+        waste_analysis,
+        "create_analysis_draft",
+        lambda **_kwargs: "draft-123",
+    )
 
     response = client.post(
         "/api/waste/analyze",
@@ -73,6 +78,7 @@ def test_analyze_endpoint_returns_browser_accessible_image_urls(
     assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
+    assert payload["analysis_id"] == "draft-123"
     assert payload["annotated_image"] == "/api/waste/annotated/annotated-result.jpg"
     assert payload["original_image"].startswith("/api/waste/uploads/upload-")
     assert len(list(upload_dir.glob("*.jpg"))) == 1

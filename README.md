@@ -2,9 +2,8 @@
 
 Initial project foundation for the SisaCare.AI illegal waste dumping reporting system.
 This session includes a React/Vite/TypeScript frontend, a FastAPI backend with a
-health endpoint, and local Supabase CLI configuration only. Application-level
-Supabase integration, authentication, AI models, and report submission are not
-implemented yet.
+health endpoint, local AI analysis, SQLite-backed report submission, and
+Supabase-authenticated member and administrator sessions.
 
 ## Prerequisites
 
@@ -48,6 +47,15 @@ Copy-Item backend\.env.example backend\.env
 
 The current examples contain no secrets. Do not commit populated `.env` files.
 
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in
+`frontend/.env.local`. Create member accounts in Supabase Authentication. Admin
+accounts must have `app_metadata.role` set to `admin`; user-editable metadata is
+not trusted for administrator access.
+
+For a hosted Supabase project, add `http://localhost:5173/login` and
+`http://127.0.0.1:5173/login` to Authentication > URL Configuration > Redirect
+URLs so email confirmation returns to the local app.
+
 ## Run locally
 
 Start the frontend:
@@ -84,5 +92,5 @@ cd frontend
 npm run build
 ```
 
-Supabase CLI configuration is present in `supabase/config.toml`, but Supabase is not
-connected to the application in this foundation.
+Supabase CLI configuration is present in `supabase/config.toml`, and frontend
+authentication uses the configured Supabase project.

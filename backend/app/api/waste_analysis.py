@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -13,20 +14,18 @@ from fastapi.responses import JSONResponse
 
 from app.services.ai import analyze_waste_image
 from app.services.ai.image_annotator import ANNOTATED_OUTPUT_DIR
+from app.repositories.reports import create_analysis_draft
+from app.services.image_uploads import (
+    ALLOWED_IMAGE_TYPES,
+    MAX_UPLOAD_SIZE,
+    UPLOAD_CHUNK_SIZE,
+    save_image_upload,
+)
 
 
 router = APIRouter()
 
 UPLOAD_DIR = Path(__file__).resolve().parents[2] / "storage" / "tmp" / "uploads"
-MAX_UPLOAD_SIZE = 10 * 1024 * 1024
-UPLOAD_CHUNK_SIZE = 1024 * 1024
-ALLOWED_IMAGE_TYPES = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/webp": ".webp",
-}
-
-
 def _failure_status(code: str) -> int:
     if code == "NO_WASTE_DETECTED":
         return 422
@@ -62,23 +61,12 @@ def _annotated_image_url(path: str) -> str:
 
 
 async def _save_upload(image: UploadFile, destination: Path) -> None:
-    total_size = 0
-    try:
-        with destination.open("wb") as output:
-            while chunk := await image.read(UPLOAD_CHUNK_SIZE):
-                total_size += len(chunk)
-                if total_size > MAX_UPLOAD_SIZE:
-                    raise ValueError("IMAGE_TOO_LARGE")
-                output.write(chunk)
-    except Exception:
-        destination.unlink(missing_ok=True)
-        raise
-    finally:
-        await image.close()
-
-    if total_size == 0:
-        destination.unlink(missing_ok=True)
-        raise ValueError("EMPTY_IMAGE")
+    await save_image_upload(
+        image,
+        destination,
+        max_size=MAX_UPLOAD_SIZE,
+        chunk_size=UPLOAD_CHUNK_SIZE,
+    )
 
 
 @router.post("/analyze", response_model=None)
@@ -154,8 +142,28 @@ async def analyze_uploaded_waste(
             },
         )
 
+    try:
+        analysis_id = await run_in_threadpool(
+            create_analysis_draft,
+            original_image_path=destination,
+            annotated_image_path=result["annotated_image"],
+            detection=result["detection"],
+            report=result["report"],
+        )
+    except (OSError, TypeError, ValueError, sqlite3.Error):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "code": "DRAFT_STORAGE_ERROR",
+                "message": "The analysis draft could not be stored.",
+                "stage": "report_generation",
+            },
+        )
+
     return {
         **result,
+        "analysis_id": analysis_id,
         "original_image": f"/api/waste/uploads/{quote(destination.name)}",
         "annotated_image": annotated_image,
     }
