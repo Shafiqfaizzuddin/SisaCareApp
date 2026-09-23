@@ -81,6 +81,7 @@ export interface WasteAnalysisReport {
 
 export interface WasteAnalysisSuccess {
   success: true
+  analysis_id: string
   original_image: string
   annotated_image: string
   detection: {
@@ -99,3 +100,70 @@ export interface WasteAnalysisFailure {
 }
 
 export type WasteAnalysisResponse = WasteAnalysisSuccess | WasteAnalysisFailure
+
+export interface ReportSubmissionPayload {
+  analysis_id?: string
+  reporter_role: 'guest' | 'user'
+  user_id?: string
+  guest_name?: string
+  guest_email?: string
+  title: string
+  summary: string
+  waste_identified: string
+  recommended_action: string
+  environmental_concern: string
+  category: WasteCategory
+  location: string
+  site_notes: string
+}
+
+export interface ReportSubmissionResult {
+  id: string
+  reference: string
+  status: ReportStatus
+  submitted_at: string
+  original_image: string
+  annotated_image: string
+}
+
+export interface AdminWasteDetection {
+  id: string
+  className: string
+  displayName: string
+  wasteCategory: string
+  material: string
+  confidence: number
+  boundingBox: WasteBoundingBox
+  createdAt: string
+}
+
+export interface AdminReportDetail {
+  id: string
+  reference: string
+  category: WasteCategory
+  location: string
+  siteNotes: string
+  status: ReportStatus
+  validationStatus: ValidationStatus
+  reporterRole: 'guest' | 'user'
+  reporter: string
+  title: string
+  summary: string
+  wasteIdentified: string
+  recommendedAction: string
+  environmentalConcern: string
+  generatedReport: WasteAnalysisReport | null
+  originalImage: string
+  annotatedImage: string
+  createdAt: string
+  updatedAt: string
+  detections: AdminWasteDetection[]
+}
+
+export interface ReportValidationResult {
+  reportId: string
+  validationStatus: Exclude<ValidationStatus, 'pending'>
+  status: ReportStatus
+  rewardAwarded: boolean
+  rewardPoints: number
+}

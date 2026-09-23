@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   BadgeCheck,
+  BrainCircuit,
   CalendarClock,
   CheckCircle2,
   CircleX,
@@ -9,13 +10,23 @@ import {
   MapPin,
   UserRound,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ReportStatus } from '../components/reports/ReportStatus'
 import { reportSummaries } from '../features/admin-reports/report-data'
+import {
+  fetchPersistedReport,
+  validatePersistedReport,
+} from '../features/admin-reports/admin-reports-api'
 import { useRole } from '../features/authentication/useRole'
 import { wasteCategoryOptions } from '../features/reporting/categories'
-import type { ReportStatus as ReportStatusValue } from '../types'
+import type {
+  AdminReportDetail,
+  AdminWasteDetection,
+  ReportStatus as ReportStatusValue,
+  ReportSummary,
+  WasteAnalysisReport,
+} from '../types'
 
 const statusOptions: { value: ReportStatusValue; label: string }[] = [
   { value: 'processing', label: 'Processing' },
@@ -23,23 +34,179 @@ const statusOptions: { value: ReportStatusValue; label: string }[] = [
   { value: 'completed', label: 'Completed' },
 ]
 
+interface DetectionGroup {
+  className: string
+  displayName: string
+  wasteCategory: string
+  material: string
+  detections: AdminWasteDetection[]
+}
+
+function groupDetections(detections: AdminWasteDetection[]): DetectionGroup[] {
+  const groups = new Map<string, DetectionGroup>()
+  detections.forEach((detection) => {
+    const existing = groups.get(detection.className)
+    if (existing) {
+      existing.detections.push(detection)
+      return
+    }
+    groups.set(detection.className, {
+      className: detection.className,
+      displayName: detection.displayName,
+      wasteCategory: detection.wasteCategory,
+      material: detection.material,
+      detections: [detection],
+    })
+  })
+  return [...groups.values()]
+}
+
+function finalReportContent(report: AdminReportDetail): WasteAnalysisReport {
+  return {
+    title: report.title,
+    summary: report.summary,
+    waste_identified: report.wasteIdentified,
+    recommended_action: report.recommendedAction,
+    environmental_concern: report.environmentalConcern,
+  }
+}
+
+function reportsDiffer(
+  generated: WasteAnalysisReport,
+  final: WasteAnalysisReport,
+): boolean {
+  return (Object.keys(generated) as (keyof WasteAnalysisReport)[]).some(
+    (key) => generated[key].trim() !== final[key].trim(),
+  )
+}
+
+function ReportContent({ report }: { report: WasteAnalysisReport }) {
+  return (
+    <dl className="ai-report-content">
+      <div>
+        <dt>Title</dt>
+        <dd>{report.title}</dd>
+      </div>
+      <div>
+        <dt>Summary</dt>
+        <dd>{report.summary}</dd>
+      </div>
+      <div>
+        <dt>Waste identified</dt>
+        <dd>{report.waste_identified}</dd>
+      </div>
+      <div>
+        <dt>Recommended action</dt>
+        <dd>{report.recommended_action}</dd>
+      </div>
+      <div>
+        <dt>Environmental concern</dt>
+        <dd>{report.environmental_concern}</dd>
+      </div>
+    </dl>
+  )
+}
+
+function reportSummaryFromDetail(report: AdminReportDetail): ReportSummary {
+  const maximumConfidence = Math.max(
+    0,
+    ...report.detections.map((detection) => detection.confidence),
+  )
+  return {
+    id: report.id,
+    reference: report.reference,
+    category: report.category,
+    location: report.location,
+    submittedAt: new Intl.DateTimeFormat('en-MY', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(new Date(report.createdAt)),
+    status: report.status,
+    confidence: Math.round(maximumConfidence * 100),
+    description: report.summary,
+    reporter: report.reporter,
+    reporterRole: report.reporterRole,
+    validationStatus: report.validationStatus,
+  }
+}
+
 export function AdminReportDetailPage() {
   const { reportId } = useParams()
   const { rewardMember } = useRole()
-  const report = reportSummaries.find((item) => item.id === reportId)
+  const sampleReport = reportSummaries.find((item) => item.id === reportId)
+  const [persistedReport, setPersistedReport] = useState<AdminReportDetail | null>(null)
+  const [isLoading, setIsLoading] = useState(!sampleReport)
+  const report = sampleReport ?? (
+    persistedReport ? reportSummaryFromDetail(persistedReport) : undefined
+  )
   const [status, setStatus] = useState<ReportStatusValue>(
     report?.status ?? 'processing',
   )
   const [validationStatus, setValidationStatus] = useState(
     report?.validationStatus ?? 'pending',
   )
+  const [isValidating, setIsValidating] = useState(false)
+  const [validationError, setValidationError] = useState('')
 
-  function handleValidation(result: 'valid' | 'invalid') {
-    setValidationStatus(result)
-    setStatus(result === 'valid' ? 'in_progress' : 'completed')
-    if (result === 'valid' && report?.reporterRole === 'user') {
-      rewardMember(40, true)
+  useEffect(() => {
+    if (sampleReport || !reportId) return
+    const controller = new AbortController()
+    setIsLoading(true)
+    fetchPersistedReport(reportId, controller.signal)
+      .then(setPersistedReport)
+      .catch(() => setPersistedReport(null))
+      .finally(() => setIsLoading(false))
+    return () => controller.abort()
+  }, [reportId, sampleReport])
+
+  useEffect(() => {
+    if (!persistedReport) return
+    setStatus(persistedReport.status)
+    setValidationStatus(persistedReport.validationStatus)
+  }, [persistedReport])
+
+  async function handleValidation(result: 'valid' | 'invalid') {
+    if (!report || isValidating || validationStatus !== 'pending') return
+    setValidationError('')
+
+    if (!persistedReport) {
+      setValidationStatus(result)
+      setStatus(result === 'valid' ? 'in_progress' : 'completed')
+      if (result === 'valid' && report.reporterRole === 'user') {
+        rewardMember(`validated-report:${report.id}`, 40, true)
+      }
+      return
     }
+
+    setIsValidating(true)
+    try {
+      const saved = await validatePersistedReport(report.id, result)
+      setValidationStatus(saved.validationStatus)
+      setStatus(saved.status)
+      if (
+        saved.rewardAwarded &&
+        saved.rewardPoints > 0 &&
+        report.reporterRole === 'user'
+      ) {
+        rewardMember(
+          `validated-report:${saved.reportId}`,
+          saved.rewardPoints,
+          true,
+        )
+      }
+    } catch (error) {
+      setValidationError(
+        error instanceof Error
+          ? error.message
+          : 'The validation decision could not be saved.',
+      )
+    } finally {
+      setIsValidating(false)
+    }
+  }
+
+  if (isLoading) {
+    return <p className="empty-state empty-state--page">Loading report details...</p>
   }
 
   if (!report) {
@@ -57,6 +224,15 @@ export function AdminReportDetailPage() {
 
   const category = wasteCategoryOptions.find(
     (option) => option.value === report.category,
+  )
+  const detectionGroups = groupDetections(persistedReport?.detections ?? [])
+  const submittedReport = persistedReport
+    ? finalReportContent(persistedReport)
+    : null
+  const wasEdited = Boolean(
+    persistedReport?.generatedReport &&
+      submittedReport &&
+      reportsDiffer(persistedReport.generatedReport, submittedReport),
   )
 
   return (
@@ -99,19 +275,143 @@ export function AdminReportDetailPage() {
                 <h2>Submitted evidence</h2>
                 <p>Image received with the public report</p>
               </div>
-              <span className="confidence">{report.confidence}% classification confidence</span>
+              <span className="confidence">
+                {report.confidence > 0
+                  ? `${report.confidence}% classification confidence`
+                  : 'No AI classification'}
+              </span>
             </header>
-            <div className="evidence-placeholder">
-              <FileImage size={34} />
-              <strong>Image preview unavailable</strong>
-              <span>Evidence remains attached to this sample report.</span>
-            </div>
+            {persistedReport ? (
+              <div className="evidence-comparison">
+                <figure>
+                  {persistedReport.originalImage ? (
+                    <img
+                      src={persistedReport.originalImage}
+                      alt="Original uploaded waste evidence"
+                    />
+                  ) : (
+                    <div className="evidence-placeholder evidence-placeholder--compact">
+                      <FileImage size={28} />
+                      <strong>Original image unavailable</strong>
+                    </div>
+                  )}
+                  <figcaption>Original upload</figcaption>
+                </figure>
+                <figure>
+                  {persistedReport.annotatedImage ? (
+                    <img
+                      src={persistedReport.annotatedImage}
+                      alt="YOLO annotated waste evidence"
+                    />
+                  ) : (
+                    <div className="evidence-placeholder evidence-placeholder--compact">
+                      <FileImage size={28} />
+                      <strong>No annotated image</strong>
+                    </div>
+                  )}
+                  <figcaption>YOLO annotation</figcaption>
+                </figure>
+              </div>
+            ) : (
+              <div className="evidence-placeholder">
+                <FileImage size={34} />
+                <strong>Image preview unavailable</strong>
+                <span>Evidence remains attached to this sample report.</span>
+              </div>
+            )}
           </section>
 
-          <section className="admin-panel report-description">
-            <h2>Report description</h2>
-            <p>{report.description}</p>
-          </section>
+          {(!persistedReport || !persistedReport.generatedReport) && (
+            <section className="admin-panel report-description">
+              <h2>{persistedReport?.title || 'Report description'}</h2>
+              <p>{report.description}</p>
+            </section>
+          )}
+
+          {persistedReport && persistedReport.detections.length > 0 && (
+            <section className="admin-panel ai-detection-detail">
+              <header className="admin-panel__heading">
+                <div>
+                  <h2>AI detection details</h2>
+                  <p>{persistedReport.detections.length} detected objects</p>
+                </div>
+                <BrainCircuit size={20} />
+              </header>
+              <div className="admin-detection-list">
+                {detectionGroups.map((group) => (
+                  <article key={group.className}>
+                    <header>
+                      <strong>{group.displayName}</strong>
+                      <span>Quantity {group.detections.length}</span>
+                    </header>
+                    <dl>
+                      <div>
+                        <dt>Class</dt>
+                        <dd>{group.className}</dd>
+                      </div>
+                      <div>
+                        <dt>Category</dt>
+                        <dd>{group.wasteCategory}</dd>
+                      </div>
+                      <div>
+                        <dt>Material</dt>
+                        <dd>{group.material}</dd>
+                      </div>
+                      <div>
+                        <dt>Confidence</dt>
+                        <dd>
+                          {group.detections
+                            .map(
+                              (detection) =>
+                                `${Math.round(detection.confidence * 100)}%`,
+                            )
+                            .join(', ')}
+                        </dd>
+                      </div>
+                      <div className="detection-boxes">
+                        <dt>Bounding boxes</dt>
+                        <dd>
+                          {group.detections.map((detection, index) => (
+                            <span key={detection.id}>
+                              #{index + 1}: {detection.boundingBox.x1},{' '}
+                              {detection.boundingBox.y1} to {detection.boundingBox.x2},{' '}
+                              {detection.boundingBox.y2}
+                            </span>
+                          ))}
+                        </dd>
+                      </div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {persistedReport?.generatedReport && (
+            <section className="admin-panel report-description ai-report-detail">
+              <div className="report-content-heading">
+                <div>
+                  <h2>AI-generated draft</h2>
+                  <p>Original report content generated from the saved detections.</p>
+                </div>
+                <BrainCircuit size={20} />
+              </div>
+              <ReportContent report={persistedReport.generatedReport} />
+            </section>
+          )}
+
+          {wasEdited && submittedReport && (
+            <section className="admin-panel report-description ai-report-detail ai-report-detail--final">
+              <div className="report-content-heading">
+                <div>
+                  <h2>Final submitted report</h2>
+                  <p>Content edited by the reporter before submission.</p>
+                </div>
+                <BadgeCheck size={20} />
+              </div>
+              <ReportContent report={submittedReport} />
+            </section>
+          )}
 
           <section className="admin-panel map-panel">
             <div className="map-placeholder" aria-label="Reported location map placeholder">
@@ -150,20 +450,27 @@ export function AdminReportDetailPage() {
                   <button
                     className="button button--primary"
                     type="button"
+                    disabled={isValidating}
                     onClick={() => handleValidation('valid')}
                   >
                     <BadgeCheck size={17} />
-                    Mark as valid
+                    {isValidating ? 'Saving decision' : 'Mark as valid'}
                   </button>
                   <button
                     className="button button--secondary"
                     type="button"
+                    disabled={isValidating}
                     onClick={() => handleValidation('invalid')}
                   >
                     <CircleX size={17} />
                     Reject
                   </button>
                 </div>
+                {validationError && (
+                  <p className="validation-error" role="alert">
+                    {validationError}
+                  </p>
+                )}
               </>
             ) : (
               <div
@@ -220,14 +527,14 @@ export function AdminReportDetailPage() {
                 <span><CheckCircle2 size={15} /></span>
                 <div>
                   <strong>Report received</strong>
-                  <small>8 Aug 2026, 09:42</small>
+                  <small>{report.submittedAt}</small>
                 </div>
               </li>
               <li>
                 <span><CheckCircle2 size={15} /></span>
                 <div>
                   <strong>Evidence classified</strong>
-                  <small>8 Aug 2026, 09:43</small>
+                  <small>{report.submittedAt}</small>
                 </div>
               </li>
               <li className="activity-panel__pending">

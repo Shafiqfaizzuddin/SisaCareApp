@@ -1,6 +1,6 @@
 import { ArrowLeft, Award, LogIn } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Brand } from '../components/common/Brand'
 import { useRole } from '../features/authentication/useRole'
 import {
@@ -10,14 +10,29 @@ import {
 
 export function UserLoginPage() {
   const navigate = useNavigate()
-  const { signInAs } = useRole()
+  const location = useLocation()
+  const { signIn } = useRole()
   const [credentials, setCredentials] =
     useState<AdminCredentials>(emptyAdminCredentials)
+  const [loginError, setLoginError] = useState('')
+  const [isSigningIn, setIsSigningIn] = useState(false)
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    signInAs('user')
-    navigate('/account')
+    if (isSigningIn) return
+    setIsSigningIn(true)
+    setLoginError('')
+    try {
+      await signIn(credentials.email, credentials.password, 'user')
+      const state = location.state as { returnTo?: string } | null
+      navigate(state?.returnTo ?? '/account')
+    } catch (error) {
+      setLoginError(
+        error instanceof Error ? error.message : 'Sign in failed. Please try again.',
+      )
+    } finally {
+      setIsSigningIn(false)
+    }
   }
 
   return (
@@ -56,12 +71,14 @@ export function UserLoginPage() {
                 autoComplete="email"
                 placeholder="name@example.com"
                 value={credentials.email}
-                onChange={(event) =>
+                onChange={(event) => {
+                  setLoginError('')
                   setCredentials((current) => ({
                     ...current,
                     email: event.target.value,
                   }))
-                }
+                }}
+                disabled={isSigningIn}
                 required
               />
             </div>
@@ -76,23 +93,31 @@ export function UserLoginPage() {
                 autoComplete="current-password"
                 placeholder="Enter your password"
                 value={credentials.password}
-                onChange={(event) =>
+                onChange={(event) => {
+                  setLoginError('')
                   setCredentials((current) => ({
                     ...current,
                     password: event.target.value,
                   }))
-                }
+                }}
+                disabled={isSigningIn}
                 required
               />
             </div>
-            <button className="button button--primary button--full" type="submit">
+            {loginError && (
+              <p className="login-error" role="alert">{loginError}</p>
+            )}
+            <button
+              className="button button--primary button--full"
+              type="submit"
+              disabled={isSigningIn}
+            >
               <LogIn size={17} />
-              Sign in
+              {isSigningIn ? 'Signing in' : 'Sign in'}
             </button>
           </form>
           <p className="login-note">
-            New to SisaCare.AI? Account registration will be available with the
-            secure authentication service.
+            New to SisaCare.AI? <Link to="/signup">Create an account</Link>
           </p>
         </div>
       </section>

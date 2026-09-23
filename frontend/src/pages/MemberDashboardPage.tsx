@@ -73,7 +73,7 @@ export function MemberDashboardPage() {
           <div>
             <Crown size={20} />
             <span>Leaderboard rank</span>
-            <strong>#{user.rank}</strong>
+            <strong>{user.rank ? `#${user.rank}` : 'Unranked'}</strong>
           </div>
         </section>
 
@@ -166,7 +166,7 @@ export function MemberDashboardPage() {
               <Crown size={20} />
             </header>
             <div className="leaderboard-preview__rank">
-              <span>#{user.rank}</span>
+              <span>{user.rank ? `#${user.rank}` : 'N/A'}</span>
               <div>
                 <strong>{user.name}</strong>
                 <p>{user.points} points · {user.validReports} valid reports</p>

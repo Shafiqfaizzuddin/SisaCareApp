@@ -39,6 +39,7 @@ function isSuccess(value: unknown): value is WasteAnalysisSuccess {
   return (
     isObject(value) &&
     value.success === true &&
+    typeof value.analysis_id === 'string' &&
     typeof value.annotated_image === 'string' &&
     isObject(value.detection) &&
     typeof value.detection.total_objects === 'number' &&

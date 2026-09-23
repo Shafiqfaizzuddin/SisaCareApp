@@ -19,6 +19,9 @@ export function LeaderboardPage() {
           entry.id === demoMember.id
             ? {
                 ...entry,
+                id: role === 'user' && user ? user.id : entry.id,
+                name: role === 'user' && user ? user.name : entry.name,
+                title: role === 'user' && user ? user.title : entry.title,
                 points: role === 'user' && user ? user.points : entry.points,
                 validReports:
                   role === 'user' && user

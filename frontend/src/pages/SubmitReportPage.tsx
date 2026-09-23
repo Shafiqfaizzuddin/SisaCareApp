@@ -9,6 +9,7 @@ import {
   FileImage,
   Info,
   LoaderCircle,
+  LockKeyhole,
   MapPin,
   ScanLine,
   ShieldCheck,
@@ -22,22 +23,34 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { PageIntro } from '../components/common/PageIntro'
 import { useRole } from '../features/authentication/useRole'
 import { wasteCategoryOptions } from '../features/reporting/categories'
+import {
+  ReportSubmissionRequestError,
+  submitWasteReport,
+} from '../features/reporting/report-submission'
 import {
   analyzeWasteImage,
   WasteAnalysisRequestError,
 } from '../features/reporting/waste-analysis'
 import type {
   WasteAnalysisSuccess,
+  WasteAnalysisReport,
   WasteCategory,
   WasteDetection,
 } from '../types'
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const EMPTY_REPORT: WasteAnalysisReport = {
+  title: '',
+  summary: '',
+  waste_identified: '',
+  recommended_action: '',
+  environmental_concern: '',
+}
 
 interface DetectionGroup {
   className: string
@@ -66,7 +79,7 @@ function groupDetections(analysis: WasteAnalysisSuccess): DetectionGroup[] {
 
 export function SubmitReportPage() {
   const navigate = useNavigate()
-  const { role, user, rewardMember } = useRole()
+  const { role, user } = useRole()
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
   const [analysis, setAnalysis] = useState<WasteAnalysisSuccess | null>(null)
@@ -75,7 +88,13 @@ export function SubmitReportPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [annotatedImageError, setAnnotatedImageError] = useState(false)
   const [category, setCategory] = useState<WasteCategory>('household')
+  const [reportDraft, setReportDraft] = useState<WasteAnalysisReport>(EMPTY_REPORT)
+  const [siteNotes, setSiteNotes] = useState('')
+  const [submissionError, setSubmissionError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const analysisRequest = useRef<AbortController | null>(null)
+  const submissionRequest = useRef<AbortController | null>(null)
+  const canUseAi = role === 'user'
   const hasCurrentAnalysis =
     selectedFile !== null && analysis !== null && analyzedFile === selectedFile
 
@@ -93,9 +112,20 @@ export function SubmitReportPage() {
   useEffect(
     () => () => {
       analysisRequest.current?.abort()
+      submissionRequest.current?.abort()
     },
     [],
   )
+
+  useEffect(() => {
+    if (canUseAi) return
+    analysisRequest.current?.abort()
+    analysisRequest.current = null
+    setIsAnalyzing(false)
+    setAnalysis(null)
+    setAnalyzedFile(null)
+    setReportDraft(EMPTY_REPORT)
+  }, [canUseAi])
 
   function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
     analysisRequest.current?.abort()
@@ -104,6 +134,9 @@ export function SubmitReportPage() {
     setAnalysis(null)
     setAnalyzedFile(null)
     setAnnotatedImageError(false)
+    setReportDraft(EMPTY_REPORT)
+    setSiteNotes('')
+    setSubmissionError('')
 
     const file = event.target.files?.[0] ?? null
     if (!file) {
@@ -129,6 +162,10 @@ export function SubmitReportPage() {
   }
 
   async function handleAnalyze() {
+    if (!canUseAi) {
+      navigate('/login', { state: { returnTo: '/report' } })
+      return
+    }
     if (analysisRequest.current || isAnalyzing) {
       return
     }
@@ -144,12 +181,15 @@ export function SubmitReportPage() {
     setAnalysis(null)
     setAnalyzedFile(null)
     setAnnotatedImageError(false)
+    setReportDraft(EMPTY_REPORT)
+    setSubmissionError('')
 
     try {
       const result = await analyzeWasteImage(selectedFile, controller.signal)
       if (!controller.signal.aborted) {
         setAnalysis(result)
         setAnalyzedFile(selectedFile)
+        setReportDraft(result.report)
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -168,24 +208,80 @@ export function SubmitReportPage() {
     }
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (isAnalyzing) {
+    if (isAnalyzing || submissionRequest.current || isSubmitting) {
       return
     }
-    if (!hasCurrentAnalysis) {
+    if (!selectedFile) {
+      setSubmissionError('Choose a waste photo before submitting the report.')
+      return
+    }
+    if (canUseAi && (!hasCurrentAnalysis || !analysis)) {
       setAnalysisError('Analyze the selected image before submitting the report.')
       return
     }
-    if (role === 'user') {
-      rewardMember(10)
+
+    const formData = new FormData(event.currentTarget)
+    const controller = new AbortController()
+    submissionRequest.current = controller
+    setIsSubmitting(true)
+    setSubmissionError('')
+
+    try {
+      const selectedCategory = wasteCategoryOptions.find(
+        (option) => option.value === category,
+      )
+      const result = await submitWasteReport(
+        {
+          analysis_id: canUseAi ? analysis?.analysis_id : undefined,
+          reporter_role: canUseAi ? 'user' : 'guest',
+          user_id: canUseAi ? user?.id : undefined,
+          guest_name:
+            canUseAi ? undefined : String(formData.get('reporterName') ?? ''),
+          guest_email:
+            canUseAi ? undefined : String(formData.get('reporterEmail') ?? ''),
+          title: canUseAi
+            ? reportDraft.title
+            : `${selectedCategory?.label ?? 'Community waste'} report`,
+          summary: canUseAi ? reportDraft.summary : siteNotes,
+          waste_identified: canUseAi ? reportDraft.waste_identified : '',
+          recommended_action: canUseAi ? reportDraft.recommended_action : '',
+          environmental_concern: canUseAi
+            ? reportDraft.environmental_concern
+            : '',
+          category,
+          location: String(formData.get('location') ?? ''),
+          site_notes: canUseAi ? siteNotes : '',
+        },
+        controller.signal,
+        canUseAi ? undefined : selectedFile,
+      )
+      if (controller.signal.aborted) {
+        return
+      }
+      navigate('/report/success', {
+        state: {
+          reference: result.reference,
+          submittedAt: result.submitted_at,
+          isMember: role === 'user',
+        },
+      })
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return
+      }
+      setSubmissionError(
+        error instanceof ReportSubmissionRequestError
+          ? error.message
+          : 'The report could not be submitted. Please try again.',
+      )
+    } finally {
+      if (submissionRequest.current === controller) {
+        submissionRequest.current = null
+        setIsSubmitting(false)
+      }
     }
-    navigate('/report/success', {
-      state: {
-        reference: 'SCA-1051',
-        isMember: role === 'user',
-      },
-    })
   }
 
   return (
@@ -264,6 +360,7 @@ export function SubmitReportPage() {
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
                   required
+                  disabled={isSubmitting}
                   onChange={handleImageChange}
                 />
                 <span className="upload-field__icon">
@@ -304,19 +401,30 @@ export function SubmitReportPage() {
               </div>
 
               <div className="analysis-controls">
-                <button
-                  className="button button--primary"
-                  type="button"
-                  disabled={!selectedFile || isAnalyzing}
-                  onClick={handleAnalyze}
-                >
-                  {isAnalyzing ? (
-                    <LoaderCircle className="spin" size={18} />
-                  ) : (
-                    <ScanLine size={18} />
-                  )}
-                  {isAnalyzing ? 'Analysis in progress' : 'Analyze Waste'}
-                </button>
+                {canUseAi ? (
+                  <button
+                    className="button button--primary"
+                    type="button"
+                    disabled={!selectedFile || isAnalyzing || isSubmitting}
+                    onClick={handleAnalyze}
+                  >
+                    {isAnalyzing ? (
+                      <LoaderCircle className="spin" size={18} />
+                    ) : (
+                      <ScanLine size={18} />
+                    )}
+                    {isAnalyzing ? 'Analysis in progress' : 'Analyze Waste'}
+                  </button>
+                ) : (
+                  <Link
+                    className="button button--secondary"
+                    to="/login"
+                    state={{ returnTo: '/report' }}
+                  >
+                    <LockKeyhole size={18} />
+                    Sign in to analyze waste
+                  </Link>
+                )}
                 {hasCurrentAnalysis && (
                   <span className="analysis-complete">
                     <CheckCircle2 size={17} /> Analysis complete
@@ -426,24 +534,90 @@ export function SubmitReportPage() {
                       <BrainCircuit size={20} />
                       <div>
                         <span>AI-generated report</span>
-                        <h3>{analysis.report.title}</h3>
+                        <h3>Review report details</h3>
                       </div>
                     </div>
-                    <p className="ai-report__summary">{analysis.report.summary}</p>
-                    <dl>
-                      <div>
-                        <dt>Waste identified</dt>
-                        <dd>{analysis.report.waste_identified}</dd>
+                    <div className="ai-report__editor">
+                      <div className="field ai-report__field--wide">
+                        <label htmlFor="report-title">Title</label>
+                        <input
+                          id="report-title"
+                          value={reportDraft.title}
+                          maxLength={180}
+                          required
+                          onChange={(event) =>
+                            setReportDraft((current) => ({
+                              ...current,
+                              title: event.target.value,
+                            }))
+                          }
+                        />
                       </div>
-                      <div>
-                        <dt>Recommended action</dt>
-                        <dd>{analysis.report.recommended_action}</dd>
+                      <div className="field ai-report__field--wide">
+                        <label htmlFor="report-summary">Summary</label>
+                        <textarea
+                          id="report-summary"
+                          value={reportDraft.summary}
+                          rows={4}
+                          maxLength={4000}
+                          required
+                          onChange={(event) =>
+                            setReportDraft((current) => ({
+                              ...current,
+                              summary: event.target.value,
+                            }))
+                          }
+                        />
                       </div>
-                      <div>
-                        <dt>Environmental concern</dt>
-                        <dd>{analysis.report.environmental_concern}</dd>
+                      <div className="field">
+                        <label htmlFor="waste-identified">Waste identified</label>
+                        <textarea
+                          id="waste-identified"
+                          value={reportDraft.waste_identified}
+                          rows={4}
+                          maxLength={2000}
+                          required
+                          onChange={(event) =>
+                            setReportDraft((current) => ({
+                              ...current,
+                              waste_identified: event.target.value,
+                            }))
+                          }
+                        />
                       </div>
-                    </dl>
+                      <div className="field">
+                        <label htmlFor="recommended-action">Recommended action</label>
+                        <textarea
+                          id="recommended-action"
+                          value={reportDraft.recommended_action}
+                          rows={4}
+                          maxLength={2000}
+                          required
+                          onChange={(event) =>
+                            setReportDraft((current) => ({
+                              ...current,
+                              recommended_action: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="environmental-concern">Environmental concern</label>
+                        <textarea
+                          id="environmental-concern"
+                          value={reportDraft.environmental_concern}
+                          rows={4}
+                          maxLength={2000}
+                          required
+                          onChange={(event) =>
+                            setReportDraft((current) => ({
+                              ...current,
+                              environmental_concern: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    </div>
                   </section>
                 </div>
               )}
@@ -470,13 +644,17 @@ export function SubmitReportPage() {
                 </div>
               </div>
               <div className="field">
-                <label htmlFor="description">What can you see?</label>
+                <label htmlFor="description">
+                  {canUseAi ? 'Additional site notes' : 'What can you see?'}
+                </label>
                 <textarea
                   id="description"
                   name="description"
                   rows={4}
+                  value={siteNotes}
                   placeholder="Describe the amount of waste, nearby hazards, or anything blocking access."
-                  required
+                  required={!canUseAi}
+                  onChange={(event) => setSiteNotes(event.target.value)}
                 />
                 <span className="field__hint">Do not include sensitive personal information.</span>
               </div>
@@ -524,6 +702,15 @@ export function SubmitReportPage() {
             </section>
 
             <div className="form-actions">
+              {submissionError && (
+                <div className="analysis-error form-actions__error" role="alert">
+                  <AlertCircle size={19} />
+                  <div>
+                    <strong>Report not submitted</strong>
+                    <p>{submissionError}</p>
+                  </div>
+                </div>
+              )}
               <p>
                 <ShieldCheck size={17} />
                 Your report is shared only with authorised response teams.
@@ -531,10 +718,19 @@ export function SubmitReportPage() {
               <button
                 className="button button--primary"
                 type="submit"
-                disabled={isAnalyzing || !hasCurrentAnalysis}
+                disabled={
+                  isAnalyzing ||
+                  isSubmitting ||
+                  !selectedFile ||
+                  (canUseAi && !hasCurrentAnalysis)
+                }
               >
-                {role === 'user' ? 'Submit and earn points' : 'Submit report'}
-                <Check size={17} />
+                {isSubmitting ? 'Submitting report' : 'Submit report'}
+                {isSubmitting ? (
+                  <LoaderCircle className="spin" size={17} />
+                ) : (
+                  <Check size={17} />
+                )}
               </button>
             </div>
           </form>
@@ -565,10 +761,10 @@ export function SubmitReportPage() {
               <div className="guidance-block guidance-block--reward">
                 <Award size={21} />
                 <div>
-                  <h2>Member reward</h2>
+                  <h2>Rewards after verification</h2>
                   <p>
-                    Earn 10 points when received and up to 40 bonus points after
-                    an administrator confirms the report is valid.
+                    Points are awarded only after an administrator confirms the
+                    submitted report is valid. AI analysis does not award points.
                   </p>
                 </div>
               </div>

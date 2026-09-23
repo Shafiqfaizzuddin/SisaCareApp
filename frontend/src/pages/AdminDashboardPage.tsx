@@ -6,11 +6,12 @@ import {
   Search,
   TriangleAlert,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MetricCard } from '../components/admin/MetricCard'
 import { ReportStatus } from '../components/reports/ReportStatus'
 import { reportSummaries } from '../features/admin-reports/report-data'
+import { fetchPersistedReports } from '../features/admin-reports/admin-reports-api'
 import { wasteCategoryOptions } from '../features/reporting/categories'
 import type { ReportStatus as ReportStatusValue, WasteCategory } from '../types'
 
@@ -23,11 +24,28 @@ type StatusFilter = 'all' | ReportStatusValue
 export function AdminDashboardPage() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
+  const [persistedReports, setPersistedReports] = useState<typeof reportSummaries>([])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchPersistedReports(controller.signal)
+      .then(setPersistedReports)
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [])
+
+  const availableReports = useMemo(() => {
+    const persistedIds = new Set(persistedReports.map((report) => report.id))
+    return [
+      ...persistedReports,
+      ...reportSummaries.filter((report) => !persistedIds.has(report.id)),
+    ]
+  }, [persistedReports])
 
   const filteredReports = useMemo(() => {
     const query = search.trim().toLowerCase()
 
-    return reportSummaries.filter((report) => {
+    return availableReports.filter((report) => {
       const matchesSearch =
         !query ||
         report.reference.toLowerCase().includes(query) ||
@@ -36,7 +54,7 @@ export function AdminDashboardPage() {
 
       return matchesSearch && matchesStatus
     })
-  }, [search, status])
+  }, [availableReports, search, status])
 
   function downloadCsv() {
     const header = ['Reference', 'Category', 'Location', 'Submitted', 'Status']

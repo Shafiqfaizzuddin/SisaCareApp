@@ -13,9 +13,16 @@ export function ReportSuccessPage() {
   const location = useLocation()
   const state = location.state as {
     reference?: string
+    submittedAt?: string
     isMember?: boolean
   } | null
   const reference = state?.reference ?? 'SCA-1051'
+  const submittedAt = state?.submittedAt
+    ? new Intl.DateTimeFormat('en-MY', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(new Date(state.submittedAt))
+    : 'Submission time unavailable'
 
   return (
     <section className="section success-page">
@@ -33,17 +40,17 @@ export function ReportSuccessPage() {
         <div className="reference-panel">
           <span>Report reference</span>
           <strong>{reference}</strong>
-          <small>Submitted 8 Aug 2026 at 20:54</small>
+          <small>Submitted {submittedAt}</small>
         </div>
 
         {state?.isMember ? (
           <div className="reward-confirmation">
             <span><Award size={21} /></span>
             <div>
-              <strong>10 points added</strong>
+              <strong>Reward pending verification</strong>
               <p>
-                You can earn another 40 points when an administrator validates
-                this report.
+                No points have been awarded yet. A reward is issued only if an
+                administrator validates this report.
               </p>
             </div>
             <Trophy size={20} />
@@ -55,7 +62,7 @@ export function ReportSuccessPage() {
               <strong>Earn rewards on future reports</strong>
               <p>Registered members collect points, achievements, and community titles.</p>
             </div>
-            <Link to="/login">Create an account</Link>
+            <Link to="/signup">Create an account</Link>
           </div>
         )}
 

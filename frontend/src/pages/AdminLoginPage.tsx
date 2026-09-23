@@ -10,14 +10,27 @@ import {
 
 export function AdminLoginPage() {
   const navigate = useNavigate()
-  const { signInAs } = useRole()
+  const { signIn } = useRole()
   const [credentials, setCredentials] =
     useState<AdminCredentials>(emptyAdminCredentials)
+  const [loginError, setLoginError] = useState('')
+  const [isSigningIn, setIsSigningIn] = useState(false)
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    signInAs('admin')
-    navigate('/admin')
+    if (isSigningIn) return
+    setIsSigningIn(true)
+    setLoginError('')
+    try {
+      await signIn(credentials.email, credentials.password, 'admin')
+      navigate('/admin')
+    } catch (error) {
+      setLoginError(
+        error instanceof Error ? error.message : 'Sign in failed. Please try again.',
+      )
+    } finally {
+      setIsSigningIn(false)
+    }
   }
 
   return (
@@ -60,12 +73,14 @@ export function AdminLoginPage() {
                 autoComplete="email"
                 placeholder="name@council.gov.my"
                 value={credentials.email}
-                onChange={(event) =>
+                onChange={(event) => {
+                  setLoginError('')
                   setCredentials((current) => ({
                     ...current,
                     email: event.target.value,
                   }))
-                }
+                }}
+                disabled={isSigningIn}
                 required
               />
             </div>
@@ -80,17 +95,26 @@ export function AdminLoginPage() {
                 autoComplete="current-password"
                 placeholder="Enter your password"
                 value={credentials.password}
-                onChange={(event) =>
+                onChange={(event) => {
+                  setLoginError('')
                   setCredentials((current) => ({
                     ...current,
                     password: event.target.value,
                   }))
-                }
+                }}
+                disabled={isSigningIn}
                 required
               />
             </div>
-            <button className="button button--primary button--full" type="submit">
-              Sign in
+            {loginError && (
+              <p className="login-error" role="alert">{loginError}</p>
+            )}
+            <button
+              className="button button--primary button--full"
+              type="submit"
+              disabled={isSigningIn}
+            >
+              {isSigningIn ? 'Signing in' : 'Sign in'}
             </button>
           </form>
           <p className="login-note">

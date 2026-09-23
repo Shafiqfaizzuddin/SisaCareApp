@@ -12,6 +12,7 @@ import { MemberDashboardPage } from '../pages/MemberDashboardPage'
 import { ReportSuccessPage } from '../pages/ReportSuccessPage'
 import { SubmitReportPage } from '../pages/SubmitReportPage'
 import { UserLoginPage } from '../pages/UserLoginPage'
+import { UserSignupPage } from '../pages/UserSignupPage'
 
 export const router = createBrowserRouter([
   {
@@ -35,6 +36,10 @@ export const router = createBrowserRouter([
   {
     path: 'login',
     element: <UserLoginPage />,
+  },
+  {
+    path: 'signup',
+    element: <UserSignupPage />,
   },
   {
     path: 'admin/login',
