@@ -51,3 +51,51 @@ export interface ReportSummary {
   reporterRole: 'guest' | 'user'
   validationStatus: ValidationStatus
 }
+
+export interface WasteBoundingBox {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
+export interface WasteDetection {
+  class_name: string
+  class_id: number
+  confidence: number
+  bounding_box: WasteBoundingBox
+  display_name: string
+  waste_category: string
+  material: string
+  recyclable: boolean
+  recommended_handling: string
+}
+
+export interface WasteAnalysisReport {
+  title: string
+  summary: string
+  waste_identified: string
+  recommended_action: string
+  environmental_concern: string
+}
+
+export interface WasteAnalysisSuccess {
+  success: true
+  original_image: string
+  annotated_image: string
+  detection: {
+    total_objects: number
+    counts: Record<string, number>
+    detections: WasteDetection[]
+  }
+  report: WasteAnalysisReport
+}
+
+export interface WasteAnalysisFailure {
+  success: false
+  code: string
+  message: string
+  stage?: 'detection' | 'report_generation'
+}
+
+export type WasteAnalysisResponse = WasteAnalysisSuccess | WasteAnalysisFailure

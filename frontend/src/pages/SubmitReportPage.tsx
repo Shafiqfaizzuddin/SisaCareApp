@@ -1,29 +1,182 @@
 import {
+  AlertCircle,
   AlertTriangle,
   Award,
+  BrainCircuit,
   Camera,
   Check,
+  CheckCircle2,
   FileImage,
   Info,
+  LoaderCircle,
   MapPin,
+  ScanLine,
   ShieldCheck,
+  Upload,
   UserRound,
 } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PageIntro } from '../components/common/PageIntro'
 import { useRole } from '../features/authentication/useRole'
 import { wasteCategoryOptions } from '../features/reporting/categories'
-import type { WasteCategory } from '../types'
+import {
+  analyzeWasteImage,
+  WasteAnalysisRequestError,
+} from '../features/reporting/waste-analysis'
+import type {
+  WasteAnalysisSuccess,
+  WasteCategory,
+  WasteDetection,
+} from '../types'
+
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+
+interface DetectionGroup {
+  className: string
+  displayName: string
+  category: string
+  count: number
+  detections: WasteDetection[]
+}
+
+function groupDetections(analysis: WasteAnalysisSuccess): DetectionGroup[] {
+  return Object.entries(analysis.detection.counts).map(([className, count]) => {
+    const detections = analysis.detection.detections.filter(
+      (detection) => detection.class_name === className,
+    )
+    const firstDetection = detections[0]
+
+    return {
+      className,
+      displayName: firstDetection?.display_name ?? className.replaceAll('_', ' '),
+      category: firstDetection?.waste_category ?? 'Uncategorized Waste',
+      count,
+      detections,
+    }
+  })
+}
 
 export function SubmitReportPage() {
   const navigate = useNavigate()
   const { role, user, rewardMember } = useRole()
-  const [selectedFile, setSelectedFile] = useState('')
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [analysis, setAnalysis] = useState<WasteAnalysisSuccess | null>(null)
+  const [analyzedFile, setAnalyzedFile] = useState<File | null>(null)
+  const [analysisError, setAnalysisError] = useState('')
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [annotatedImageError, setAnnotatedImageError] = useState(false)
   const [category, setCategory] = useState<WasteCategory>('household')
+  const analysisRequest = useRef<AbortController | null>(null)
+  const hasCurrentAnalysis =
+    selectedFile !== null && analysis !== null && analyzedFile === selectedFile
+
+  useEffect(() => {
+    if (!selectedFile) {
+      setPreviewUrl('')
+      return
+    }
+
+    const objectUrl = URL.createObjectURL(selectedFile)
+    setPreviewUrl(objectUrl)
+    return () => URL.revokeObjectURL(objectUrl)
+  }, [selectedFile])
+
+  useEffect(
+    () => () => {
+      analysisRequest.current?.abort()
+    },
+    [],
+  )
+
+  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
+    analysisRequest.current?.abort()
+    analysisRequest.current = null
+    setIsAnalyzing(false)
+    setAnalysis(null)
+    setAnalyzedFile(null)
+    setAnnotatedImageError(false)
+
+    const file = event.target.files?.[0] ?? null
+    if (!file) {
+      setSelectedFile(null)
+      setAnalysisError('')
+      return
+    }
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      event.target.value = ''
+      setSelectedFile(null)
+      setAnalysisError('Choose a JPG, PNG, or WEBP image.')
+      return
+    }
+    if (file.size > MAX_IMAGE_SIZE) {
+      event.target.value = ''
+      setSelectedFile(null)
+      setAnalysisError('Choose an image smaller than 10 MB.')
+      return
+    }
+
+    setSelectedFile(file)
+    setAnalysisError('')
+  }
+
+  async function handleAnalyze() {
+    if (analysisRequest.current || isAnalyzing) {
+      return
+    }
+    if (!selectedFile) {
+      setAnalysisError('Choose a waste photo before starting analysis.')
+      return
+    }
+
+    const controller = new AbortController()
+    analysisRequest.current = controller
+    setIsAnalyzing(true)
+    setAnalysisError('')
+    setAnalysis(null)
+    setAnalyzedFile(null)
+    setAnnotatedImageError(false)
+
+    try {
+      const result = await analyzeWasteImage(selectedFile, controller.signal)
+      if (!controller.signal.aborted) {
+        setAnalysis(result)
+        setAnalyzedFile(selectedFile)
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return
+      }
+      const message =
+        error instanceof WasteAnalysisRequestError
+          ? error.message
+          : 'Waste analysis failed unexpectedly. Please try again.'
+      setAnalysisError(message)
+    } finally {
+      if (analysisRequest.current === controller) {
+        analysisRequest.current = null
+        setIsAnalyzing(false)
+      }
+    }
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (isAnalyzing) {
+      return
+    }
+    if (!hasCurrentAnalysis) {
+      setAnalysisError('Analyze the selected image before submitting the report.')
+      return
+    }
     if (role === 'user') {
       rewardMember(10)
     }
@@ -111,25 +264,194 @@ export function SubmitReportPage() {
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
                   required
-                  onChange={(event) =>
-                    setSelectedFile(event.target.files?.[0]?.name ?? '')
-                  }
+                  onChange={handleImageChange}
                 />
                 <span className="upload-field__icon">
                   {selectedFile ? <FileImage size={25} /> : <Camera size={25} />}
                 </span>
-                <strong>{selectedFile || 'Choose a waste photo'}</strong>
+                <strong>{selectedFile?.name || 'Choose a waste photo'}</strong>
                 <span>
                   {selectedFile
                     ? 'Photo selected. Choose another file to replace it.'
                     : 'JPG, PNG, or WEBP up to 10 MB'}
                 </span>
               </label>
+              {previewUrl && (
+                <figure className="upload-preview">
+                  <img src={previewUrl} alt="Selected waste" />
+                  <figcaption>
+                    <FileImage size={16} />
+                    <span>
+                      <strong>{selectedFile?.name}</strong>
+                      <small>
+                        {selectedFile
+                          ? `${(selectedFile.size / 1024 / 1024).toFixed(2)} MB`
+                          : ''}
+                      </small>
+                    </span>
+                  </figcaption>
+                </figure>
+              )}
             </section>
 
             <section className="form-section">
               <div className="form-section__heading">
                 <span>2</span>
+                <div>
+                  <h2>Analyze the waste</h2>
+                  <p>Review detected items before completing the report.</p>
+                </div>
+              </div>
+
+              <div className="analysis-controls">
+                <button
+                  className="button button--primary"
+                  type="button"
+                  disabled={!selectedFile || isAnalyzing}
+                  onClick={handleAnalyze}
+                >
+                  {isAnalyzing ? (
+                    <LoaderCircle className="spin" size={18} />
+                  ) : (
+                    <ScanLine size={18} />
+                  )}
+                  {isAnalyzing ? 'Analysis in progress' : 'Analyze Waste'}
+                </button>
+                {hasCurrentAnalysis && (
+                  <span className="analysis-complete">
+                    <CheckCircle2 size={17} /> Analysis complete
+                  </span>
+                )}
+              </div>
+
+              {isAnalyzing && (
+                <div
+                  className="analysis-processing"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="analysis-processing__heading">
+                    <LoaderCircle className="spin" size={20} />
+                    <div>
+                      <strong>Analyzing your image</strong>
+                      <p>This may take a moment.</p>
+                    </div>
+                  </div>
+                  <ol className="analysis-processing__steps">
+                    <li>
+                      <span><Upload size={17} /></span>
+                      <strong>Uploading image</strong>
+                    </li>
+                    <li>
+                      <span><ScanLine size={17} /></span>
+                      <strong>Detecting waste</strong>
+                    </li>
+                    <li>
+                      <span><BrainCircuit size={17} /></span>
+                      <strong>Generating report</strong>
+                    </li>
+                  </ol>
+                </div>
+              )}
+
+              {analysisError && (
+                <div className="analysis-error" role="alert">
+                  <AlertCircle size={19} />
+                  <div>
+                    <strong>Analysis could not be completed</strong>
+                    <p>{analysisError}</p>
+                  </div>
+                </div>
+              )}
+
+              {hasCurrentAnalysis && analysis && (
+                <div className="analysis-results" aria-live="polite">
+                  <div className="analysis-results__grid">
+                    <figure className="annotated-image">
+                      {!annotatedImageError ? (
+                        <img
+                          src={analysis.annotated_image}
+                          alt="Waste image with detected objects outlined"
+                          onError={() => setAnnotatedImageError(true)}
+                        />
+                      ) : (
+                        <div className="annotated-image__error">
+                          <FileImage size={27} />
+                          <span>Annotated image unavailable</span>
+                        </div>
+                      )}
+                      <figcaption>Annotated detection</figcaption>
+                    </figure>
+
+                    <div className="detection-panel">
+                      <div className="detection-panel__heading">
+                        <div>
+                          <span>Detected waste</span>
+                          <strong>
+                            {analysis.detection.total_objects}{' '}
+                            {analysis.detection.total_objects === 1
+                              ? 'object'
+                              : 'objects'}
+                          </strong>
+                        </div>
+                      </div>
+
+                      <div className="detection-list">
+                        {groupDetections(analysis).map((group) => (
+                          <article className="detection-item" key={group.className}>
+                            <div className="detection-item__title">
+                              <strong>{group.displayName}</strong>
+                              <span>Quantity {group.count}</span>
+                            </div>
+                            <p>{group.category}</p>
+                            <div className="detection-confidence">
+                              <span>Confidence</span>
+                              <strong>
+                                {group.detections
+                                  .map(
+                                    (detection) =>
+                                      `${Math.round(detection.confidence * 100)}%`,
+                                  )
+                                  .join(', ')}
+                              </strong>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <section className="ai-report">
+                    <div className="ai-report__heading">
+                      <BrainCircuit size={20} />
+                      <div>
+                        <span>AI-generated report</span>
+                        <h3>{analysis.report.title}</h3>
+                      </div>
+                    </div>
+                    <p className="ai-report__summary">{analysis.report.summary}</p>
+                    <dl>
+                      <div>
+                        <dt>Waste identified</dt>
+                        <dd>{analysis.report.waste_identified}</dd>
+                      </div>
+                      <div>
+                        <dt>Recommended action</dt>
+                        <dd>{analysis.report.recommended_action}</dd>
+                      </div>
+                      <div>
+                        <dt>Environmental concern</dt>
+                        <dd>{analysis.report.environmental_concern}</dd>
+                      </div>
+                    </dl>
+                  </section>
+                </div>
+              )}
+            </section>
+
+            <section className="form-section">
+              <div className="form-section__heading">
+                <span>3</span>
                 <div>
                   <h2>Describe the location</h2>
                   <p>Add enough detail for a response team to find the site.</p>
@@ -162,7 +484,7 @@ export function SubmitReportPage() {
 
             <section className="form-section">
               <div className="form-section__heading">
-                <span>3</span>
+                <span>4</span>
                 <div>
                   <h2>Choose a waste category</h2>
                   <p>Select the closest match. The report can be reviewed later.</p>
@@ -206,7 +528,11 @@ export function SubmitReportPage() {
                 <ShieldCheck size={17} />
                 Your report is shared only with authorised response teams.
               </p>
-              <button className="button button--primary" type="submit">
+              <button
+                className="button button--primary"
+                type="submit"
+                disabled={isAnalyzing || !hasCurrentAnalysis}
+              >
                 {role === 'user' ? 'Submit and earn points' : 'Submit report'}
                 <Check size={17} />
               </button>

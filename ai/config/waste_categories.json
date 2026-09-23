@@ -1,0 +1,72 @@
+{
+  "plastic_bottle": {
+    "display_name": "Plastic Bottle",
+    "waste_category": "Recyclable Waste",
+    "material": "Plastic",
+    "recyclable": true,
+    "recommended_handling": "Empty, rinse, and place in an appropriate plastic recycling stream."
+  },
+  "plastic_bag": {
+    "display_name": "Plastic Bag",
+    "waste_category": "Plastic Waste",
+    "material": "Soft Plastic",
+    "recyclable": true,
+    "recommended_handling": "Keep separate and use a designated soft-plastic collection point where available."
+  },
+  "metal_can": {
+    "display_name": "Metal Can",
+    "waste_category": "Recyclable Waste",
+    "material": "Metal",
+    "recyclable": true,
+    "recommended_handling": "Empty, rinse, and place in an appropriate metal recycling stream."
+  },
+  "cardboard": {
+    "display_name": "Cardboard",
+    "waste_category": "Recyclable Waste",
+    "material": "Paper and Cardboard",
+    "recyclable": true,
+    "recommended_handling": "Keep clean and dry, flatten, and place in a paper recycling stream."
+  },
+  "paper": {
+    "display_name": "Paper",
+    "waste_category": "Recyclable Waste",
+    "material": "Paper",
+    "recyclable": true,
+    "recommended_handling": "Keep clean and dry and place in an appropriate paper recycling stream."
+  },
+  "glass": {
+    "display_name": "Glass",
+    "waste_category": "Recyclable Waste",
+    "material": "Glass",
+    "recyclable": true,
+    "recommended_handling": "Separate carefully and place in a designated glass recycling container."
+  },
+  "food_waste": {
+    "display_name": "Food Waste",
+    "waste_category": "Organic Waste",
+    "material": "Organic Material",
+    "recyclable": false,
+    "recommended_handling": "Keep separate from recyclables and use composting or an organic-waste stream where available."
+  },
+  "general_waste": {
+    "display_name": "General Waste",
+    "waste_category": "General Waste",
+    "material": "Mixed or Unknown Material",
+    "recyclable": false,
+    "recommended_handling": "Bag securely and place in the appropriate general-waste collection stream."
+  },
+  "construction_debris": {
+    "display_name": "Construction Debris",
+    "waste_category": "Construction Waste",
+    "material": "Mixed Construction Material",
+    "recyclable": false,
+    "recommended_handling": "Keep separate from household waste and arrange collection by an authorised construction-waste handler."
+  },
+  "electronic_waste": {
+    "display_name": "Electronic Waste",
+    "waste_category": "Electronic Waste",
+    "material": "Mixed Electronic Components",
+    "recyclable": true,
+    "recommended_handling": "Keep dry and intact and deliver to an authorised electronic-waste collection facility."
+  }
+}

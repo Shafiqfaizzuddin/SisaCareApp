@@ -1,0 +1,4 @@
+tmp/uploads/*
+!tmp/uploads/.gitkeep
+tmp/annotated/*
+!tmp/annotated/.gitkeep
