@@ -165,6 +165,18 @@ export function AdminReportDetailPage() {
     setValidationStatus(persistedReport.validationStatus)
   }, [persistedReport])
 
+  useEffect(
+    () => () => {
+      if (persistedReport?.originalImage.startsWith('blob:')) {
+        URL.revokeObjectURL(persistedReport.originalImage)
+      }
+      if (persistedReport?.annotatedImage.startsWith('blob:')) {
+        URL.revokeObjectURL(persistedReport.annotatedImage)
+      }
+    },
+    [persistedReport],
+  )
+
   async function handleValidation(result: 'valid' | 'invalid') {
     if (!report || isValidating || validationStatus !== 'pending') return
     setValidationError('')

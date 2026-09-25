@@ -9,6 +9,7 @@ import type {
   WasteCategory,
 } from '../../types'
 import { REPORT_SUBMISSION_URL } from '../reporting/report-submission'
+import { authenticatedFetch } from '../authentication/authenticated-fetch'
 
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -115,7 +116,7 @@ function mapGeneratedReport(value: unknown): WasteAnalysisReport | null {
 export async function fetchPersistedReports(
   signal?: AbortSignal,
 ): Promise<ReportSummary[]> {
-  const response = await fetch(REPORT_SUBMISSION_URL, { signal })
+  const response = await authenticatedFetch(REPORT_SUBMISSION_URL, { signal })
   if (!response.ok) return []
   const value: unknown = await response.json()
   return Array.isArray(value)
@@ -127,9 +128,10 @@ export async function fetchPersistedReport(
   reportId: string,
   signal?: AbortSignal,
 ): Promise<AdminReportDetail | null> {
-  const response = await fetch(`${REPORT_SUBMISSION_URL}/${encodeURIComponent(reportId)}`, {
-    signal,
-  })
+  const response = await authenticatedFetch(
+    `${REPORT_SUBMISSION_URL}/${encodeURIComponent(reportId)}`,
+    { signal },
+  )
   if (response.status === 404) return null
   if (!response.ok) throw new Error('Report details are unavailable.')
   const value: unknown = await response.json()
@@ -143,7 +145,7 @@ export async function fetchPersistedReport(
   })
   if (!summary) return null
 
-  return {
+  const report: AdminReportDetail = {
     ...summary,
     siteNotes: typeof value.site_notes === 'string' ? value.site_notes : '',
     title: typeof value.title === 'string' ? value.title : '',
@@ -167,13 +169,26 @@ export async function fetchPersistedReport(
       .map(mapDetection)
       .filter((item): item is AdminWasteDetection => item !== null),
   }
+
+  const protectedImageUrl = async (url: string): Promise<string> => {
+    if (!url) return ''
+    const imageResponse = await authenticatedFetch(url, { signal })
+    if (!imageResponse.ok) return ''
+    const blob = await imageResponse.blob()
+    return blob.type.startsWith('image/') ? URL.createObjectURL(blob) : ''
+  }
+  const [originalImage, annotatedImage] = await Promise.all([
+    protectedImageUrl(report.originalImage),
+    protectedImageUrl(report.annotatedImage),
+  ])
+  return { ...report, originalImage, annotatedImage }
 }
 
 export async function validatePersistedReport(
   reportId: string,
   validationStatus: 'valid' | 'invalid',
 ): Promise<ReportValidationResult> {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${REPORT_SUBMISSION_URL}/${encodeURIComponent(reportId)}/validation`,
     {
       method: 'POST',

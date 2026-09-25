@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -60,9 +61,11 @@ def assert_failure_has_no_detection_data(result: object) -> None:
 
 
 def test_valid_image_with_waste_returns_enriched_success(
+    caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    caplog.set_level(logging.INFO)
     image_path = create_valid_image(tmp_path)
     annotated_path = tmp_path / "annotated.jpg"
     model = FakeModel(
@@ -112,6 +115,9 @@ def test_valid_image_with_waste_returns_enriched_success(
             "verbose": False,
         }
     ]
+    assert "yolo_inference_completed" in caplog.text
+    assert "detection_count=3" in caplog.text
+    assert str(image_path) not in caplog.text
 
 
 def test_valid_image_without_waste_returns_no_detection_failure(

@@ -2,6 +2,7 @@ import type {
   ReportSubmissionPayload,
   ReportSubmissionResult,
 } from '../../types'
+import { optionallyAuthenticatedFetch } from '../authentication/authenticated-fetch'
 
 
 const configuredSubmissionUrl = import.meta.env.VITE_REPORT_SUBMISSION_URL as
@@ -57,7 +58,7 @@ export async function submitWasteReport(
 
   let response: Response
   try {
-    response = await fetch(
+    response = await optionallyAuthenticatedFetch(
       image ? `${REPORT_SUBMISSION_URL}/with-image` : REPORT_SUBMISSION_URL,
       {
         method: 'POST',

@@ -3,6 +3,10 @@ import type {
   WasteAnalysisResponse,
   WasteAnalysisSuccess,
 } from '../../types'
+import {
+  authenticatedFetch,
+  AuthenticatedRequestError,
+} from '../authentication/authenticated-fetch'
 
 
 const configuredAnalyzeUrl = import.meta.env.VITE_WASTE_ANALYSIS_URL as
@@ -75,7 +79,7 @@ export async function analyzeWasteImage(
 
   let response: Response
   try {
-    response = await fetch(WASTE_ANALYSIS_URL, {
+    response = await authenticatedFetch(WASTE_ANALYSIS_URL, {
       method: 'POST',
       body: formData,
       signal,
@@ -83,6 +87,9 @@ export async function analyzeWasteImage(
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw error
+    }
+    if (error instanceof AuthenticatedRequestError) {
+      throw new WasteAnalysisRequestError(error.message, 'AUTHENTICATION_REQUIRED')
     }
     throw new WasteAnalysisRequestError(
       'The waste analysis service is unavailable. Please try again.',
@@ -107,5 +114,25 @@ export async function analyzeWasteImage(
     )
   }
 
-  return responseData
+  const imageResponse = await authenticatedFetch(responseData.annotated_image, {
+    signal,
+  })
+  if (!imageResponse.ok) {
+    throw new WasteAnalysisRequestError(
+      'The protected annotated image could not be loaded.',
+      'ANNOTATED_IMAGE_UNAVAILABLE',
+    )
+  }
+  const imageBlob = await imageResponse.blob()
+  if (!imageBlob.type.startsWith('image/')) {
+    throw new WasteAnalysisRequestError(
+      'The analysis service returned an invalid annotated image.',
+      'INVALID_ANNOTATED_IMAGE',
+    )
+  }
+
+  return {
+    ...responseData,
+    annotated_image: URL.createObjectURL(imageBlob),
+  }
 }

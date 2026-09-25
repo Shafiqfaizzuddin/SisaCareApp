@@ -2,17 +2,25 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
-from typing import Literal
-from uuid import uuid4
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from app.api.waste_analysis import UPLOAD_DIR
+from app.core.auth import (
+    AuthenticatedUser,
+    get_optional_authenticated_user,
+    require_admin_user,
+)
+from app.repositories import reports as report_repository
 from app.repositories.reports import (
+    DraftAccessDeniedError,
     DraftAlreadySubmittedError,
     DraftAssetError,
     DraftNotFoundError,
@@ -24,10 +32,29 @@ from app.repositories.reports import (
     validate_report,
 )
 from app.services.ai.image_validation import ImageValidationError, validate_image
-from app.services.image_uploads import ALLOWED_IMAGE_TYPES, save_image_upload
+from app.services.image_uploads import (
+    MAX_UPLOAD_SIZE,
+    UploadMetadataError,
+    create_unique_upload_path,
+    save_image_upload,
+    upload_size_limit_message,
+    validate_image_upload_metadata,
+)
 
 
 router = APIRouter()
+REPORT_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
+REPORT_IMAGE_PATTERN = re.compile(r"^(?:original|annotated)\.(?:jpg|jpeg|png|webp)$")
+REPORT_MEDIA_HEADERS = {
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff",
+}
+REPORT_MEDIA_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
 
 
 class ReportSubmission(BaseModel):
@@ -47,8 +74,6 @@ class ReportSubmission(BaseModel):
 
     @model_validator(mode="after")
     def validate_reporter(self) -> "ReportSubmission":
-        if self.reporter_role == "user" and not (self.user_id or "").strip():
-            raise ValueError("A user ID is required for member reports.")
         if self.reporter_role == "guest":
             if not (self.guest_name or "").strip():
                 raise ValueError("A name is required for guest reports.")
@@ -63,8 +88,41 @@ class ReportValidation(BaseModel):
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def submit_report(submission: ReportSubmission) -> dict[str, str]:
-    return await _create_report(submission.model_dump())
+async def submit_report(
+    submission: ReportSubmission,
+    user: Annotated[
+        AuthenticatedUser | None,
+        Depends(get_optional_authenticated_user),
+    ],
+) -> dict[str, str]:
+    submission_data = _authorize_submission(submission, user)
+    return await _create_report(submission_data)
+
+
+def _authorize_submission(
+    submission: ReportSubmission,
+    user: AuthenticatedUser | None,
+) -> dict[str, object]:
+    if submission.reporter_role == "guest":
+        if submission.analysis_id is not None:
+            raise HTTPException(
+                status_code=403,
+                detail="AI analysis drafts require an authenticated member.",
+            )
+        return submission.model_dump()
+
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication is required for member reports.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    submission_data = submission.model_dump()
+    submission_data["user_id"] = user["id"]
+    submission_data["guest_name"] = None
+    submission_data["guest_email"] = None
+    return submission_data
 
 
 async def _create_report(submission: dict[str, object]) -> dict[str, str]:
@@ -77,6 +135,8 @@ async def _create_report(submission: dict[str, object]) -> dict[str, str]:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except DraftAlreadySubmittedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except DraftAccessDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except DraftAssetError as exc:
         raise HTTPException(status_code=410, detail=str(exc)) from exc
     except (OSError, sqlite3.Error) as exc:
@@ -88,6 +148,10 @@ async def _create_report(submission: dict[str, object]) -> dict[str, str]:
 
 @router.post("/with-image", status_code=status.HTTP_201_CREATED)
 async def submit_report_with_image(
+    user: Annotated[
+        AuthenticatedUser | None,
+        Depends(get_optional_authenticated_user),
+    ],
     payload: str = Form(...),
     image: UploadFile = File(...),
 ) -> dict[str, str]:
@@ -104,20 +168,34 @@ async def submit_report_with_image(
             detail="An analyzed report must use its existing analysis draft.",
         )
 
-    extension = ALLOWED_IMAGE_TYPES.get(image.content_type or "")
-    if extension is None:
+    try:
+        extension = validate_image_upload_metadata(image.filename, image.content_type)
+    except UploadMetadataError:
         await image.close()
         raise HTTPException(
             status_code=415,
-            detail="Unsupported file type. Use JPEG, PNG, or WEBP.",
+            detail=(
+                "The image filename, extension, or MIME type is not supported. "
+                "Use a JPG, PNG, or WEBP image."
+            ),
         )
 
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    destination = UPLOAD_DIR / f"report-{uuid4().hex}{extension}"
+    submission_data = _authorize_submission(submission, user)
+    try:
+        destination = create_unique_upload_path(
+            UPLOAD_DIR,
+            prefix="report",
+            extension=extension,
+        )
+    except (OSError, ValueError) as exc:
+        await image.close()
+        raise HTTPException(
+            status_code=500,
+            detail="The image could not be stored.",
+        ) from exc
     try:
         await save_image_upload(image, destination)
         await run_in_threadpool(validate_image, destination)
-        submission_data = submission.model_dump()
         submission_data["uploaded_image_path"] = str(destination)
         return await _create_report(submission_data)
     except ImageValidationError as exc:
@@ -126,7 +204,7 @@ async def submit_report_with_image(
         if str(exc) == "IMAGE_TOO_LARGE":
             raise HTTPException(
                 status_code=413,
-                detail="The image must be 10 MB or smaller.",
+                detail=upload_size_limit_message(MAX_UPLOAD_SIZE),
             ) from exc
         raise HTTPException(
             status_code=400,
@@ -137,7 +215,9 @@ async def submit_report_with_image(
 
 
 @router.get("")
-async def read_reports() -> list[dict[str, object]]:
+async def read_reports(
+    _admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
+) -> list[dict[str, object]]:
     return await run_in_threadpool(list_reports)
 
 
@@ -145,6 +225,7 @@ async def read_reports() -> list[dict[str, object]]:
 async def validate_submitted_report(
     report_id: str,
     validation: ReportValidation,
+    _admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
 ) -> dict[str, object]:
     try:
         return await run_in_threadpool(
@@ -163,8 +244,37 @@ async def validate_submitted_report(
         ) from exc
 
 
+@router.get("/files/{report_id}/{filename}", response_class=FileResponse)
+async def read_report_image(
+    report_id: str,
+    filename: str,
+    _admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
+) -> FileResponse:
+    if not REPORT_ID_PATTERN.fullmatch(report_id):
+        raise HTTPException(status_code=404, detail="Image not found.")
+    if not REPORT_IMAGE_PATTERN.fullmatch(filename):
+        raise HTTPException(status_code=404, detail="Image not found.")
+
+    report_root = report_repository.REPORT_ASSETS_DIR.resolve()
+    image_path = (report_root / report_id / filename).resolve()
+    try:
+        image_path.relative_to(report_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Image not found.") from exc
+    if not image_path.is_file():
+        raise HTTPException(status_code=404, detail="Image not found.")
+    return FileResponse(
+        image_path,
+        media_type=REPORT_MEDIA_TYPES[image_path.suffix.lower()],
+        headers=REPORT_MEDIA_HEADERS,
+    )
+
+
 @router.get("/{report_id}")
-async def read_report(report_id: str) -> dict[str, object]:
+async def read_report(
+    report_id: str,
+    _admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
+) -> dict[str, object]:
     report = await run_in_threadpool(get_report, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found.")

@@ -111,6 +111,15 @@ export function SubmitReportPage() {
 
   useEffect(
     () => () => {
+      if (analysis?.annotated_image.startsWith('blob:')) {
+        URL.revokeObjectURL(analysis.annotated_image)
+      }
+    },
+    [analysis],
+  )
+
+  useEffect(
+    () => () => {
       analysisRequest.current?.abort()
       submissionRequest.current?.abort()
     },

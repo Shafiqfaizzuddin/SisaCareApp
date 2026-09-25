@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from pathlib import Path
 from threading import Lock
+from time import perf_counter
 from typing import Any, Literal, TypedDict
 
+from app.core.config import get_settings
 from app.services.ai.category_mapping import get_category_metadata
 from app.services.ai.image_annotator import (
     ImageAnnotationError,
@@ -21,8 +24,10 @@ from app.services.ai.image_validation import (
 )
 
 
-DEFAULT_CONFIDENCE_THRESHOLD = 0.35
-MODEL_PATH = Path(__file__).resolve().parents[4] / "ai" / "models" / "best.pt"
+logger = logging.getLogger(__name__)
+settings = get_settings()
+DEFAULT_CONFIDENCE_THRESHOLD = settings.yolo_confidence_threshold
+MODEL_PATH = settings.yolo_model_path
 
 ErrorCode = Literal[
     "NO_WASTE_DETECTED",
@@ -150,14 +155,21 @@ def _load_model() -> Any:
             return _model
 
         if not MODEL_PATH.is_file():
+            logger.error("yolo_model_load_failed code=MODEL_NOT_FOUND")
             raise ModelNotFoundError(f"YOLO model not found: {MODEL_PATH}")
 
         try:
+            logger.info("yolo_model_load_started")
             from ultralytics import YOLO
 
             _model = YOLO(str(MODEL_PATH))
         except Exception as exc:
+            logger.exception(
+                "yolo_model_load_failed code=MODEL_LOAD_ERROR error_type=%s",
+                type(exc).__name__,
+            )
             raise ModelLoadError(f"Failed to load YOLO model: {exc}") from exc
+        logger.info("yolo_model_load_completed")
 
     return _model
 
@@ -214,6 +226,8 @@ def _detect_waste(
     resolved_image_path = validate_image(image_path)
     model = _load_model()
 
+    inference_started = perf_counter()
+    logger.info("yolo_inference_started confidence_threshold=%.3f", threshold)
     try:
         with _inference_lock:
             results = model.predict(
@@ -222,15 +236,30 @@ def _detect_waste(
                 verbose=False,
             )
     except Exception as exc:
+        logger.exception(
+            "yolo_inference_failed error_type=%s",
+            type(exc).__name__,
+        )
         raise ModelInferenceError(f"YOLO inference failed: {exc}") from exc
 
+    inference_ms = round((perf_counter() - inference_started) * 1000)
+
     if not results:
+        logger.info(
+            "yolo_inference_completed duration_ms=%d detection_count=0",
+            inference_ms,
+        )
         return _failure(
             "NO_WASTE_DETECTED",
             "No supported waste objects were detected in this image.",
         )
 
     detections, counts = _serialize_detections(results)
+    logger.info(
+        "yolo_inference_completed duration_ms=%d detection_count=%d",
+        inference_ms,
+        len(detections),
+    )
     if not detections:
         return _failure(
             "NO_WASTE_DETECTED",
@@ -267,10 +296,16 @@ def detect_waste(
     try:
         return _detect_waste(image_path, confidence_threshold)
     except ImageValidationError as exc:
+        logger.warning("waste_detection_failed code=%s", exc.code)
         return _failure(exc.code, exc.public_message)  # type: ignore[arg-type]
     except WasteDetectionError as exc:
+        logger.error("waste_detection_failed code=%s", exc.code)
         return _failure(exc.code, exc.public_message)
-    except Exception:
+    except Exception as exc:
+        logger.exception(
+            "waste_detection_failed code=DETECTION_ERROR error_type=%s",
+            type(exc).__name__,
+        )
         return _failure("DETECTION_ERROR", "Waste detection failed unexpectedly.")
 
 

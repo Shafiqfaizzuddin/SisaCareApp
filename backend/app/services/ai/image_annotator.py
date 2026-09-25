@@ -8,10 +8,10 @@ from uuid import uuid4
 
 from PIL import Image, ImageDraw, ImageFont
 
+from app.core.config import get_settings
 
-ANNOTATED_OUTPUT_DIR = (
-    Path(__file__).resolve().parents[4] / "backend" / "storage" / "tmp" / "annotated"
-)
+
+ANNOTATED_OUTPUT_DIR = get_settings().annotated_output_dir
 BOX_COLORS = (
     "#007A5A",
     "#D95D39",

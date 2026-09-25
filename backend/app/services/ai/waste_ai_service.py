@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Literal, NotRequired, TypedDict, cast
 
@@ -17,6 +18,8 @@ from app.services.ai.yolo_detector import (
     detect_waste,
 )
 
+
+logger = logging.getLogger(__name__)
 
 class AnalysisDetection(TypedDict):
     total_objects: int
@@ -74,13 +77,21 @@ def analyze_waste_image(
     """
     try:
         detection_response = detect_waste(image_path, confidence_threshold)
-    except Exception:
+    except Exception as exc:
+        logger.exception(
+            "analysis_detection_failed code=ANALYSIS_ERROR error_type=%s",
+            type(exc).__name__,
+        )
         return _detection_failure(
             "ANALYSIS_ERROR",
             "Waste image analysis failed unexpectedly during detection.",
         )
 
     if detection_response["success"] is not True:
+        logger.warning(
+            "analysis_detection_failed code=%s",
+            detection_response["code"],
+        )
         return _detection_failure(
             detection_response["code"],
             detection_response["message"],
@@ -102,7 +113,11 @@ def analyze_waste_image(
 
     try:
         report_response = generate_waste_report(detection_result)
-    except Exception:
+    except Exception as exc:
+        logger.exception(
+            "analysis_report_generation_failed code=ANALYSIS_ERROR error_type=%s",
+            type(exc).__name__,
+        )
         return {
             "success": False,
             "code": "ANALYSIS_ERROR",
@@ -115,6 +130,10 @@ def analyze_waste_image(
 
     if report_response.get("success") is False:
         report_failure = cast(ReportGenerationFailure, report_response)
+        logger.warning(
+            "analysis_report_generation_failed code=%s",
+            report_failure["code"],
+        )
         return {
             "success": False,
             "code": report_failure["code"],
@@ -125,6 +144,10 @@ def analyze_waste_image(
             "detection": detection,
         }
 
+    logger.info(
+        "analysis_pipeline_completed detection_count=%d",
+        detection_result["total_objects"],
+    )
     return {
         "success": True,
         "original_image": original_image,

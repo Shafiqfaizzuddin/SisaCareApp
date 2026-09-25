@@ -1,4 +1,5 @@
 import json
+import logging
 
 import httpx
 import pytest
@@ -48,11 +49,15 @@ def ollama_response(report: object = VALID_REPORT) -> httpx.Response:
     )
 
 
-def test_generates_valid_report_from_sanitized_yolo_data() -> None:
+def test_generates_valid_report_from_sanitized_yolo_data(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         assert payload["model"] == "test-model"
         assert payload["stream"] is False
+        assert payload["options"] == {"temperature": 0}
         assert payload["format"] == {
             "type": "object",
             "properties": {
@@ -75,10 +80,17 @@ def test_generates_valid_report_from_sanitized_yolo_data() -> None:
         prompt = payload["prompt"]
         assert '"plastic_bottle": 2' in prompt
         assert '"metal_can": 1' in prompt
+        assert '"backend_total_objects": 3' in prompt
+        assert '"object_count": 2' in prompt
         assert '"waste_category": "Recyclable Waste"' in prompt
         assert "Caller supplied value must not be trusted" not in prompt
         assert "bounding_box" not in prompt
         assert "annotated_image" not in prompt
+        assert '"confidence"' not in prompt
+        assert "only permitted quantities" in prompt
+        assert "Do not mention or invent a location" in prompt
+        assert "has already happened" in prompt
+        assert "possible or conditional impact" in prompt
         return ollama_response()
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
@@ -91,6 +103,11 @@ def test_generates_valid_report_from_sanitized_yolo_data() -> None:
         )
 
     assert result == VALID_REPORT
+    assert "ollama_request_started detection_count=3" in caplog.text
+    assert "ollama_request_succeeded" in caplog.text
+    assert "report_generation_completed" in caplog.text
+    assert "plastic_bottle" not in caplog.text
+    assert VALID_REPORT["summary"] not in caplog.text
 
 
 def test_empty_detection_list_is_not_sent_to_ollama() -> None:
@@ -136,6 +153,7 @@ def test_connection_error_returns_fallback() -> None:
 
     assert result["success"] is False
     assert result["code"] == "OLLAMA_UNAVAILABLE"
+    assert "localhost" not in result["message"]
 
 
 def test_timeout_returns_fallback() -> None:
@@ -163,6 +181,7 @@ def test_missing_model_returns_fallback() -> None:
 
     assert result["success"] is False
     assert result["code"] == "OLLAMA_MODEL_NOT_INSTALLED"
+    assert "missing-model" not in result["message"]
 
 
 @pytest.mark.parametrize(
@@ -200,3 +219,46 @@ def test_api_error_returns_fallback() -> None:
 
     assert result["success"] is False
     assert result["code"] == "OLLAMA_API_ERROR"
+    assert "server failure" not in result["message"]
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        {
+            **VALID_REPORT,
+            "summary": "The detected waste weighs 2 kg.",
+        },
+        {
+            **VALID_REPORT,
+            "summary": "The waste was collected by the municipal crew.",
+        },
+        {
+            **VALID_REPORT,
+            "summary": "The waste was found at Main Street.",
+        },
+        {
+            **VALID_REPORT,
+            "summary": "Four recyclable items were detected.",
+        },
+        {
+            **VALID_REPORT,
+            "waste_identified": "Two plastic bottles, one can, and paper.",
+        },
+        {
+            **VALID_REPORT,
+            "environmental_concern": "Improper disposal causes environmental harm.",
+        },
+    ],
+)
+def test_ungrounded_report_claims_are_rejected(report: dict[str, str]) -> None:
+    transport = httpx.MockTransport(lambda _request: ollama_response(report))
+
+    with httpx.Client(transport=transport) as client:
+        result = generate_waste_report(DETECTION_DATA, client=client)
+
+    assert result == {
+        "success": False,
+        "code": "INVALID_OLLAMA_RESPONSE",
+        "message": "Ollama returned an invalid waste report response.",
+    }

@@ -30,6 +30,10 @@ class DraftAssetError(RuntimeError):
     """Raised when a draft image is no longer available."""
 
 
+class DraftAccessDeniedError(PermissionError):
+    """Raised when a user attempts to consume another user's AI draft."""
+
+
 class ReportNotFoundError(LookupError):
     """Raised when an administrative report action targets a missing report."""
 
@@ -59,6 +63,7 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
             """
             CREATE TABLE IF NOT EXISTS analysis_drafts (
                 id TEXT PRIMARY KEY,
+                user_id TEXT,
                 original_image_path TEXT NOT NULL,
                 annotated_image_path TEXT NOT NULL,
                 detection_json TEXT NOT NULL,
@@ -126,6 +131,7 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
                 ON reward_events(user_id);
             """
         )
+        _ensure_analysis_draft_owner_column(database)
         _ensure_report_validation_columns(database)
         _migrate_legacy_report_detections(database)
         database.commit()
@@ -147,12 +153,23 @@ def _ensure_report_validation_columns(database: sqlite3.Connection) -> None:
         database.execute("ALTER TABLE reports ADD COLUMN validated_at TEXT")
 
 
+def _ensure_analysis_draft_owner_column(database: sqlite3.Connection) -> None:
+    """Add draft ownership to databases created before authenticated analysis."""
+
+    columns = {
+        row["name"] for row in database.execute("PRAGMA table_info(analysis_drafts)")
+    }
+    if "user_id" not in columns:
+        database.execute("ALTER TABLE analysis_drafts ADD COLUMN user_id TEXT")
+
+
 def create_analysis_draft(
     *,
     original_image_path: str | Path,
     annotated_image_path: str | Path,
     detection: Mapping[str, Any],
     report: Mapping[str, Any],
+    user_id: str,
 ) -> str:
     """Persist the server-owned result of analysis without creating a report."""
     draft_id = uuid4().hex
@@ -161,12 +178,13 @@ def create_analysis_draft(
         database.execute(
             """
             INSERT INTO analysis_drafts (
-                id, original_image_path, annotated_image_path,
+                id, user_id, original_image_path, annotated_image_path,
                 detection_json, ai_report_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 draft_id,
+                user_id,
                 str(Path(original_image_path).resolve()),
                 str(Path(annotated_image_path).resolve()),
                 json.dumps(detection, ensure_ascii=True),
@@ -175,6 +193,31 @@ def create_analysis_draft(
             ),
         )
     return draft_id
+
+
+def analysis_draft_asset_belongs_to_user(
+    user_id: str,
+    asset_path: str | Path,
+) -> bool:
+    """Return whether a temporary AI asset belongs to the given user."""
+
+    resolved_asset_path = str(Path(asset_path).resolve())
+    with _connect() as database:
+        initialize_database(database)
+        row = database.execute(
+            """
+            SELECT 1
+            FROM analysis_drafts
+            WHERE user_id = ?
+              AND (
+                original_image_path = ?
+                OR annotated_image_path = ?
+              )
+            LIMIT 1
+            """,
+            (user_id, resolved_asset_path, resolved_asset_path),
+        ).fetchone()
+    return row is not None
 
 
 def _asset_suffix(path: Path) -> str:
@@ -311,6 +354,7 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
     now = _utc_now()
     reference = f"SCA-{datetime.now(timezone.utc):%y%m%d}-{report_id[:6].upper()}"
     report_directory: Path | None = None
+    draft_sources: tuple[Path, Path] | None = None
     database = _connect()
 
     try:
@@ -332,6 +376,18 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 raise DraftAlreadySubmittedError(
                     "This analysis draft has already been submitted."
                 )
+            if (
+                submission.get("reporter_role") != "user"
+                or not submission.get("user_id")
+                or draft["user_id"] != submission.get("user_id")
+            ):
+                raise DraftAccessDeniedError(
+                    "This analysis draft does not belong to the authenticated user."
+                )
+            draft_sources = (
+                Path(draft["original_image_path"]),
+                Path(draft["annotated_image_path"]),
+            )
             original_image, annotated_image, report_directory = _persist_draft_assets(
                 draft,
                 report_id,
@@ -398,6 +454,13 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
         raise
     finally:
         database.close()
+
+    if draft_sources is not None:
+        for source in draft_sources:
+            try:
+                source.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     return {
         "id": report_id,
@@ -625,10 +688,12 @@ __all__ = [
     "DATABASE_PATH",
     "REPORT_ASSETS_DIR",
     "DraftAlreadySubmittedError",
+    "DraftAccessDeniedError",
     "DraftAssetError",
     "DraftNotFoundError",
     "ReportNotFoundError",
     "ValidationAlreadyDecidedError",
+    "analysis_draft_asset_belongs_to_user",
     "create_analysis_draft",
     "create_report",
     "get_report",

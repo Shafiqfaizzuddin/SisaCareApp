@@ -9,10 +9,29 @@ import pytest
 
 from app.main import app
 from app.api import reports as reports_api
+from app.core.auth import get_optional_authenticated_user, require_admin_user
 from app.repositories import reports as report_repository
 
 
 client = TestClient(app)
+MEMBER_USER = {
+    "id": "usr-204",
+    "email": "member@example.com",
+    "role": "user",
+}
+ADMIN_USER = {
+    "id": "admin-1",
+    "email": "admin@example.com",
+    "role": "admin",
+}
+
+
+@pytest.fixture(autouse=True)
+def authenticated_api_users() -> None:
+    app.dependency_overrides[get_optional_authenticated_user] = lambda: MEMBER_USER
+    app.dependency_overrides[require_admin_user] = lambda: ADMIN_USER
+    yield
+    app.dependency_overrides.clear()
 
 DETECTIONS = [
     {
@@ -78,15 +97,17 @@ def create_draft(tmp_path: Path) -> str:
             "detections": DETECTIONS,
         },
         report=GENERATED_REPORT,
+        user_id=MEMBER_USER["id"],
     )
 
 
 def submission_payload(draft_id: str | None) -> dict[str, Any]:
     return {
         "analysis_id": draft_id,
-        "reporter_role": "guest",
-        "guest_name": "Test Reporter",
-        "guest_email": "reporter@example.com",
+        "reporter_role": "user" if draft_id else "guest",
+        "user_id": MEMBER_USER["id"] if draft_id else None,
+        "guest_name": None if draft_id else "Test Reporter",
+        "guest_email": None if draft_id else "reporter@example.com",
         "title": "Reviewed waste report",
         "summary": "The user-edited final summary.",
         "waste_identified": "One plastic bottle.",
@@ -115,7 +136,25 @@ def test_repeated_ai_analysis_drafts_never_create_reward_events(
     assert reward_count == 0
 
 
-def test_guest_submission_persists_reviewed_report_and_images(
+def test_temporary_draft_assets_are_bound_to_their_owner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    create_draft(tmp_path)
+    original = tmp_path / "upload.jpg"
+
+    assert report_repository.analysis_draft_asset_belongs_to_user(
+        MEMBER_USER["id"],
+        original,
+    )
+    assert not report_repository.analysis_draft_asset_belongs_to_user(
+        "different-user",
+        original,
+    )
+
+
+def test_member_submission_persists_reviewed_report_and_images(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -151,8 +190,8 @@ def test_guest_submission_persists_reviewed_report_and_images(
         }
 
     assert report is not None
-    assert report["guest_name"] == "Test Reporter"
-    assert report["user_id"] is None
+    assert report["guest_name"] is None
+    assert report["user_id"] == MEMBER_USER["id"]
     assert report["summary"] == "The user-edited final summary."
     assert report["status"] == "processing"
     assert "detection_json" not in report_columns
@@ -379,6 +418,11 @@ def test_admin_report_reads_include_saved_ai_detections(
     assert detail["detections"][0]["class_name"] == "plastic_bottle"
     assert detail["detections"][0]["x1"] == pytest.approx(10.0)
 
+    image_response = client.get(detail["annotated_image"])
+    assert image_response.status_code == 200
+    assert image_response.headers["x-content-type-options"] == "nosniff"
+    assert image_response.headers["cache-control"] == "private, no-store"
+
 
 def test_guest_submission_requires_guest_identity(
     monkeypatch: pytest.MonkeyPatch,
@@ -391,6 +435,33 @@ def test_guest_submission_requires_guest_identity(
     response = client.post("/api/reports", json=payload)
 
     assert response.status_code == 422
+
+
+def test_ai_draft_cannot_be_submitted_as_guest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    draft_id = create_draft(tmp_path)
+    payload = submission_payload(draft_id)
+    payload.update(
+        reporter_role="guest",
+        user_id=None,
+        guest_name="Test Reporter",
+        guest_email="reporter@example.com",
+    )
+
+    response = client.post("/api/reports", json=payload)
+
+    assert response.status_code == 403
+
+
+def test_admin_report_routes_reject_non_admin_users() -> None:
+    app.dependency_overrides.pop(require_admin_user, None)
+
+    response = client.get("/api/reports")
+
+    assert response.status_code == 403
 
 
 def test_database_initialization_migrates_legacy_detection_json(
