@@ -2,19 +2,26 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react'
 import { supabaseClient } from '../../lib/supabase'
-import type { UserProfile } from '../../types'
+import type { MemberReportSummary, UserProfile } from '../../types'
+import {
+  fetchMemberDashboard,
+  MemberDashboardRequestError,
+} from '../members/member-dashboard-api'
+import { memberTitleForPoints } from './member-data'
 import { RoleContext, type RoleContextValue } from './role-context'
 import { AuthenticationError, profileFromAuthUser } from './session'
 
 export function RoleProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
-  const appliedRewards = useRef(new Set<string>())
+  const [memberReports, setMemberReports] = useState<MemberReportSummary[]>([])
+  const [isMemberDataLoading, setIsMemberDataLoading] = useState(false)
+  const [memberDataError, setMemberDataError] = useState('')
+  const [memberRefreshVersion, setMemberRefreshVersion] = useState(0)
 
   useEffect(() => {
     if (!supabaseClient) {
@@ -25,12 +32,26 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     let active = true
     void supabaseClient.auth.getSession().then(({ data }) => {
       if (!active) return
-      setUser(data.session?.user ? profileFromAuthUser(data.session.user) : null)
+      const profile = data.session?.user
+        ? profileFromAuthUser(data.session.user)
+        : null
+      setUser(profile)
       setIsAuthLoading(false)
     })
     const { data } = supabaseClient.auth.onAuthStateChange((_event, session) => {
       if (!active) return
-      setUser(session?.user ? profileFromAuthUser(session.user) : null)
+      const profile = session?.user ? profileFromAuthUser(session.user) : null
+      setUser((current) =>
+        profile && current?.id === profile.id && current.role === 'user'
+          ? {
+              ...profile,
+              points: current.points,
+              title: current.title,
+              rank: current.rank,
+              validReports: current.validReports,
+            }
+          : profile,
+      )
       setIsAuthLoading(false)
     })
 
@@ -39,6 +60,52 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       data.subscription.unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    if (user?.role !== 'user') {
+      setMemberReports([])
+      setMemberDataError('')
+      setIsMemberDataLoading(false)
+      return
+    }
+
+    const memberId = user.id
+    const controller = new AbortController()
+    setIsMemberDataLoading(true)
+    setMemberDataError('')
+
+    void fetchMemberDashboard(controller.signal)
+      .then((dashboard) => {
+        if (controller.signal.aborted) return
+        setMemberReports(dashboard.reports)
+        setUser((current) =>
+          current?.id === memberId && current.role === 'user'
+            ? {
+                ...current,
+                points: dashboard.points,
+                validReports: dashboard.validReports,
+                rank: dashboard.rank,
+                title: memberTitleForPoints(dashboard.points),
+              }
+            : current,
+        )
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        setMemberDataError(
+          error instanceof MemberDashboardRequestError
+            ? error.message
+            : 'The member dashboard could not be loaded.',
+        )
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsMemberDataLoading(false)
+        }
+      })
+
+    return () => controller.abort()
+  }, [memberRefreshVersion, user?.id, user?.role])
 
   const signIn = useCallback(
     async (
@@ -81,6 +148,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
+  const refreshMemberData = useCallback(() => {
+    setMemberRefreshVersion((version) => version + 1)
+  }, [])
+
   const signUp = useCallback(
     async (fullName: string, email: string, password: string) => {
       if (!supabaseClient) {
@@ -117,28 +188,25 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       role,
       user,
       isAuthLoading,
+      memberReports,
+      isMemberDataLoading,
+      memberDataError,
       signIn,
       signUp,
       signOut,
-      rewardMember: (rewardKey, points, validReport = false) => {
-        if (appliedRewards.current.has(rewardKey)) {
-          return false
-        }
-        appliedRewards.current.add(rewardKey)
-        setUser((current) =>
-          current?.role === 'user'
-            ? {
-                ...current,
-                points: current.points + points,
-                validReports:
-                  (current.validReports ?? 0) + (validReport ? 1 : 0),
-              }
-            : current,
-        )
-        return true
-      },
+      refreshMemberData,
     }
-  }, [isAuthLoading, signIn, signOut, signUp, user])
+  }, [
+    isAuthLoading,
+    isMemberDataLoading,
+    memberDataError,
+    memberReports,
+    refreshMemberData,
+    signIn,
+    signOut,
+    signUp,
+    user,
+  ])
 
   return <RoleContext.Provider value={value}>{children}</RoleContext.Provider>
 }

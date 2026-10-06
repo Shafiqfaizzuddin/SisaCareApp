@@ -1,5 +1,5 @@
 import { createContext } from 'react'
-import type { UserProfile, UserRole } from '../../types'
+import type { MemberReportSummary, UserProfile, UserRole } from '../../types'
 
 export interface SignUpResult {
   requiresEmailConfirmation: boolean
@@ -20,11 +20,10 @@ export interface RoleContextValue {
     password: string,
   ) => Promise<SignUpResult>
   signOut: () => Promise<void>
-  rewardMember: (
-    rewardKey: string,
-    points: number,
-    validReport?: boolean,
-  ) => boolean
+  memberReports: MemberReportSummary[]
+  isMemberDataLoading: boolean
+  memberDataError: string
+  refreshMemberData: () => void
 }
 
 export const RoleContext = createContext<RoleContextValue | null>(null)

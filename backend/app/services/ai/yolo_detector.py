@@ -10,7 +10,10 @@ from time import perf_counter
 from typing import Any, Literal, TypedDict
 
 from app.core.config import get_settings
-from app.services.ai.category_mapping import get_category_metadata
+from app.services.ai.category_mapping import (
+    get_category_metadata,
+    normalize_class_name,
+)
 from app.services.ai.image_annotator import (
     ImageAnnotationError,
     save_annotated_image,
@@ -193,7 +196,7 @@ def _serialize_detections(results: Any) -> tuple[list[WasteDetection], dict[str,
 
             for box in result.boxes:
                 class_id = int(box.cls.item())
-                name = _class_name(result.names, class_id)
+                name = normalize_class_name(_class_name(result.names, class_id))
                 metadata = get_category_metadata(name)
                 x1, y1, x2, y2 = (float(value) for value in box.xyxy[0].tolist())
 

@@ -329,9 +329,18 @@ async def analyze_uploaded_waste(
         if isinstance(annotated_path, str):
             _remove_temporary_file(annotated_path, ANNOTATED_OUTPUT_DIR)
         _log_analysis_failure(request_id, result["code"], request_started)
+        failure_content: dict[str, Any] = {
+            "success": False,
+            "code": result["code"],
+            "message": result["message"],
+            "stage": result["stage"],
+        }
+        detection = result.get("detection")
+        if isinstance(detection, dict):
+            failure_content["detection"] = detection
         return JSONResponse(
             status_code=_failure_status(result["code"]),
-            content=result,
+            content=failure_content,
         )
 
     try:

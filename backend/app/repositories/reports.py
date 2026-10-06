@@ -598,6 +598,84 @@ def get_report(report_id: str) -> dict[str, Any] | None:
     }
 
 
+def get_member_dashboard(user_id: str, *, report_limit: int = 5) -> dict[str, Any]:
+    """Return reward totals, rank, and recent reports for one member."""
+    if report_limit <= 0:
+        raise ValueError("Report limit must be positive.")
+
+    with _connect() as database:
+        initialize_database(database)
+        statistics = database.execute(
+            """
+            WITH member_totals AS (
+                SELECT
+                    user_id,
+                    SUM(points) AS points,
+                    COUNT(*) AS valid_reports
+                FROM reward_events
+                GROUP BY user_id
+            ),
+            current_member AS (
+                SELECT
+                    COALESCE(
+                        (SELECT points FROM member_totals WHERE user_id = ?),
+                        0
+                    ) AS points,
+                    COALESCE(
+                        (SELECT valid_reports FROM member_totals WHERE user_id = ?),
+                        0
+                    ) AS valid_reports
+            )
+            SELECT
+                points,
+                valid_reports,
+                CASE
+                    WHEN points = 0 THEN NULL
+                    ELSE 1 + (
+                        SELECT COUNT(*)
+                        FROM member_totals
+                        WHERE member_totals.points > current_member.points
+                    )
+                END AS rank
+            FROM current_member
+            """,
+            (user_id, user_id),
+        ).fetchone()
+        reports = database.execute(
+            """
+            SELECT
+                id,
+                reference,
+                location,
+                status,
+                validation_status,
+                created_at
+            FROM reports
+            WHERE reporter_role = 'user' AND user_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (user_id, report_limit),
+        ).fetchall()
+
+    return {
+        "points": int(statistics["points"]),
+        "valid_reports": int(statistics["valid_reports"]),
+        "rank": int(statistics["rank"]) if statistics["rank"] is not None else None,
+        "reports": [
+            {
+                "id": report["id"],
+                "reference": report["reference"],
+                "location": report["location"],
+                "status": report["status"],
+                "validation_status": report["validation_status"],
+                "submitted_at": report["created_at"],
+            }
+            for report in reports
+        ],
+    }
+
+
 def validate_report(report_id: str, validation_status: str) -> dict[str, Any]:
     """Persist one final validation decision and award a member report once."""
     if validation_status not in {"valid", "invalid"}:
@@ -696,6 +774,7 @@ __all__ = [
     "analysis_draft_asset_belongs_to_user",
     "create_analysis_draft",
     "create_report",
+    "get_member_dashboard",
     "get_report",
     "initialize_database",
     "list_reports",

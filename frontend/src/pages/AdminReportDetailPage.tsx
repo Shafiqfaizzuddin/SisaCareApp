@@ -18,7 +18,6 @@ import {
   fetchPersistedReport,
   validatePersistedReport,
 } from '../features/admin-reports/admin-reports-api'
-import { useRole } from '../features/authentication/useRole'
 import { wasteCategoryOptions } from '../features/reporting/categories'
 import type {
   AdminReportDetail,
@@ -132,7 +131,6 @@ function reportSummaryFromDetail(report: AdminReportDetail): ReportSummary {
 
 export function AdminReportDetailPage() {
   const { reportId } = useParams()
-  const { rewardMember } = useRole()
   const sampleReport = reportSummaries.find((item) => item.id === reportId)
   const [persistedReport, setPersistedReport] = useState<AdminReportDetail | null>(null)
   const [isLoading, setIsLoading] = useState(!sampleReport)
@@ -184,9 +182,6 @@ export function AdminReportDetailPage() {
     if (!persistedReport) {
       setValidationStatus(result)
       setStatus(result === 'valid' ? 'in_progress' : 'completed')
-      if (result === 'valid' && report.reporterRole === 'user') {
-        rewardMember(`validated-report:${report.id}`, 40, true)
-      }
       return
     }
 
@@ -195,17 +190,6 @@ export function AdminReportDetailPage() {
       const saved = await validatePersistedReport(report.id, result)
       setValidationStatus(saved.validationStatus)
       setStatus(saved.status)
-      if (
-        saved.rewardAwarded &&
-        saved.rewardPoints > 0 &&
-        report.reporterRole === 'user'
-      ) {
-        rewardMember(
-          `validated-report:${saved.reportId}`,
-          saved.rewardPoints,
-          true,
-        )
-      }
     } catch (error) {
       setValidationError(
         error instanceof Error

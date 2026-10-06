@@ -167,3 +167,19 @@ export interface ReportValidationResult {
   rewardAwarded: boolean
   rewardPoints: number
 }
+
+export interface MemberReportSummary {
+  id: string
+  reference: string
+  location: string
+  submittedAt: string
+  status: ReportStatus
+  validationStatus: ValidationStatus
+}
+
+export interface MemberDashboardData {
+  points: number
+  validReports: number
+  rank?: number
+  reports: MemberReportSummary[]
+}

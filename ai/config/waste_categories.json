@@ -1,4 +1,36 @@
 {
+  "plastic_bag_film": {
+    "display_name": "Plastic Bag / Film",
+    "waste_category": "Non-Recyclable Waste",
+    "material": "Soft Plastic",
+    "recyclable": false,
+    "recommended_handling": "Keep separate from recyclable materials and dispose of through the appropriate general-waste or soft-plastic collection stream where available."
+  },
+
+  "cigarette": {
+    "display_name": "Cigarette Waste",
+    "waste_category": "Non-Recyclable Waste",
+    "material": "Mixed Material",
+    "recyclable": false,
+    "recommended_handling": "Ensure the cigarette is fully extinguished and dispose of it securely in the general-waste stream."
+  },
+
+  "small_accessory": {
+    "display_name": "Small Waste Accessory",
+    "waste_category": "Non-Recyclable Waste",
+    "material": "Mixed Material",
+    "recyclable": false,
+    "recommended_handling": "Collect small accessories securely and place them in the appropriate general-waste stream unless a specific recycling facility accepts them."
+  },
+
+  "scrap_metal": {
+    "display_name": "Scrap Metal",
+    "waste_category": "Recyclable Waste",
+    "material": "Metal",
+    "recyclable": true,
+    "recommended_handling": "Keep separate from general waste and deliver to an appropriate metal recycling or scrap collection facility."
+  },
+
   "plastic_bottle": {
     "display_name": "Plastic Bottle",
     "waste_category": "Recyclable Waste",
@@ -6,27 +38,15 @@
     "recyclable": true,
     "recommended_handling": "Empty, rinse, and place in an appropriate plastic recycling stream."
   },
-  "plastic_bag": {
-    "display_name": "Plastic Bag",
-    "waste_category": "Plastic Waste",
-    "material": "Soft Plastic",
-    "recyclable": true,
-    "recommended_handling": "Keep separate and use a designated soft-plastic collection point where available."
+
+  "other_plastic": {
+    "display_name": "Other Plastic",
+    "waste_category": "Non-Recyclable Waste",
+    "material": "Plastic",
+    "recyclable": false,
+    "recommended_handling": "Dispose of through the appropriate general-waste stream unless the specific plastic type is accepted by a local recycling facility."
   },
-  "metal_can": {
-    "display_name": "Metal Can",
-    "waste_category": "Recyclable Waste",
-    "material": "Metal",
-    "recyclable": true,
-    "recommended_handling": "Empty, rinse, and place in an appropriate metal recycling stream."
-  },
-  "cardboard": {
-    "display_name": "Cardboard",
-    "waste_category": "Recyclable Waste",
-    "material": "Paper and Cardboard",
-    "recyclable": true,
-    "recommended_handling": "Keep clean and dry, flatten, and place in a paper recycling stream."
-  },
+
   "paper": {
     "display_name": "Paper",
     "waste_category": "Recyclable Waste",
@@ -34,39 +54,84 @@
     "recyclable": true,
     "recommended_handling": "Keep clean and dry and place in an appropriate paper recycling stream."
   },
+
   "glass": {
     "display_name": "Glass",
     "waste_category": "Recyclable Waste",
     "material": "Glass",
     "recyclable": true,
-    "recommended_handling": "Separate carefully and place in a designated glass recycling container."
+    "recommended_handling": "Separate carefully and place in a designated glass recycling stream. Handle broken glass safely."
   },
-  "food_waste": {
-    "display_name": "Food Waste",
-    "waste_category": "Organic Waste",
-    "material": "Organic Material",
+
+  "cardboard_carton": {
+    "display_name": "Cardboard / Carton",
+    "waste_category": "Recyclable Waste",
+    "material": "Paper and Cardboard",
+    "recyclable": true,
+    "recommended_handling": "Keep clean and dry, flatten when possible, and place in an appropriate paper and cardboard recycling stream."
+  },
+
+  "disposable_utensils_straw": {
+    "display_name": "Disposable Utensils / Straw",
+    "waste_category": "Non-Recyclable Waste",
+    "material": "Mixed Disposable Material",
     "recyclable": false,
-    "recommended_handling": "Keep separate from recyclables and use composting or an organic-waste stream where available."
+    "recommended_handling": "Place used disposable utensils and straws in the appropriate general-waste stream."
   },
+
+  "disposable_plastic_container": {
+    "display_name": "Plastic Container",
+    "waste_category": "Recyclable Waste",
+    "material": "Plastic",
+    "recyclable": true,
+    "recommended_handling": "Empty and rinse the container before placing it in an appropriate plastic recycling stream."
+  },
+
+  "foam_styrofoam": {
+    "display_name": "Foam / Styrofoam",
+    "waste_category": "Non-Recyclable Waste",
+    "material": "Expanded Plastic Foam",
+    "recyclable": false,
+    "recommended_handling": "Keep separate from recyclable materials and dispose of through the appropriate general-waste stream unless a specialised collection facility is available."
+  },
+
   "general_waste": {
     "display_name": "General Waste",
-    "waste_category": "General Waste",
+    "waste_category": "Non-Recyclable Waste",
     "material": "Mixed or Unknown Material",
     "recyclable": false,
     "recommended_handling": "Bag securely and place in the appropriate general-waste collection stream."
   },
-  "construction_debris": {
-    "display_name": "Construction Debris",
-    "waste_category": "Construction Waste",
-    "material": "Mixed Construction Material",
+
+  "rope_strings": {
+    "display_name": "Rope / Strings",
+    "waste_category": "Non-Recyclable Waste",
+    "material": "Mixed Fibre or Plastic",
     "recyclable": false,
-    "recommended_handling": "Keep separate from household waste and arrange collection by an authorised construction-waste handler."
+    "recommended_handling": "Bundle or contain loose rope and strings securely before placing them in the appropriate general-waste stream."
   },
+
+  "food_waste": {
+    "display_name": "Food Waste",
+    "waste_category": "Non-Recyclable Waste",
+    "material": "Organic Material",
+    "recyclable": false,
+    "recommended_handling": "Keep separate from recyclable materials. Use composting or an organic-waste collection stream where available; otherwise use the appropriate general-waste stream."
+  },
+
   "electronic_waste": {
     "display_name": "Electronic Waste",
-    "waste_category": "Electronic Waste",
-    "material": "Mixed Electronic Components",
-    "recyclable": true,
-    "recommended_handling": "Keep dry and intact and deliver to an authorised electronic-waste collection facility."
+    "waste_category": "Non-Recyclable Waste",
+    "material": "Electronic Components",
+    "recyclable": false,
+    "recommended_handling": "Do not place electronic waste in normal recycling bins. Keep it dry and intact and deliver it to an authorised electronic-waste collection or recovery facility."
+  },
+
+  "battery": {
+    "display_name": "Battery",
+    "waste_category": "Non-Recyclable Waste",
+    "material": "Battery / Hazardous Electronic Material",
+    "recyclable": false,
+    "recommended_handling": "Do not place batteries in household recycling or general-waste bins. Keep terminals protected where appropriate and deliver them to an authorised battery or electronic-waste collection point."
   }
 }

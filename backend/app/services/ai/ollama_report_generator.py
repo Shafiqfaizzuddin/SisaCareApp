@@ -239,6 +239,10 @@ Output contract:
 - Return exactly these five keys and no others: title, summary,
   waste_identified, recommended_action, environmental_concern.
 - Every value must be a non-empty JSON string.
+- Write each value as normal professional prose. Do not encode arrays, objects,
+  bullet lists, or additional JSON inside any string value.
+- In waste_identified, list every mapped item using its display_name and exact
+  object_count. In summary, state backend_total_objects exactly once.
 
 AUTHORITATIVE_BACKEND_FACTS_START
 {detection_json}
@@ -296,6 +300,15 @@ def _validate_report_grounding(
         for item in supplied_items
         if isinstance(item, Mapping) and isinstance(item.get("class_name"), str)
     }
+    detection_claim_text = " ".join(
+        report[field]
+        for field in (
+            "title",
+            "summary",
+            "waste_identified",
+            "environmental_concern",
+        )
+    ).lower()
     for class_name, metadata in load_category_mapping().items():
         if class_name in allowed_classes:
             continue
@@ -304,7 +317,7 @@ def _validate_report_grounding(
             metadata["display_name"].lower(),
         }
         mentions_unsupported_class = any(
-            re.search(rf"\b{re.escape(alias)}\b", lowered_report)
+            re.search(rf"\b{re.escape(alias)}\b", detection_claim_text)
             for alias in aliases
         )
         if mentions_unsupported_class:
@@ -471,8 +484,9 @@ def generate_waste_report(
         except ValueError as exc:
             logger.warning(
                 "ollama_request_failed code=INVALID_OLLAMA_RESPONSE "
-                "error_type=%s duration_ms=%d",
+                "error_type=%s reason=%s duration_ms=%d",
                 type(exc).__name__,
+                str(exc),
                 round((perf_counter() - request_started) * 1000),
             )
             return _failure(

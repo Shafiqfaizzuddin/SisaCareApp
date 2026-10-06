@@ -157,6 +157,47 @@ def test_no_detection_is_returned_without_report(
     assert list((tmp_path / "uploads").iterdir()) == []
 
 
+def test_report_failure_does_not_expose_temporary_file_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    upload_dir, annotated_dir = configure_temp_storage(monkeypatch, tmp_path)
+    annotated_path = annotated_dir / f"annotated-{'b' * 32}.jpg"
+    annotated_path.write_bytes(b"annotated")
+
+    def failed_report(image_path: Path) -> dict[str, Any]:
+        return {
+            "success": False,
+            "code": "INVALID_OLLAMA_RESPONSE",
+            "message": "Ollama returned an invalid waste report response.",
+            "stage": "report_generation",
+            "original_image": str(image_path),
+            "annotated_image": str(annotated_path),
+            "detection": {
+                "total_objects": 1,
+                "counts": {"plastic_bottle": 1},
+                "detections": [],
+            },
+        }
+
+    monkeypatch.setattr(waste_analysis, "analyze_waste_image", failed_report)
+
+    response = client.post(
+        "/api/waste/analyze",
+        files={"image": ("waste.png", VALID_PNG, "image/png")},
+    )
+
+    payload = response.json()
+    assert response.status_code == 502
+    assert payload["code"] == "INVALID_OLLAMA_RESPONSE"
+    assert payload["stage"] == "report_generation"
+    assert payload["detection"]["total_objects"] == 1
+    assert "original_image" not in payload
+    assert "annotated_image" not in payload
+    assert list(upload_dir.iterdir()) == []
+    assert list(annotated_dir.iterdir()) == []
+
+
 def test_unsupported_file_type_is_rejected_before_analysis(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

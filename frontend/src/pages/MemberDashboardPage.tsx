@@ -11,20 +11,22 @@ import {
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ReportStatus } from '../components/reports/ReportStatus'
-import { reportSummaries } from '../features/admin-reports/report-data'
 import { useRole } from '../features/authentication/useRole'
 import { achievements } from '../features/authentication/member-data'
 
 export function MemberDashboardPage() {
-  const { user } = useRole()
+  const {
+    user,
+    memberReports,
+    isMemberDataLoading,
+    memberDataError,
+    refreshMemberData,
+  } = useRole()
 
   if (!user) {
     return null
   }
 
-  const memberReports = reportSummaries.filter(
-    (report) => report.reporter === user.name,
-  )
   const nextAchievement = achievements.find(
     (achievement) => achievement.pointsRequired > user.points,
   )
@@ -38,6 +40,13 @@ export function MemberDashboardPage() {
         (nextAchievement.pointsRequired - previousThreshold)) *
       100
     : 100
+  const standingDescription = isMemberDataLoading
+    ? 'Updating your community standing.'
+    : user.rank
+      ? user.rank <= 5
+        ? 'You are currently in the top five.'
+        : `You are currently ranked #${user.rank}.`
+      : 'Earn points from validated reports to enter the ranking.'
 
   return (
     <section className="section member-page">
@@ -145,15 +154,32 @@ export function MemberDashboardPage() {
               <ClipboardList size={20} />
             </header>
             <div className="member-report-list">
-              {memberReports.map((report) => (
-                <div key={report.id}>
-                  <div>
-                    <strong>{report.reference}</strong>
-                    <span>{report.location}</span>
-                  </div>
-                  <ReportStatus status={report.status} />
+              {isMemberDataLoading ? (
+                <p className="empty-state">Loading your reports...</p>
+              ) : memberDataError ? (
+                <div className="empty-state" role="alert">
+                  <p>{memberDataError}</p>
+                  <button
+                    className="button button--secondary"
+                    type="button"
+                    onClick={refreshMemberData}
+                  >
+                    Try again
+                  </button>
                 </div>
-              ))}
+              ) : memberReports.length > 0 ? (
+                memberReports.map((report) => (
+                  <div key={report.id}>
+                    <div>
+                      <strong>{report.reference}</strong>
+                      <span>{report.location}</span>
+                    </div>
+                    <ReportStatus status={report.status} />
+                  </div>
+                ))
+              ) : (
+                <p className="empty-state">No reports submitted yet.</p>
+              )}
             </div>
           </section>
 
@@ -161,7 +187,7 @@ export function MemberDashboardPage() {
             <header>
               <div>
                 <h2>Community standing</h2>
-                <p>You are currently in the top five.</p>
+                <p>{standingDescription}</p>
               </div>
               <Crown size={20} />
             </header>
@@ -169,7 +195,7 @@ export function MemberDashboardPage() {
               <span>{user.rank ? `#${user.rank}` : 'N/A'}</span>
               <div>
                 <strong>{user.name}</strong>
-                <p>{user.points} points · {user.validReports} valid reports</p>
+                <p>{user.points} points | {user.validReports ?? 0} valid reports</p>
               </div>
             </div>
             <Link to="/leaderboard">

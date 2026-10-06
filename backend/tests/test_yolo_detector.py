@@ -1,4 +1,5 @@
 import logging
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -33,15 +34,20 @@ def fake_box(class_id: int, confidence: float, coordinates: list[float]) -> Simp
 
 
 class FakeModel:
-    def __init__(self, boxes: list[SimpleNamespace]) -> None:
+    def __init__(
+        self,
+        boxes: list[SimpleNamespace],
+        names: dict[int, str] | None = None,
+    ) -> None:
         self.boxes = boxes
+        self.names = names or {0: "plastic_bottle", 1: "metal_can"}
         self.predict_calls: list[dict[str, object]] = []
 
     def predict(self, **kwargs: object) -> list[SimpleNamespace]:
         self.predict_calls.append(kwargs)
         return [
             SimpleNamespace(
-                names={0: "plastic_bottle", 1: "metal_can"},
+                names=self.names,
                 boxes=self.boxes,
             )
         ]
@@ -58,6 +64,32 @@ def assert_failure_has_no_detection_data(result: object) -> None:
     assert "detections" not in result
     assert "counts" not in result
     assert "annotated_image_path" not in result
+
+
+def test_model_is_loaded_once_and_reused(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    model_path = tmp_path / "model.pt"
+    model_path.write_bytes(b"model")
+    loaded_model = object()
+    load_calls: list[str] = []
+
+    def fake_yolo(path: str) -> object:
+        load_calls.append(path)
+        return loaded_model
+
+    monkeypatch.setattr(yolo_detector, "MODEL_PATH", model_path)
+    monkeypatch.setattr(yolo_detector, "_model", None)
+    monkeypatch.setitem(
+        sys.modules,
+        "ultralytics",
+        SimpleNamespace(YOLO=fake_yolo),
+    )
+
+    assert yolo_detector._load_model() is loaded_model
+    assert yolo_detector._load_model() is loaded_model
+    assert load_calls == [str(model_path)]
 
 
 def test_valid_image_with_waste_returns_enriched_success(
@@ -140,6 +172,37 @@ def test_valid_image_without_waste_returns_no_detection_failure(
         "message": "No supported waste objects were detected in this image.",
     }
     assert_failure_has_no_detection_data(result)
+
+
+def test_model_labels_are_normalized_for_mapping_and_counts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    image_path = create_valid_image(tmp_path)
+    annotated_path = tmp_path / "annotated.jpg"
+    model = FakeModel(
+        [
+            fake_box(0, 0.91, [10.0, 20.0, 110.0, 120.0]),
+            fake_box(1, 0.82, [15.0, 25.0, 90.0, 100.0]),
+        ],
+        names={0: "Disposable plastic container", 1: "Rope & strings"},
+    )
+    monkeypatch.setattr(yolo_detector, "_load_model", lambda: model)
+    monkeypatch.setattr(
+        yolo_detector,
+        "save_annotated_image",
+        lambda _result, _source_path: annotated_path,
+    )
+
+    result = yolo_detector.detect_waste(image_path)
+
+    assert result["success"] is True
+    assert result["counts"] == {
+        "disposable_plastic_container": 1,
+        "rope_strings": 1,
+    }
+    assert result["detections"][0]["display_name"] == "Plastic Container"
+    assert result["detections"][1]["display_name"] == "Rope / Strings"
 
 
 def test_corrupted_image_returns_consistent_failure(

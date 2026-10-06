@@ -79,7 +79,7 @@ function groupDetections(analysis: WasteAnalysisSuccess): DetectionGroup[] {
 
 export function SubmitReportPage() {
   const navigate = useNavigate()
-  const { role, user } = useRole()
+  const { role, user, refreshMemberData } = useRole()
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState('')
   const [analysis, setAnalysis] = useState<WasteAnalysisSuccess | null>(null)
@@ -144,7 +144,6 @@ export function SubmitReportPage() {
     setAnalyzedFile(null)
     setAnnotatedImageError(false)
     setReportDraft(EMPTY_REPORT)
-    setSiteNotes('')
     setSubmissionError('')
 
     const file = event.target.files?.[0] ?? null
@@ -268,6 +267,9 @@ export function SubmitReportPage() {
       )
       if (controller.signal.aborted) {
         return
+      }
+      if (role === 'user') {
+        refreshMemberData()
       }
       navigate('/report/success', {
         state: {

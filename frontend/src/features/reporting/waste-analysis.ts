@@ -39,17 +39,64 @@ function isFailure(value: unknown): value is WasteAnalysisFailure {
   )
 }
 
+function isNumberRecord(value: unknown): value is Record<string, number> {
+  return (
+    isObject(value) &&
+    Object.values(value).every(
+      (item) =>
+        typeof item === 'number' && Number.isInteger(item) && item >= 0,
+    )
+  )
+}
+
+function isDetection(value: unknown): boolean {
+  if (!isObject(value) || !isObject(value.bounding_box)) return false
+  const box = value.bounding_box
+  return (
+    typeof value.class_name === 'string' &&
+    Number.isInteger(value.class_id) &&
+    typeof value.confidence === 'number' &&
+    Number.isFinite(value.confidence) &&
+    value.confidence >= 0 &&
+    value.confidence <= 1 &&
+    typeof value.display_name === 'string' &&
+    typeof value.waste_category === 'string' &&
+    typeof value.material === 'string' &&
+    typeof value.recyclable === 'boolean' &&
+    typeof value.recommended_handling === 'string' &&
+    [box.x1, box.y1, box.x2, box.y2].every(
+      (coordinate) =>
+        typeof coordinate === 'number' && Number.isFinite(coordinate),
+    )
+  )
+}
+
+function isReport(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    typeof value.title === 'string' &&
+    typeof value.summary === 'string' &&
+    typeof value.waste_identified === 'string' &&
+    typeof value.recommended_action === 'string' &&
+    typeof value.environmental_concern === 'string'
+  )
+}
+
 function isSuccess(value: unknown): value is WasteAnalysisSuccess {
   return (
     isObject(value) &&
     value.success === true &&
     typeof value.analysis_id === 'string' &&
+    typeof value.original_image === 'string' &&
     typeof value.annotated_image === 'string' &&
     isObject(value.detection) &&
     typeof value.detection.total_objects === 'number' &&
-    isObject(value.detection.counts) &&
+    Number.isInteger(value.detection.total_objects) &&
+    value.detection.total_objects >= 0 &&
+    isNumberRecord(value.detection.counts) &&
     Array.isArray(value.detection.detections) &&
-    isObject(value.report)
+    value.detection.detections.every(isDetection) &&
+    isReport(value.report)
   )
 }
 
@@ -129,6 +176,9 @@ export async function analyzeWasteImage(
       'The analysis service returned an invalid annotated image.',
       'INVALID_ANNOTATED_IMAGE',
     )
+  }
+  if (signal?.aborted) {
+    throw new DOMException('The analysis request was cancelled.', 'AbortError')
   }
 
   return {

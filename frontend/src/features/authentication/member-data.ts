@@ -55,6 +55,14 @@ export const achievements: Achievement[] = [
   },
 ]
 
+export function memberTitleForPoints(points: number): string {
+  return achievements.reduce(
+    (title, achievement) =>
+      points >= achievement.pointsRequired ? achievement.title : title,
+    'Community Member',
+  )
+}
+
 export const leaderboardEntries: LeaderboardEntry[] = [
   {
     id: 'usr-188',

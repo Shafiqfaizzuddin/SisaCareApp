@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import TypedDict
@@ -28,7 +29,8 @@ class CategoryMappingError(RuntimeError):
 def normalize_class_name(class_name: str) -> str:
     """Normalize common YOLO class-name formats to mapping keys."""
 
-    return class_name.strip().lower().replace("-", "_").replace(" ", "_")
+    normalized = class_name.strip().lower().replace("&", " ")
+    return re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
 
 
 def _validate_metadata(class_name: str, value: object) -> WasteCategoryMetadata:
@@ -85,6 +87,14 @@ def load_category_mapping() -> dict[str, WasteCategoryMetadata]:
         if not isinstance(raw_class_name, str) or not raw_class_name.strip():
             raise CategoryMappingError("Category mapping keys must be non-empty strings.")
         normalized_name = normalize_class_name(raw_class_name)
+        if not normalized_name:
+            raise CategoryMappingError(
+                f"Mapping key '{raw_class_name}' has no usable class-name characters."
+            )
+        if normalized_name in mapping:
+            raise CategoryMappingError(
+                f"Duplicate normalized mapping key: '{normalized_name}'."
+            )
         mapping[normalized_name] = _validate_metadata(normalized_name, raw_metadata)
 
     return mapping

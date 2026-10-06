@@ -21,6 +21,7 @@ from app.services.ai.yolo_detector import (
 
 logger = logging.getLogger(__name__)
 
+
 class AnalysisDetection(TypedDict):
     total_objects: int
     counts: dict[str, int]

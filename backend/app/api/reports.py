@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 from pathlib import Path
@@ -42,6 +43,7 @@ from app.services.image_uploads import (
 )
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 REPORT_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 REPORT_IMAGE_PATTERN = re.compile(r"^(?:original|annotated)\.(?:jpg|jpeg|png|webp)$")
@@ -139,7 +141,7 @@ async def _create_report(submission: dict[str, object]) -> dict[str, str]:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except DraftAssetError as exc:
         raise HTTPException(status_code=410, detail=str(exc)) from exc
-    except (OSError, sqlite3.Error) as exc:
+    except (OSError, TypeError, ValueError, sqlite3.Error) as exc:
         raise HTTPException(
             status_code=500,
             detail="The report could not be stored. Please try again.",
@@ -211,7 +213,13 @@ async def submit_report_with_image(
             detail="The uploaded image is empty or invalid.",
         ) from exc
     finally:
-        Path(destination).unlink(missing_ok=True)
+        try:
+            Path(destination).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "report_upload_cleanup_failed error_type=%s",
+                type(exc).__name__,
+            )
 
 
 @router.get("")

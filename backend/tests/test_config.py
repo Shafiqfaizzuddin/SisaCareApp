@@ -9,7 +9,7 @@ from app.core.config import PROJECT_ROOT, Settings
 def test_ai_configuration_has_project_relative_development_defaults() -> None:
     settings = Settings(_env_file=None)
 
-    assert settings.yolo_model_path == PROJECT_ROOT / "ai" / "models" / "best.pt"
+    assert settings.yolo_model_path == PROJECT_ROOT / "ai" / "models" / "expV2.pt"
     assert settings.yolo_confidence_threshold == 0.35
     assert settings.ollama_base_url == "http://localhost:11434"
     assert settings.ollama_model == "llama3.2"

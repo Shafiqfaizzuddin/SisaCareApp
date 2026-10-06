@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     log_level: str = "INFO"
 
-    yolo_model_path: Path = Path("ai/models/best.pt")
+    yolo_model_path: Path = Path("ai/models/expV2.pt")
     yolo_confidence_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
 
     ollama_base_url: str = "http://localhost:11434"

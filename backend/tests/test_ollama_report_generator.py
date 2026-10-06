@@ -91,6 +91,9 @@ def test_generates_valid_report_from_sanitized_yolo_data(
         assert "Do not mention or invent a location" in prompt
         assert "has already happened" in prompt
         assert "possible or conditional impact" in prompt
+        assert "Do not encode arrays" in prompt
+        assert "list every mapped item" in prompt
+        assert "object_count" in prompt
         return ollama_response()
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
@@ -262,3 +265,37 @@ def test_ungrounded_report_claims_are_rejected(report: dict[str, str]) -> None:
         "code": "INVALID_OLLAMA_RESPONSE",
         "message": "Ollama returned an invalid waste report response.",
     }
+
+
+def test_trusted_handling_language_is_not_treated_as_an_invented_object() -> None:
+    detection_data = {
+        "detections": [
+            {"class_name": "plastic_bottle", "confidence": 0.91},
+            {"class_name": "plastic_bottle", "confidence": 0.90},
+            {"class_name": "plastic_bottle", "confidence": 0.84},
+            {"class_name": "small_accessory", "confidence": 0.49},
+            {"class_name": "small_accessory", "confidence": 0.48},
+            {"class_name": "scrap_metal", "confidence": 0.42},
+        ]
+    }
+    report = {
+        "title": "Municipal Waste Observation Report",
+        "summary": "Six detected waste objects require appropriate handling.",
+        "waste_identified": (
+            "Three plastic bottles, two small waste accessories, and one scrap "
+            "metal item."
+        ),
+        "recommended_action": (
+            "Keep scrap metal separate from general waste and use an appropriate "
+            "metal recycling facility."
+        ),
+        "environmental_concern": (
+            "Improper handling may contribute to litter and material loss."
+        ),
+    }
+    transport = httpx.MockTransport(lambda _request: ollama_response(report))
+
+    with httpx.Client(transport=transport) as client:
+        result = generate_waste_report(detection_data, client=client)
+
+    assert result == report

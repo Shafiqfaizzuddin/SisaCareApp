@@ -392,6 +392,35 @@ def test_guest_can_submit_uploaded_image_without_ai(
     assert stored_images[0].name == "original.png"
 
 
+def test_guest_submission_succeeds_when_temporary_cleanup_fails(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    monkeypatch.setattr(reports_api, "UPLOAD_DIR", tmp_path / "uploads")
+    payload = submission_payload(None)
+    payload.update(
+        waste_identified="",
+        recommended_action="",
+        environmental_concern="",
+    )
+
+    def fail_cleanup(_path: Path, *, missing_ok: bool = False) -> None:
+        raise OSError("cleanup unavailable")
+
+    monkeypatch.setattr(Path, "unlink", fail_cleanup)
+
+    response = client.post(
+        "/api/reports/with-image",
+        data={"payload": json.dumps(payload)},
+        files={"image": ("guest-evidence.png", VALID_PNG, "image/png")},
+    )
+
+    assert response.status_code == 201
+    assert "report_upload_cleanup_failed" in caplog.text
+
+
 def test_admin_report_reads_include_saved_ai_detections(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

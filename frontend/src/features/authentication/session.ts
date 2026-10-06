@@ -1,6 +1,5 @@
 import type { User } from '@supabase/supabase-js'
 import type { UserProfile } from '../../types'
-import { demoMember } from './member-data'
 
 export interface AdminCredentials {
   email: string
@@ -38,20 +37,17 @@ export function profileFromAuthUser(user: User): UserProfile {
   const metadataName =
     metadataString(user.user_metadata.full_name) ??
     metadataString(user.user_metadata.name)
-  const isDemoMember = email.toLowerCase() === demoMember.email.toLowerCase()
 
   return {
     id: user.id,
     name: metadataName ?? fallbackName(email),
     email,
     role: isAdmin ? 'admin' : 'user',
-    points: isDemoMember ? demoMember.points : 0,
+    points: 0,
     title: isAdmin
       ? metadataString(user.app_metadata.title) ?? 'Municipal Administrator'
-      : isDemoMember
-        ? demoMember.title
-        : 'Community Member',
-    rank: isDemoMember ? demoMember.rank : undefined,
-    validReports: isDemoMember ? demoMember.validReports : 0,
+      : 'Community Member',
+    rank: undefined,
+    validReports: 0,
   }
 }
