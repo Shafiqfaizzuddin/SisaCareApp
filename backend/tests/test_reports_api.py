@@ -40,6 +40,7 @@ DETECTIONS = [
         "waste_category": "Recyclable Waste",
         "material": "Plastic",
         "confidence": 0.9,
+        "source": "yolo",
         "bounding_box": {
             "x1": 10.0,
             "y1": 20.0,
@@ -53,6 +54,7 @@ DETECTIONS = [
         "waste_category": "Recyclable Waste",
         "material": "Metal",
         "confidence": 0.84,
+        "source": "yolo",
         "bounding_box": {
             "x1": 250.0,
             "y1": 40.0,
@@ -61,6 +63,16 @@ DETECTIONS = [
         },
     },
 ]
+
+VLM_DETECTION = {
+    "class_name": "mattress",
+    "display_name": "Mattress",
+    "waste_category": "Bulky Waste",
+    "material": "Mixed Materials",
+    "confidence": None,
+    "bounding_box": None,
+    "source": "vlm",
+}
 
 GENERATED_REPORT = {
     "title": "Generated municipal report",
@@ -92,9 +104,20 @@ def create_draft(tmp_path: Path) -> str:
         original_image_path=original,
         annotated_image_path=annotated,
         detection={
-            "total_objects": 2,
-            "counts": {"plastic_bottle": 1, "metal_can": 1},
-            "detections": DETECTIONS,
+            "detections": [*DETECTIONS, VLM_DETECTION],
+            "raw_yolo": {
+                "available": True,
+                "error": None,
+            },
+            "raw_vlm": {
+                "available": True,
+                "scene_description": "Two recyclable items are visible.",
+                "error": None,
+            },
+            "analysis": {
+                "mode": "hybrid",
+                "categories_detected": ["Recyclable Waste", "Bulky Waste"],
+            },
         },
         report=GENERATED_REPORT,
         user_id=MEMBER_USER["id"],
@@ -142,7 +165,14 @@ def test_repeated_ai_analysis_drafts_never_create_reward_events(
         reward_count = database.execute(
             "SELECT COUNT(*) FROM reward_events"
         ).fetchone()[0]
+        report_count = database.execute("SELECT COUNT(*) FROM reports").fetchone()[0]
+        stored_draft_report = database.execute(
+            "SELECT ai_report_json FROM analysis_drafts WHERE id = ?",
+            (first_draft,),
+        ).fetchone()[0]
     assert reward_count == 0
+    assert report_count == 0
+    assert json.loads(stored_draft_report) == GENERATED_REPORT
 
 
 def test_temporary_draft_assets_are_bound_to_their_owner(
@@ -169,8 +199,11 @@ def test_member_submission_persists_reviewed_report_and_images(
 ) -> None:
     configure_report_storage(monkeypatch, tmp_path)
     draft_id = create_draft(tmp_path)
+    payload = submission_payload(draft_id)
+    payload["detections"] = [{"class_name": "user_modified_detection"}]
+    payload["final_categories"] = ["Bulky Waste"]
 
-    response = client.post("/api/reports", json=submission_payload(draft_id))
+    response = client.post("/api/reports", json=payload)
 
     assert response.status_code == 201
     result = response.json()
@@ -201,7 +234,19 @@ def test_member_submission_persists_reviewed_report_and_images(
     assert report is not None
     assert report["guest_name"] is None
     assert report["user_id"] == MEMBER_USER["id"]
+    assert report["title"] == "Reviewed waste report"
     assert report["summary"] == "The user-edited final summary."
+    assert report["waste_identified"] == "One plastic bottle."
+    assert report["recommended_action"] == "Collect and recycle it."
+    assert report["environmental_concern"] == "It may contribute to litter."
+    assert json.loads(report["final_categories_json"]) == [
+        "Recyclable Waste",
+        "Bulky Waste",
+    ]
+    ai_analysis = json.loads(report["ai_analysis_json"])
+    assert ai_analysis["mode"] == "hybrid"
+    assert ai_analysis["scene_description"] == "Two recyclable items are visible."
+    assert "grouped_objects" not in ai_analysis
     assert report["latitude"] == pytest.approx(6.4436)
     assert report["longitude"] == pytest.approx(100.2700)
     assert report["location_city"] == "Arau"
@@ -214,18 +259,26 @@ def test_member_submission_persists_reviewed_report_and_images(
         "location_address",
         "location_source",
     }.issubset(report_columns)
-    assert len(detections) == 2
-    assert detections[0]["class_name"] == "metal_can"
-    assert detections[0]["display_name"] == "Metal Can"
-    assert detections[0]["waste_category"] == "Recyclable Waste"
-    assert detections[0]["material"] == "Metal"
-    assert detections[0]["confidence"] == pytest.approx(0.84)
-    assert detections[0]["x1"] == pytest.approx(250.0)
-    assert detections[0]["y1"] == pytest.approx(40.0)
-    assert detections[0]["x2"] == pytest.approx(310.0)
-    assert detections[0]["y2"] == pytest.approx(160.0)
-    assert detections[0]["created_at"] == report["created_at"]
-    assert detections[1]["report_id"] == report["id"]
+    assert len(detections) == 3
+    assert detections[0]["class_name"] == "mattress"
+    assert detections[0]["source"] == "vlm"
+    assert detections[0]["confidence"] is None
+    assert detections[0]["x1"] is None
+    assert detections[0]["y1"] is None
+    assert detections[0]["x2"] is None
+    assert detections[0]["y2"] is None
+    assert detections[1]["class_name"] == "metal_can"
+    assert detections[1]["display_name"] == "Metal Can"
+    assert detections[1]["waste_category"] == "Recyclable Waste"
+    assert detections[1]["material"] == "Metal"
+    assert detections[1]["confidence"] == pytest.approx(0.84)
+    assert detections[1]["x1"] == pytest.approx(250.0)
+    assert detections[1]["y1"] == pytest.approx(40.0)
+    assert detections[1]["x2"] == pytest.approx(310.0)
+    assert detections[1]["y2"] == pytest.approx(160.0)
+    assert detections[1]["source"] == "yolo"
+    assert detections[1]["created_at"] == report["created_at"]
+    assert detections[2]["report_id"] == report["id"]
     assert draft["consumed_at"] is not None
     assert len(list((tmp_path / "assets" / result["id"]).iterdir())) == 2
 
@@ -274,6 +327,16 @@ def test_member_reward_is_created_once_after_admin_validation(
     submission = client.post("/api/reports", json=payload)
     report_id = submission.json()["id"]
 
+    # Re-analysis, another generated draft, and reopening the report are read or
+    # draft operations and must not create rewards.
+    create_draft(tmp_path)
+    assert client.get(f"/api/reports/{report_id}").status_code == 200
+    assert client.get(f"/api/reports/{report_id}").status_code == 200
+    with sqlite3.connect(report_repository.DATABASE_PATH) as database:
+        assert database.execute(
+            "SELECT COUNT(*) FROM reward_events"
+        ).fetchone()[0] == 0
+
     first_validation = client.post(
         f"/api/reports/{report_id}/validation",
         json={"validation_status": "valid"},
@@ -294,6 +357,9 @@ def test_member_reward_is_created_once_after_admin_validation(
     assert retried_validation.status_code == 200
     assert retried_validation.json()["reward_awarded"] is False
     assert retried_validation.json()["reward_points"] == 0
+    reopened = client.get(f"/api/reports/{report_id}")
+    assert reopened.status_code == 200
+    assert reopened.json()["reward_points"] == 40
 
     with sqlite3.connect(report_repository.DATABASE_PATH) as database:
         report = database.execute(
@@ -459,16 +525,24 @@ def test_admin_report_reads_include_saved_ai_detections(
     detail = detail_response.json()
     assert detail["reference"] == submission.json()["reference"]
     assert detail["generated_report"] == GENERATED_REPORT
+    assert detail["reward_points"] == 0
     assert detail["summary"] == "The user-edited final summary."
+    assert detail["final_categories"] == ["Recyclable Waste", "Bulky Waste"]
+    assert detail["ai_analysis"]["mode"] == "hybrid"
     assert detail["latitude"] == pytest.approx(6.4436)
     assert detail["longitude"] == pytest.approx(100.2700)
     assert detail["location_address"] == "Near the community hall, Arau, Perlis"
     assert detail["location_source"] == "map"
     assert detail["original_image"].startswith("/api/reports/files/")
     assert detail["annotated_image"].startswith("/api/reports/files/")
-    assert len(detail["detections"]) == 2
+    assert len(detail["detections"]) == 3
     assert detail["detections"][0]["class_name"] == "plastic_bottle"
     assert detail["detections"][0]["x1"] == pytest.approx(10.0)
+    assert detail["detections"][0]["source"] == "yolo"
+    assert detail["detections"][2]["class_name"] == "mattress"
+    assert detail["detections"][2]["confidence"] is None
+    assert detail["detections"][2]["x1"] is None
+    assert detail["detections"][2]["source"] == "vlm"
 
     image_response = client.get(detail["annotated_image"])
     assert image_response.status_code == 200
@@ -608,3 +682,62 @@ def test_database_initialization_migrates_legacy_detection_json(
         ("legacy-report", "metal_can", "2026-09-24T00:00:00+00:00"),
         ("legacy-report", "plastic_bottle", "2026-09-24T00:00:00+00:00"),
     ]
+
+
+def test_database_initialization_allows_vlm_detection_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    response = client.post("/api/reports", json=submission_payload(None))
+    report_id = response.json()["id"]
+
+    with sqlite3.connect(report_repository.DATABASE_PATH) as database:
+        database.execute("DROP INDEX idx_waste_detections_report_id")
+        database.execute("DROP TABLE waste_detections")
+        database.execute(
+            """
+            CREATE TABLE waste_detections (
+                id TEXT PRIMARY KEY,
+                report_id TEXT NOT NULL,
+                class_name TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                waste_category TEXT NOT NULL,
+                material TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                x1 REAL NOT NULL,
+                y1 REAL NOT NULL,
+                x2 REAL NOT NULL,
+                y2 REAL NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        database.execute(
+            """
+            INSERT INTO waste_detections VALUES (
+                'old-detection', ?, 'plastic_bottle', 'Plastic Bottle',
+                'Recyclable Waste', 'Plastic', 0.9, 1, 2, 3, 4,
+                '2026-10-06T00:00:00+00:00'
+            )
+            """,
+            (report_id,),
+        )
+
+    report_repository.initialize_database()
+
+    with sqlite3.connect(report_repository.DATABASE_PATH) as database:
+        database.row_factory = sqlite3.Row
+        columns = {
+            row["name"]: row
+            for row in database.execute("PRAGMA table_info(waste_detections)")
+        }
+        migrated = database.execute(
+            "SELECT * FROM waste_detections WHERE id = 'old-detection'"
+        ).fetchone()
+
+    assert columns["confidence"]["notnull"] == 0
+    assert columns["x1"]["notnull"] == 0
+    assert "source" in columns
+    assert migrated["source"] == "yolo"
+    assert migrated["confidence"] == pytest.approx(0.9)

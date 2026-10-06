@@ -92,7 +92,7 @@ def test_model_is_loaded_once_and_reused(
     assert load_calls == [str(model_path)]
 
 
-def test_valid_image_with_waste_returns_enriched_success(
+def test_valid_image_with_several_objects_returns_individual_detections(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -126,19 +126,13 @@ def test_valid_image_with_waste_returns_enriched_success(
         "class_name": "plastic_bottle",
         "class_id": 0,
         "confidence": 0.91,
-        "display_name": "Plastic Bottle",
-        "waste_category": "Recyclable Waste",
-        "material": "Plastic",
-        "recyclable": True,
-        "recommended_handling": (
-            "Empty, rinse, and place in an appropriate plastic recycling stream."
-        ),
         "bounding_box": {
             "x1": 10.0,
             "y1": 20.0,
             "x2": 110.0,
             "y2": 120.0,
         },
+        "source": "yolo",
     }
     assert model.predict_calls == [
         {
@@ -152,29 +146,58 @@ def test_valid_image_with_waste_returns_enriched_success(
     assert str(image_path) not in caplog.text
 
 
-def test_valid_image_without_waste_returns_no_detection_failure(
+def test_valid_image_with_one_object_returns_structured_detection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     image_path = create_valid_image(tmp_path)
+    annotated_path = tmp_path / "annotated.jpg"
+    model = FakeModel(
+        [fake_box(0, 0.91, [10.0, 20.0, 110.0, 120.0])],
+    )
+    monkeypatch.setattr(yolo_detector, "_load_model", lambda: model)
+    monkeypatch.setattr(
+        yolo_detector,
+        "save_annotated_image",
+        lambda _result, _source_path: annotated_path,
+    )
+
+    result = yolo_detector.detect_waste(image_path)
+
+    assert result["success"] is True
+    assert result["total_objects"] == 1
+    assert result["counts"] == {"plastic_bottle": 1}
+    assert len(result["detections"]) == 1
+    assert result["detections"][0]["source"] == "yolo"
+
+
+def test_valid_image_without_waste_returns_structured_empty_result(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    image_path = create_valid_image(tmp_path)
+    annotated_path = tmp_path / "annotated.jpg"
     monkeypatch.setattr(yolo_detector, "_load_model", lambda: FakeModel([]))
     monkeypatch.setattr(
         yolo_detector,
         "save_annotated_image",
-        lambda *_args: pytest.fail("No-detection result must not be annotated."),
+        lambda _result, _source_path: annotated_path,
     )
 
     result = yolo_detector.detect_waste(image_path)
 
     assert result == {
-        "success": False,
+        "success": True,
         "code": "NO_WASTE_DETECTED",
         "message": "No supported waste objects were detected in this image.",
+        "total_objects": 0,
+        "counts": {},
+        "detections": [],
+        "annotated_image_path": str(annotated_path),
     }
-    assert_failure_has_no_detection_data(result)
 
 
-def test_model_labels_are_normalized_for_mapping_and_counts(
+def test_model_labels_are_normalized_for_detections_and_counts(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -201,8 +224,9 @@ def test_model_labels_are_normalized_for_mapping_and_counts(
         "disposable_plastic_container": 1,
         "rope_strings": 1,
     }
-    assert result["detections"][0]["display_name"] == "Plastic Container"
-    assert result["detections"][1]["display_name"] == "Rope / Strings"
+    assert result["detections"][0]["class_name"] == "disposable_plastic_container"
+    assert result["detections"][1]["class_name"] == "rope_strings"
+    assert all(detection["source"] == "yolo" for detection in result["detections"])
 
 
 def test_corrupted_image_returns_consistent_failure(
@@ -273,11 +297,8 @@ def test_missing_model_returns_consistent_failure(
     tmp_path: Path,
 ) -> None:
     image_path = create_valid_image(tmp_path)
-
-    def missing_model() -> object:
-        raise yolo_detector.ModelNotFoundError("missing model")
-
-    monkeypatch.setattr(yolo_detector, "_load_model", missing_model)
+    monkeypatch.setattr(yolo_detector, "MODEL_PATH", tmp_path / "missing-model.pt")
+    monkeypatch.setattr(yolo_detector, "_model", None)
 
     result = yolo_detector.detect_waste(image_path)
 
@@ -348,6 +369,11 @@ def test_default_confidence_is_forwarded(
     image_path = create_valid_image(tmp_path)
     model = FakeModel([])
     monkeypatch.setattr(yolo_detector, "_load_model", lambda: model)
+    monkeypatch.setattr(
+        yolo_detector,
+        "save_annotated_image",
+        lambda _result, _source_path: tmp_path / "annotated.jpg",
+    )
 
     yolo_detector.detect_waste(image_path)
 

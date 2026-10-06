@@ -34,17 +34,6 @@ class OllamaMalformedResponseError(OllamaConnectivityError):
     """Raised when Ollama returns an invalid non-streaming response."""
 
 
-def _api_error_detail(response: httpx.Response) -> str:
-    try:
-        payload: Any = response.json()
-    except ValueError:
-        return response.text.strip() or "No error details were returned."
-
-    if isinstance(payload, dict) and isinstance(payload.get("error"), str):
-        return payload["error"]
-    return "No error details were returned."
-
-
 def check_ollama_connection(
     *,
     base_url: str,
@@ -67,22 +56,20 @@ def check_ollama_connection(
             response = active_client.post(url, json=payload)
         except httpx.TimeoutException as exc:
             raise OllamaTimeoutError(
-                f"Ollama did not respond within {timeout_seconds:g} seconds."
+                "Ollama did not respond before the configured timeout."
             ) from exc
         except httpx.RequestError as exc:
             raise OllamaUnavailableError(
-                f"Could not connect to Ollama at {base_url}."
+                "Could not connect to the configured Ollama server."
             ) from exc
 
         if response.status_code == 404:
-            detail = _api_error_detail(response)
             raise OllamaModelNotInstalledError(
-                f"Ollama model '{model}' is not installed or unavailable: {detail}"
+                "The configured Ollama model is not installed or available."
             )
         if response.is_error:
-            detail = _api_error_detail(response)
             raise OllamaApiError(
-                f"Ollama returned HTTP {response.status_code}: {detail}"
+                f"Ollama returned HTTP {response.status_code}."
             )
 
         try:

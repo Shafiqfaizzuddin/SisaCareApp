@@ -13,6 +13,7 @@ import {
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ReportStatus } from '../components/reports/ReportStatus'
+import { TomTomMap } from '../components/location/TomTomMap'
 import { reportSummaries } from '../features/admin-reports/report-data'
 import {
   fetchPersistedReport,
@@ -26,12 +27,6 @@ import type {
   ReportSummary,
   WasteAnalysisReport,
 } from '../types'
-
-const statusOptions: { value: ReportStatusValue; label: string }[] = [
-  { value: 'processing', label: 'Processing' },
-  { value: 'in_progress', label: 'In progress' },
-  { value: 'completed', label: 'Completed' },
-]
 
 interface DetectionGroup {
   className: string
@@ -58,6 +53,12 @@ function groupDetections(detections: AdminWasteDetection[]): DetectionGroup[] {
     })
   })
   return [...groups.values()]
+}
+
+const sourceLabels: Record<AdminWasteDetection['source'], string> = {
+  yolo: 'YOLO',
+  vlm: 'VLM',
+  'yolo+vlm': 'YOLO + VLM',
 }
 
 function finalReportContent(report: AdminReportDetail): WasteAnalysisReport {
@@ -109,7 +110,9 @@ function ReportContent({ report }: { report: WasteAnalysisReport }) {
 function reportSummaryFromDetail(report: AdminReportDetail): ReportSummary {
   const maximumConfidence = Math.max(
     0,
-    ...report.detections.map((detection) => detection.confidence),
+    ...report.detections.flatMap((detection) =>
+      detection.confidence === null ? [] : [detection.confidence],
+    ),
   )
   return {
     id: report.id,
@@ -143,6 +146,9 @@ export function AdminReportDetailPage() {
   const [validationStatus, setValidationStatus] = useState(
     report?.validationStatus ?? 'pending',
   )
+  const [rewardPoints, setRewardPoints] = useState(
+    persistedReport?.rewardPoints ?? 0,
+  )
   const [isValidating, setIsValidating] = useState(false)
   const [validationError, setValidationError] = useState('')
 
@@ -161,6 +167,7 @@ export function AdminReportDetailPage() {
     if (!persistedReport) return
     setStatus(persistedReport.status)
     setValidationStatus(persistedReport.validationStatus)
+    setRewardPoints(persistedReport.rewardPoints)
   }, [persistedReport])
 
   useEffect(
@@ -190,6 +197,7 @@ export function AdminReportDetailPage() {
       const saved = await validatePersistedReport(report.id, result)
       setValidationStatus(saved.validationStatus)
       setStatus(saved.status)
+      setRewardPoints((current) => current + saved.rewardPoints)
     } catch (error) {
       setValidationError(
         error instanceof Error
@@ -246,21 +254,6 @@ export function AdminReportDetailPage() {
           <h1>{category?.label}</h1>
           <p>{report.location}</p>
         </div>
-        <label className="status-control">
-          <span>Update status</span>
-          <select
-            value={status}
-            onChange={(event) =>
-              setStatus(event.target.value as ReportStatusValue)
-            }
-          >
-            {statusOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
       </header>
 
       <div className="report-detail-grid">
@@ -328,8 +321,12 @@ export function AdminReportDetailPage() {
             <section className="admin-panel ai-detection-detail">
               <header className="admin-panel__heading">
                 <div>
-                  <h2>AI detection details</h2>
-                  <p>{persistedReport.detections.length} detected objects</p>
+                  <h2>Final grouped waste summary</h2>
+                  <p>
+                    {persistedReport.detections.length} detected objects
+                    {persistedReport.finalCategories.length > 0 &&
+                      ` · ${persistedReport.finalCategories.join(', ')}`}
+                  </p>
                 </div>
                 <BrainCircuit size={20} />
               </header>
@@ -338,7 +335,13 @@ export function AdminReportDetailPage() {
                   <article key={group.className}>
                     <header>
                       <strong>{group.displayName}</strong>
-                      <span>Quantity {group.detections.length}</span>
+                      <span>
+                        {group.detections.every(
+                          (detection) => detection.boundingBox === null,
+                        )
+                          ? 'Quantity not established'
+                          : `Quantity ${group.detections.length}`}
+                      </span>
                     </header>
                     <dl>
                       <div>
@@ -354,12 +357,22 @@ export function AdminReportDetailPage() {
                         <dd>{group.material}</dd>
                       </div>
                       <div>
+                        <dt>Source</dt>
+                        <dd>
+                          {[...new Set(group.detections.map((item) => item.source))]
+                            .map((source) => sourceLabels[source])
+                            .join(', ')}
+                        </dd>
+                      </div>
+                      <div>
                         <dt>Confidence</dt>
                         <dd>
                           {group.detections
                             .map(
                               (detection) =>
-                                `${Math.round(detection.confidence * 100)}%`,
+                                detection.confidence === null
+                                  ? 'Not available'
+                                  : `${Math.round(detection.confidence * 100)}%`,
                             )
                             .join(', ')}
                         </dd>
@@ -369,9 +382,10 @@ export function AdminReportDetailPage() {
                         <dd>
                           {group.detections.map((detection, index) => (
                             <span key={detection.id}>
-                              #{index + 1}: {detection.boundingBox.x1},{' '}
-                              {detection.boundingBox.y1} to {detection.boundingBox.x2},{' '}
-                              {detection.boundingBox.y2}
+                              #{index + 1}:{' '}
+                              {detection.boundingBox
+                                ? `${detection.boundingBox.x1}, ${detection.boundingBox.y1} to ${detection.boundingBox.x2}, ${detection.boundingBox.y2}`
+                                : 'Not available for this VLM observation'}
                             </span>
                           ))}
                         </dd>
@@ -383,11 +397,28 @@ export function AdminReportDetailPage() {
             </section>
           )}
 
+          {submittedReport && (
+            <section className="admin-panel report-description ai-report-detail ai-report-detail--final">
+              <div className="report-content-heading">
+                <div>
+                  <h2>Final submitted report</h2>
+                  <p>
+                    {wasEdited
+                      ? 'Content edited by the reporter before submission.'
+                      : 'Final content confirmed by the reporter before submission.'}
+                  </p>
+                </div>
+                <BadgeCheck size={20} />
+              </div>
+              <ReportContent report={submittedReport} />
+            </section>
+          )}
+
           {persistedReport?.generatedReport && (
             <section className="admin-panel report-description ai-report-detail">
               <div className="report-content-heading">
                 <div>
-                  <h2>AI-generated draft</h2>
+                  <h2>Original AI-generated draft</h2>
                   <p>Original report content generated from the saved detections.</p>
                 </div>
                 <BrainCircuit size={20} />
@@ -396,28 +427,39 @@ export function AdminReportDetailPage() {
             </section>
           )}
 
-          {wasEdited && submittedReport && (
-            <section className="admin-panel report-description ai-report-detail ai-report-detail--final">
-              <div className="report-content-heading">
-                <div>
-                  <h2>Final submitted report</h2>
-                  <p>Content edited by the reporter before submission.</p>
-                </div>
-                <BadgeCheck size={20} />
-              </div>
-              <ReportContent report={submittedReport} />
-            </section>
-          )}
-
           <section className="admin-panel map-panel">
-            <div className="map-placeholder" aria-label="Reported location map placeholder">
-              <span className="map-placeholder__road map-placeholder__road--one" />
-              <span className="map-placeholder__road map-placeholder__road--two" />
-              <span className="map-placeholder__marker"><MapPin size={21} /></span>
-            </div>
+            {persistedReport?.reportLocation ? (
+              <TomTomMap
+                location={persistedReport.reportLocation}
+                ariaLabel="Submitted waste report location"
+              />
+            ) : (
+              <div className="map-unavailable">
+                Location information is not available for this report.
+              </div>
+            )}
             <div>
               <h2>Reported location</h2>
               <p>{report.location}</p>
+              {persistedReport?.reportLocation && (
+                <dl className="report-location-details">
+                  <div>
+                    <dt>Address</dt>
+                    <dd>{persistedReport.reportLocation.address}</dd>
+                  </div>
+                  <div>
+                    <dt>Coordinates</dt>
+                    <dd>
+                      {persistedReport.reportLocation.latitude.toFixed(6)},{' '}
+                      {persistedReport.reportLocation.longitude.toFixed(6)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Selected using</dt>
+                    <dd>{persistedReport.reportLocation.source}</dd>
+                  </div>
+                </dl>
+              )}
             </div>
           </section>
         </div>
@@ -483,10 +525,10 @@ export function AdminReportDetailPage() {
                       ? 'Validated report'
                       : 'Invalid report'}
                   </strong>
-                  {validationStatus === 'valid' && report.reporterRole === 'user'
-                    ? `40 bonus points awarded to ${report.reporter}.`
+                  {validationStatus === 'valid' && rewardPoints > 0
+                    ? `${rewardPoints} bonus points awarded to ${report.reporter}.`
                     : validationStatus === 'valid'
-                      ? 'Guest reports do not receive reward points.'
+                      ? 'The report is valid. No reward points were awarded.'
                       : 'No reward points were awarded.'}
                 </span>
               </div>
@@ -510,8 +552,14 @@ export function AdminReportDetailPage() {
                 </dd>
               </div>
               <div>
-                <dt><MapPin size={17} /> District</dt>
-                <dd>Central district</dd>
+                <dt><MapPin size={17} /> Address</dt>
+                <dd>
+                  {persistedReport?.reportLocation?.address ?? report.location}
+                </dd>
+              </div>
+              <div>
+                <dt><CheckCircle2 size={17} /> Report status</dt>
+                <dd>{status.replace('_', ' ')}</dd>
               </div>
             </dl>
           </section>

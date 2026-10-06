@@ -12,7 +12,11 @@ def test_ai_configuration_has_project_relative_development_defaults() -> None:
     assert settings.yolo_model_path == PROJECT_ROOT / "ai" / "models" / "expV2.pt"
     assert settings.yolo_confidence_threshold == 0.35
     assert settings.ollama_base_url == "http://localhost:11434"
-    assert settings.ollama_model == "llama3.2"
+    assert settings.ollama_vision_model == ""
+    assert settings.ollama_report_model == "llama3.2"
+    assert settings.ollama_vision_timeout_seconds == 120.0
+    assert settings.ollama_report_timeout_seconds == 60.0
+    assert settings.ollama_keep_alive == "10m"
     assert settings.max_upload_size == 10 * 1024 * 1024
     assert settings.max_image_pixels == 40_000_000
     assert settings.ai_rate_limit_requests == 5
@@ -63,7 +67,11 @@ def test_ai_configuration_can_be_overridden_with_environment(
     monkeypatch.setenv("YOLO_MODEL_PATH", "models/alternate.pt")
     monkeypatch.setenv("YOLO_CONFIDENCE_THRESHOLD", "0.6")
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://127.0.0.1:11500")
-    monkeypatch.setenv("OLLAMA_MODEL", "custom-model")
+    monkeypatch.setenv("OLLAMA_VISION_MODEL", "vision-model")
+    monkeypatch.setenv("OLLAMA_REPORT_MODEL", "custom-report-model")
+    monkeypatch.setenv("OLLAMA_VISION_TIMEOUT_SECONDS", "150")
+    monkeypatch.setenv("OLLAMA_REPORT_TIMEOUT_SECONDS", "75")
+    monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "15m")
     monkeypatch.setenv("MAX_UPLOAD_SIZE", "2097152")
     monkeypatch.setenv("UPLOAD_DIR", "runtime/incoming")
     monkeypatch.setenv("ANNOTATED_OUTPUT_DIR", "runtime/results")
@@ -77,7 +85,11 @@ def test_ai_configuration_can_be_overridden_with_environment(
     assert settings.yolo_model_path == PROJECT_ROOT / "models" / "alternate.pt"
     assert settings.yolo_confidence_threshold == 0.6
     assert settings.ollama_base_url == "http://127.0.0.1:11500"
-    assert settings.ollama_model == "custom-model"
+    assert settings.ollama_vision_model == "vision-model"
+    assert settings.ollama_report_model == "custom-report-model"
+    assert settings.ollama_vision_timeout_seconds == 150.0
+    assert settings.ollama_report_timeout_seconds == 75.0
+    assert settings.ollama_keep_alive == "15m"
     assert settings.max_upload_size == 2 * 1024 * 1024
     assert settings.upload_dir == PROJECT_ROOT / "runtime" / "incoming"
     assert settings.annotated_output_dir == PROJECT_ROOT / "runtime" / "results"
@@ -85,6 +97,32 @@ def test_ai_configuration_can_be_overridden_with_environment(
     assert settings.report_assets_dir == PROJECT_ROOT / "runtime" / "reports"
     assert settings.tomtom_api_key.get_secret_value() == "test-tomtom-key"
     assert settings.tomtom_country_set == "MY,SG"
+
+
+def test_legacy_ollama_model_remains_a_report_model_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OLLAMA_REPORT_MODEL", raising=False)
+    monkeypatch.setenv("OLLAMA_MODEL", "legacy-report-model")
+
+    assert Settings(_env_file=None).ollama_report_model == "legacy-report-model"
+
+    monkeypatch.setenv("OLLAMA_REPORT_MODEL", "current-report-model")
+
+    assert Settings(_env_file=None).ollama_report_model == "current-report-model"
+
+
+def test_legacy_ollama_timeout_configures_both_generation_stages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OLLAMA_VISION_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("OLLAMA_REPORT_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setenv("OLLAMA_TIMEOUT_SECONDS", "90")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.ollama_vision_timeout_seconds == 90.0
+    assert settings.ollama_report_timeout_seconds == 90.0
 
 
 @pytest.mark.parametrize(

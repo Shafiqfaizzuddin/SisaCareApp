@@ -10,7 +10,6 @@ import {
   Info,
   LoaderCircle,
   LockKeyhole,
-  MapPin,
   ScanLine,
   ShieldCheck,
   Upload,
@@ -25,6 +24,7 @@ import {
 } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { PageIntro } from '../components/common/PageIntro'
+import { LocationPicker } from '../components/location/LocationPicker'
 import { useRole } from '../features/authentication/useRole'
 import { wasteCategoryOptions } from '../features/reporting/categories'
 import {
@@ -36,10 +36,10 @@ import {
   WasteAnalysisRequestError,
 } from '../features/reporting/waste-analysis'
 import type {
+  ReportLocation,
   WasteAnalysisSuccess,
   WasteAnalysisReport,
   WasteCategory,
-  WasteDetection,
 } from '../types'
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024
@@ -53,28 +53,19 @@ const EMPTY_REPORT: WasteAnalysisReport = {
 }
 
 interface DetectionGroup {
-  className: string
-  displayName: string
+  name: string
+  label: string
   category: string
-  count: number
-  detections: WasteDetection[]
+  count: number | null
 }
 
 function groupDetections(analysis: WasteAnalysisSuccess): DetectionGroup[] {
-  return Object.entries(analysis.detection.counts).map(([className, count]) => {
-    const detections = analysis.detection.detections.filter(
-      (detection) => detection.class_name === className,
-    )
-    const firstDetection = detections[0]
-
-    return {
-      className,
-      displayName: firstDetection?.display_name ?? className.replaceAll('_', ' '),
-      category: firstDetection?.waste_category ?? 'Uncategorized Waste',
-      count,
-      detections,
-    }
-  })
+  return analysis.grouped_objects.map((group) => ({
+    name: group.name,
+    label: group.label,
+    category: group.category,
+    count: group.count,
+  }))
 }
 
 export function SubmitReportPage() {
@@ -90,6 +81,8 @@ export function SubmitReportPage() {
   const [category, setCategory] = useState<WasteCategory>('household')
   const [reportDraft, setReportDraft] = useState<WasteAnalysisReport>(EMPTY_REPORT)
   const [siteNotes, setSiteNotes] = useState('')
+  const [selectedLocation, setSelectedLocation] = useState<ReportLocation | null>(null)
+  const [isLocationConfirmed, setIsLocationConfirmed] = useState(false)
   const [submissionError, setSubmissionError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const analysisRequest = useRef<AbortController | null>(null)
@@ -111,7 +104,7 @@ export function SubmitReportPage() {
 
   useEffect(
     () => () => {
-      if (analysis?.annotated_image.startsWith('blob:')) {
+      if (analysis?.annotated_image?.startsWith('blob:')) {
         URL.revokeObjectURL(analysis.annotated_image)
       }
     },
@@ -229,6 +222,10 @@ export function SubmitReportPage() {
       setAnalysisError('Analyze the selected image before submitting the report.')
       return
     }
+    if (!selectedLocation || !isLocationConfirmed) {
+      setSubmissionError('Select and confirm the waste location before submitting.')
+      return
+    }
 
     const formData = new FormData(event.currentTarget)
     const controller = new AbortController()
@@ -259,7 +256,16 @@ export function SubmitReportPage() {
             ? reportDraft.environmental_concern
             : '',
           category,
-          location: String(formData.get('location') ?? ''),
+          location: selectedLocation.address,
+          latitude: selectedLocation.latitude,
+          longitude: selectedLocation.longitude,
+          location_address: selectedLocation.address,
+          location_street: selectedLocation.street ?? undefined,
+          location_city: selectedLocation.city ?? undefined,
+          location_state: selectedLocation.state ?? undefined,
+          location_postcode: selectedLocation.postcode ?? undefined,
+          location_country: selectedLocation.country ?? undefined,
+          location_source: selectedLocation.source,
           site_notes: canUseAi ? siteNotes : '',
         },
         controller.signal,
@@ -487,10 +493,10 @@ export function SubmitReportPage() {
                 <div className="analysis-results" aria-live="polite">
                   <div className="analysis-results__grid">
                     <figure className="annotated-image">
-                      {!annotatedImageError ? (
+                      {analysis.annotated_image && !annotatedImageError ? (
                         <img
                           src={analysis.annotated_image}
-                          alt="Waste image with detected objects outlined"
+                          alt="Waste image with AI-detected objects outlined"
                           onError={() => setAnnotatedImageError(true)}
                         />
                       ) : (
@@ -499,41 +505,39 @@ export function SubmitReportPage() {
                           <span>Annotated image unavailable</span>
                         </div>
                       )}
-                      <figcaption>Annotated detection</figcaption>
+                      <figcaption>AI-annotated waste image</figcaption>
                     </figure>
 
                     <div className="detection-panel">
                       <div className="detection-panel__heading">
                         <div>
-                          <span>Detected waste</span>
+                          <span>Waste summary</span>
                           <strong>
-                            {analysis.detection.total_objects}{' '}
-                            {analysis.detection.total_objects === 1
-                              ? 'object'
-                              : 'objects'}
+                            {analysis.grouped_objects.length}{' '}
+                            {analysis.grouped_objects.length === 1
+                              ? 'waste type'
+                              : 'waste types'}
                           </strong>
                         </div>
                       </div>
 
                       <div className="detection-list">
                         {groupDetections(analysis).map((group) => (
-                          <article className="detection-item" key={group.className}>
+                          <article className="detection-item" key={group.name}>
                             <div className="detection-item__title">
-                              <strong>{group.displayName}</strong>
-                              <span>Quantity {group.count}</span>
+                              <strong>{group.label}</strong>
+                              <span>Detected by AI</span>
                             </div>
-                            <p>{group.category}</p>
-                            <div className="detection-confidence">
-                              <span>Confidence</span>
-                              <strong>
-                                {group.detections
-                                  .map(
-                                    (detection) =>
-                                      `${Math.round(detection.confidence * 100)}%`,
-                                  )
-                                  .join(', ')}
-                              </strong>
-                            </div>
+                            <dl className="detection-item__details">
+                              <div>
+                                <dt>Quantity</dt>
+                                <dd>{group.count ?? 'Not estimated'}</dd>
+                              </div>
+                              <div>
+                                <dt>Category</dt>
+                                <dd>{group.category}</dd>
+                              </div>
+                            </dl>
                           </article>
                         ))}
                       </div>
@@ -544,8 +548,8 @@ export function SubmitReportPage() {
                     <div className="ai-report__heading">
                       <BrainCircuit size={20} />
                       <div>
-                        <span>AI-generated report</span>
-                        <h3>Review report details</h3>
+                        <span>AI-generated draft</span>
+                        <h3>Review and edit report details</h3>
                       </div>
                     </div>
                     <div className="ai-report__editor">
@@ -638,22 +642,25 @@ export function SubmitReportPage() {
               <div className="form-section__heading">
                 <span>3</span>
                 <div>
-                  <h2>Describe the location</h2>
-                  <p>Add enough detail for a response team to find the site.</p>
+                  <h2>Waste location</h2>
+                  <p>Use device GPS, search for a place, or select the site on the map.</p>
                 </div>
               </div>
-              <div className="field">
-                <label htmlFor="location">Address or nearby landmark</label>
-                <div className="input-with-icon">
-                  <MapPin size={18} />
-                  <input
-                    id="location"
-                    name="location"
-                    placeholder="e.g. Jalan Tasik Selatan 8, near the service road"
-                    required
-                  />
-                </div>
-              </div>
+              <LocationPicker
+                value={selectedLocation}
+                confirmed={isLocationConfirmed}
+                onChange={(location) => {
+                  setSelectedLocation(location)
+                  setIsLocationConfirmed(false)
+                  setSubmissionError('')
+                }}
+                onConfirm={() => {
+                  if (selectedLocation) {
+                    setIsLocationConfirmed(true)
+                    setSubmissionError('')
+                  }
+                }}
+              />
               <div className="field">
                 <label htmlFor="description">
                   {canUseAi ? 'Additional site notes' : 'What can you see?'}
@@ -733,6 +740,7 @@ export function SubmitReportPage() {
                   isAnalyzing ||
                   isSubmitting ||
                   !selectedFile ||
+                  !isLocationConfirmed ||
                   (canUseAi && !hasCurrentAnalysis)
                 }
               >

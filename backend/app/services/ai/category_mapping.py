@@ -1,17 +1,35 @@
-"""Deterministic metadata mapping for YOLO waste classes."""
+"""Backend-owned waste classification with an explicit VLM fallback."""
 
 from __future__ import annotations
 
 import json
-import re
 from functools import lru_cache
 from pathlib import Path
-from typing import TypedDict
+from typing import Literal, TypedDict, cast
+
+from app.services.ai.object_normalization import (
+    normalize_label_format,
+    normalize_object,
+    normalize_object_name,
+)
 
 
 MAPPING_PATH = (
     Path(__file__).resolve().parents[4] / "ai" / "config" / "waste_categories.json"
 )
+
+WasteCategory = Literal[
+    "Non-Recyclable",
+    "Recyclable Waste",
+    "Bulky Waste",
+    "Unknown",
+]
+CategorySource = Literal["mapping", "vlm", "unknown"]
+
+MAPPED_WASTE_CATEGORIES = frozenset(
+    {"Non-Recyclable", "Recyclable Waste", "Bulky Waste"}
+)
+VLM_WASTE_CATEGORIES = MAPPED_WASTE_CATEGORIES | {"Unknown"}
 
 
 class WasteCategoryMetadata(TypedDict):
@@ -22,6 +40,13 @@ class WasteCategoryMetadata(TypedDict):
     recommended_handling: str
 
 
+class WasteClassification(TypedDict):
+    name: str
+    display_name: str
+    category: WasteCategory
+    category_source: CategorySource
+
+
 class CategoryMappingError(RuntimeError):
     """Raised when the category mapping cannot be loaded or validated."""
 
@@ -29,8 +54,7 @@ class CategoryMappingError(RuntimeError):
 def normalize_class_name(class_name: str) -> str:
     """Normalize common YOLO class-name formats to mapping keys."""
 
-    normalized = class_name.strip().lower().replace("&", " ")
-    return re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
+    return normalize_label_format(class_name)
 
 
 def _validate_metadata(class_name: str, value: object) -> WasteCategoryMetadata:
@@ -58,12 +82,19 @@ def _validate_metadata(class_name: str, value: object) -> WasteCategoryMetadata:
             f"Mapping for '{class_name}' requires a boolean 'recyclable'."
         )
 
+    waste_category = value["waste_category"].strip()
+    if waste_category not in MAPPED_WASTE_CATEGORIES:
+        raise CategoryMappingError(
+            f"Mapping for '{class_name}' has unsupported waste_category "
+            f"'{waste_category}'."
+        )
+
     return {
-        "display_name": value["display_name"],
-        "waste_category": value["waste_category"],
-        "material": value["material"],
+        "display_name": value["display_name"].strip(),
+        "waste_category": waste_category,
+        "material": value["material"].strip(),
         "recyclable": recyclable,
-        "recommended_handling": value["recommended_handling"],
+        "recommended_handling": value["recommended_handling"].strip(),
     }
 
 
@@ -91,11 +122,12 @@ def load_category_mapping() -> dict[str, WasteCategoryMetadata]:
             raise CategoryMappingError(
                 f"Mapping key '{raw_class_name}' has no usable class-name characters."
             )
-        if normalized_name in mapping:
+        canonical_name = normalize_object_name(normalized_name)
+        if canonical_name in mapping:
             raise CategoryMappingError(
-                f"Duplicate normalized mapping key: '{normalized_name}'."
+                f"Duplicate normalized mapping key: '{canonical_name}'."
             )
-        mapping[normalized_name] = _validate_metadata(normalized_name, raw_metadata)
+        mapping[canonical_name] = _validate_metadata(canonical_name, raw_metadata)
 
     return mapping
 
@@ -110,17 +142,68 @@ def reload_category_mapping() -> dict[str, WasteCategoryMetadata]:
 def get_category_metadata(class_name: str) -> WasteCategoryMetadata:
     """Return deterministic metadata, with a safe fallback for unknown classes."""
 
-    normalized_name = normalize_class_name(class_name)
+    normalized_name = normalize_object_name(class_name)
     metadata = load_category_mapping().get(normalized_name)
     if metadata is not None:
         return metadata.copy()
 
     return {
-        "display_name": normalized_name.replace("_", " ").title(),
-        "waste_category": "Uncategorized Waste",
+        "display_name": normalize_object(class_name)["display_name"],
+        "waste_category": "Unknown",
         "material": "Unknown",
         "recyclable": False,
         "recommended_handling": (
             "Keep separate and request manual classification before disposal."
         ),
     }
+
+
+def classify_waste_object(
+    name: str,
+    vlm_suggested_category: str | None = None,
+) -> WasteClassification:
+    """Classify an object, preferring backend mapping over a valid VLM suggestion."""
+
+    normalized = normalize_object(name)
+    canonical_name = normalized["canonical_name"]
+    metadata = load_category_mapping().get(canonical_name)
+    if metadata is not None:
+        return {
+            "name": canonical_name,
+            "display_name": metadata["display_name"],
+            "category": cast(WasteCategory, metadata["waste_category"]),
+            "category_source": "mapping",
+        }
+
+    if isinstance(vlm_suggested_category, str):
+        suggested_category = vlm_suggested_category.strip()
+        if suggested_category in MAPPED_WASTE_CATEGORIES:
+            return {
+                "name": canonical_name,
+                "display_name": normalized["display_name"],
+                "category": cast(WasteCategory, suggested_category),
+                "category_source": "vlm",
+            }
+
+    return {
+        "name": canonical_name,
+        "display_name": normalized["display_name"],
+        "category": "Unknown",
+        "category_source": "unknown",
+    }
+
+
+__all__ = [
+    "CategoryMappingError",
+    "CategorySource",
+    "MAPPED_WASTE_CATEGORIES",
+    "VLM_WASTE_CATEGORIES",
+    "WasteCategory",
+    "WasteCategoryMetadata",
+    "WasteClassification",
+    "classify_waste_object",
+    "get_category_metadata",
+    "load_category_mapping",
+    "normalize_class_name",
+    "reload_category_mapping",
+]

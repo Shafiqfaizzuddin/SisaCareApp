@@ -10,6 +10,25 @@ export type UserRole = 'guest' | 'user' | 'admin'
 
 export type ValidationStatus = 'pending' | 'valid' | 'invalid'
 
+export type LocationSource = 'gps' | 'map' | 'search'
+
+export interface ReportLocation {
+  latitude: number
+  longitude: number
+  address: string
+  street: string | null
+  city: string | null
+  state: string | null
+  postcode: string | null
+  country: string | null
+  source: LocationSource
+}
+
+export interface LocationSearchResult extends Omit<ReportLocation, 'source'> {
+  id: string
+  label: string
+}
+
 export interface UserProfile {
   id: string
   name: string
@@ -64,11 +83,42 @@ export interface WasteDetection {
   class_id: number
   confidence: number
   bounding_box: WasteBoundingBox
+  source: 'yolo'
+}
+
+export type FinalWasteCategory =
+  | 'Non-Recyclable'
+  | 'Recyclable Waste'
+  | 'Bulky Waste'
+  | 'Unknown'
+
+export interface VlmWasteObject {
+  name: string
   display_name: string
-  waste_category: string
-  material: string
-  recyclable: boolean
-  recommended_handling: string
+  suggested_category: FinalWasteCategory
+  confidence_level: 'high' | 'medium' | 'low'
+  reason: string
+}
+
+export interface FusedWasteObject {
+  name: string
+  display_name: string
+  category: FinalWasteCategory
+  category_source: 'mapping' | 'vlm' | 'unknown'
+  source: 'yolo' | 'vlm' | 'yolo+vlm'
+  confidence: number | null
+  confidence_level: 'high' | 'medium' | 'low' | null
+  supported_by_vlm: boolean
+  bounding_box: WasteBoundingBox | null
+}
+
+export interface GroupedWasteObject {
+  name: string
+  label: string
+  count: number | null
+  category: FinalWasteCategory
+  sources: Array<'yolo' | 'vlm'>
+  average_yolo_confidence: number | null
 }
 
 export interface WasteAnalysisReport {
@@ -83,12 +133,11 @@ export interface WasteAnalysisSuccess {
   success: true
   analysis_id: string
   original_image: string
-  annotated_image: string
-  detection: {
-    total_objects: number
-    counts: Record<string, number>
-    detections: WasteDetection[]
-  }
+  annotated_image: string | null
+  detections: FusedWasteObject[]
+  grouped_objects: GroupedWasteObject[]
+  categories_detected: FinalWasteCategory[]
+  scene_description: string
   report: WasteAnalysisReport
 }
 
@@ -96,7 +145,7 @@ export interface WasteAnalysisFailure {
   success: false
   code: string
   message: string
-  stage?: 'detection' | 'report_generation'
+  stage?: 'validation' | 'analysis' | 'detection' | 'report_generation'
 }
 
 export type WasteAnalysisResponse = WasteAnalysisSuccess | WasteAnalysisFailure
@@ -114,6 +163,15 @@ export interface ReportSubmissionPayload {
   environmental_concern: string
   category: WasteCategory
   location: string
+  latitude: number
+  longitude: number
+  location_address?: string
+  location_street?: string
+  location_city?: string
+  location_state?: string
+  location_postcode?: string
+  location_country?: string
+  location_source: LocationSource
   site_notes: string
 }
 
@@ -132,8 +190,9 @@ export interface AdminWasteDetection {
   displayName: string
   wasteCategory: string
   material: string
-  confidence: number
-  boundingBox: WasteBoundingBox
+  confidence: number | null
+  boundingBox: WasteBoundingBox | null
+  source: 'yolo' | 'vlm' | 'yolo+vlm'
   createdAt: string
 }
 
@@ -142,9 +201,11 @@ export interface AdminReportDetail {
   reference: string
   category: WasteCategory
   location: string
+  reportLocation: ReportLocation | null
   siteNotes: string
   status: ReportStatus
   validationStatus: ValidationStatus
+  rewardPoints: number
   reporterRole: 'guest' | 'user'
   reporter: string
   title: string
@@ -153,6 +214,8 @@ export interface AdminReportDetail {
   recommendedAction: string
   environmentalConcern: string
   generatedReport: WasteAnalysisReport | null
+  finalCategories: FinalWasteCategory[]
+  aiAnalysis: Record<string, unknown> | null
   originalImage: string
   annotatedImage: string
   createdAt: string

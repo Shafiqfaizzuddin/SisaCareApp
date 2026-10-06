@@ -10,10 +10,7 @@ from time import perf_counter
 from typing import Any, Literal, TypedDict
 
 from app.core.config import get_settings
-from app.services.ai.category_mapping import (
-    get_category_metadata,
-    normalize_class_name,
-)
+from app.services.ai.category_mapping import normalize_class_name
 from app.services.ai.image_annotator import (
     ImageAnnotationError,
     save_annotated_image,
@@ -58,11 +55,7 @@ class WasteDetection(TypedDict):
     class_id: int
     confidence: float
     bounding_box: BoundingBox
-    display_name: str
-    waste_category: str
-    material: str
-    recyclable: bool
-    recommended_handling: str
+    source: Literal["yolo"]
 
 
 class DetectionFailure(TypedDict):
@@ -73,7 +66,7 @@ class DetectionFailure(TypedDict):
 
 class WasteDetectionResult(TypedDict):
     success: Literal[True]
-    code: Literal["WASTE_DETECTED"]
+    code: Literal["WASTE_DETECTED", "NO_WASTE_DETECTED"]
     message: str
     total_objects: int
     counts: dict[str, int]
@@ -197,7 +190,6 @@ def _serialize_detections(results: Any) -> tuple[list[WasteDetection], dict[str,
             for box in result.boxes:
                 class_id = int(box.cls.item())
                 name = normalize_class_name(_class_name(result.names, class_id))
-                metadata = get_category_metadata(name)
                 x1, y1, x2, y2 = (float(value) for value in box.xyxy[0].tolist())
 
                 detections.append(
@@ -205,13 +197,13 @@ def _serialize_detections(results: Any) -> tuple[list[WasteDetection], dict[str,
                         "class_name": name,
                         "class_id": class_id,
                         "confidence": float(box.conf.item()),
-                        **metadata,
                         "bounding_box": {
                             "x1": x1,
                             "y1": y1,
                             "x2": x2,
                             "y2": y2,
                         },
+                        "source": "yolo",
                     }
                 )
                 counts[name] += 1
@@ -248,13 +240,8 @@ def _detect_waste(
     inference_ms = round((perf_counter() - inference_started) * 1000)
 
     if not results:
-        logger.info(
-            "yolo_inference_completed duration_ms=%d detection_count=0",
-            inference_ms,
-        )
-        return _failure(
-            "NO_WASTE_DETECTED",
-            "No supported waste objects were detected in this image.",
+        raise ModelInferenceError(
+            "YOLO inference returned no result object for the supplied image."
         )
 
     detections, counts = _serialize_detections(results)
@@ -263,16 +250,21 @@ def _detect_waste(
         inference_ms,
         len(detections),
     )
-    if not detections:
-        return _failure(
-            "NO_WASTE_DETECTED",
-            "No supported waste objects were detected in this image.",
-        )
-
     try:
         annotated_image_path = save_annotated_image(results[0], resolved_image_path)
     except ImageAnnotationError as exc:
         raise AnnotationCreationError(str(exc)) from exc
+
+    if not detections:
+        return {
+            "success": True,
+            "code": "NO_WASTE_DETECTED",
+            "message": "No supported waste objects were detected in this image.",
+            "total_objects": 0,
+            "counts": {},
+            "detections": [],
+            "annotated_image_path": str(annotated_image_path),
+        }
 
     return {
         "success": True,
@@ -292,8 +284,9 @@ def detect_waste(
     """Detect waste and return an API-friendly success or failure response.
 
     The YOLO model is loaded lazily and reused for subsequent calls in the same
-    process. Failure responses never contain a detections list, which prevents
-    no-detection results from being forwarded to report generation.
+    process. Successful detections contain model facts only: class identity,
+    confidence, bounding box, and source. Category classification and grouping
+    belong to later pipeline stages.
     """
 
     try:

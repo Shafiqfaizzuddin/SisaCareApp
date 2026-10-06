@@ -1,9 +1,42 @@
 """AI waste analysis services."""
 
 from app.services.ai.category_mapping import (
+    CategorySource,
+    MAPPED_WASTE_CATEGORIES,
+    VLM_WASTE_CATEGORIES,
+    WasteCategory,
     WasteCategoryMetadata,
+    WasteClassification,
+    classify_waste_object,
     get_category_metadata,
     reload_category_mapping,
+)
+from app.services.ai.fusion_service import (
+    FusedWasteObject,
+    FusionInputError,
+    FusionSource,
+    fuse_waste_objects,
+)
+from app.services.ai.grouping_service import (
+    GroupLabels,
+    GroupedObjectsResult,
+    GroupedWasteObject,
+    GroupingConfigurationError,
+    GroupingInputError,
+    group_fused_objects,
+    load_group_labels,
+    reload_group_labels,
+)
+from app.services.ai.hybrid_analysis_service import (
+    AnalysisMode,
+    AnalysisServiceError,
+    HybridAnalysis,
+    VlmAnalysisSummary,
+    WasteAnalysisFailure,
+    WasteAnalysisResponse,
+    WasteAnalysisResult,
+    YoloAnalysis,
+    analyze_waste_image,
 )
 from app.services.ai.ollama_report_generator import (
     ReportGenerationFailure,
@@ -11,12 +44,23 @@ from app.services.ai.ollama_report_generator import (
     WasteReportResponse,
     generate_waste_report,
 )
-from app.services.ai.waste_ai_service import (
-    AnalysisDetection,
-    WasteAnalysisFailure,
-    WasteAnalysisResponse,
-    WasteAnalysisResult,
-    analyze_waste_image,
+from app.services.ai.object_normalization import (
+    NormalizedObjectName,
+    ObjectNameDefinition,
+    ObjectNameMappingError,
+    get_object_display_name,
+    load_object_name_mapping,
+    normalize_label_format,
+    normalize_object,
+    normalize_object_name,
+    reload_object_name_mapping,
+)
+from app.services.ai.vlm_analyzer import (
+    VlmAnalysis,
+    VlmAnalysisFailure,
+    VlmAnalysisResponse,
+    VlmObject,
+    analyze_waste_image_with_vlm,
 )
 from app.services.ai.yolo_detector import (
     DEFAULT_CONFIDENCE_THRESHOLD,
@@ -28,8 +72,23 @@ from app.services.ai.yolo_detector import (
 
 __all__ = [
     "DEFAULT_CONFIDENCE_THRESHOLD",
-    "AnalysisDetection",
+    "AnalysisMode",
+    "AnalysisServiceError",
+    "CategorySource",
     "DetectionFailure",
+    "FusedWasteObject",
+    "FusionInputError",
+    "FusionSource",
+    "GroupLabels",
+    "GroupedObjectsResult",
+    "GroupedWasteObject",
+    "GroupingConfigurationError",
+    "GroupingInputError",
+    "HybridAnalysis",
+    "MAPPED_WASTE_CATEGORIES",
+    "NormalizedObjectName",
+    "ObjectNameDefinition",
+    "ObjectNameMappingError",
     "ReportGenerationFailure",
     "WasteCategoryMetadata",
     "WasteAnalysisFailure",
@@ -39,9 +98,30 @@ __all__ = [
     "WasteDetectionResult",
     "WasteReport",
     "WasteReportResponse",
+    "VlmAnalysis",
+    "VlmAnalysisFailure",
+    "VlmAnalysisResponse",
+    "VlmAnalysisSummary",
+    "VlmObject",
+    "VLM_WASTE_CATEGORIES",
+    "WasteCategory",
+    "WasteClassification",
+    "YoloAnalysis",
     "analyze_waste_image",
+    "analyze_waste_image_with_vlm",
+    "classify_waste_object",
     "detect_waste",
+    "fuse_waste_objects",
+    "group_fused_objects",
     "generate_waste_report",
     "get_category_metadata",
+    "get_object_display_name",
+    "load_object_name_mapping",
+    "load_group_labels",
+    "normalize_label_format",
+    "normalize_object",
+    "normalize_object_name",
     "reload_category_mapping",
+    "reload_object_name_mapping",
+    "reload_group_labels",
 ]

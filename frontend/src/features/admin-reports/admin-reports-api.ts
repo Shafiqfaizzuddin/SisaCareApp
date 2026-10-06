@@ -1,6 +1,8 @@
 import type {
   AdminReportDetail,
   AdminWasteDetection,
+  LocationSource,
+  ReportLocation,
   ReportStatus,
   ReportSummary,
   ReportValidationResult,
@@ -64,16 +66,15 @@ function mapDetection(value: unknown): AdminWasteDetection | null {
     value.material,
     value.created_at,
   ]
-  const requiredNumbers = [
-    value.confidence,
-    value.x1,
-    value.y1,
-    value.x2,
-    value.y2,
-  ]
+  const coordinates = [value.x1, value.y1, value.x2, value.y2]
+  const hasBoundingBox = coordinates.every((item) => typeof item === 'number')
+  const hasNoBoundingBox = coordinates.every((item) => item === null)
+  const source = value.source ?? 'yolo'
   if (
     !requiredStrings.every((item) => typeof item === 'string') ||
-    !requiredNumbers.every((item) => typeof item === 'number')
+    (typeof value.confidence !== 'number' && value.confidence !== null) ||
+    (!hasBoundingBox && !hasNoBoundingBox) ||
+    !['yolo', 'vlm', 'yolo+vlm'].includes(source as string)
   ) {
     return null
   }
@@ -83,13 +84,16 @@ function mapDetection(value: unknown): AdminWasteDetection | null {
     displayName: value.display_name as string,
     wasteCategory: value.waste_category as string,
     material: value.material as string,
-    confidence: value.confidence as number,
-    boundingBox: {
-      x1: value.x1 as number,
-      y1: value.y1 as number,
-      x2: value.x2 as number,
-      y2: value.y2 as number,
-    },
+    confidence: value.confidence as number | null,
+    boundingBox: hasBoundingBox
+      ? {
+          x1: value.x1 as number,
+          y1: value.y1 as number,
+          x2: value.x2 as number,
+          y2: value.y2 as number,
+        }
+      : null,
+    source: source as AdminWasteDetection['source'],
     createdAt: value.created_at as string,
   }
 }
@@ -110,6 +114,37 @@ function mapGeneratedReport(value: unknown): WasteAnalysisReport | null {
     waste_identified: value.waste_identified as string,
     recommended_action: value.recommended_action as string,
     environmental_concern: value.environmental_concern as string,
+  }
+}
+
+const LOCATION_SOURCES = new Set<LocationSource>(['gps', 'map', 'search'])
+
+function mapReportLocation(value: Record<string, unknown>): ReportLocation | null {
+  if (
+    typeof value.latitude !== 'number' ||
+    !Number.isFinite(value.latitude) ||
+    typeof value.longitude !== 'number' ||
+    !Number.isFinite(value.longitude) ||
+    typeof value.location_source !== 'string' ||
+    !LOCATION_SOURCES.has(value.location_source as LocationSource)
+  ) {
+    return null
+  }
+  const nullableString = (candidate: unknown): string | null =>
+    typeof candidate === 'string' && candidate.trim() ? candidate.trim() : null
+  const address =
+    nullableString(value.location_address) ?? nullableString(value.location)
+  if (!address) return null
+  return {
+    latitude: value.latitude,
+    longitude: value.longitude,
+    address,
+    street: nullableString(value.location_street),
+    city: nullableString(value.location_city),
+    state: nullableString(value.location_state),
+    postcode: nullableString(value.location_postcode),
+    country: nullableString(value.location_country),
+    source: value.location_source as LocationSource,
   }
 }
 
@@ -147,6 +182,9 @@ export async function fetchPersistedReport(
 
   const report: AdminReportDetail = {
     ...summary,
+    reportLocation: mapReportLocation(value),
+    rewardPoints:
+      typeof value.reward_points === 'number' ? value.reward_points : 0,
     siteNotes: typeof value.site_notes === 'string' ? value.site_notes : '',
     title: typeof value.title === 'string' ? value.title : '',
     summary: typeof value.summary === 'string' ? value.summary : '',
@@ -159,6 +197,19 @@ export async function fetchPersistedReport(
         ? value.environmental_concern
         : '',
     generatedReport: mapGeneratedReport(value.generated_report),
+    finalCategories: Array.isArray(value.final_categories)
+      ? value.final_categories.filter(
+          (category): category is AdminReportDetail['finalCategories'][number] =>
+            typeof category === 'string' &&
+            [
+              'Non-Recyclable',
+              'Recyclable Waste',
+              'Bulky Waste',
+              'Unknown',
+            ].includes(category),
+        )
+      : [],
+    aiAnalysis: isObject(value.ai_analysis) ? value.ai_analysis : null,
     originalImage:
       typeof value.original_image === 'string' ? value.original_image : '',
     annotatedImage:

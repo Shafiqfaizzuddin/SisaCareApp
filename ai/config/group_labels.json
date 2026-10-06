@@ -1,0 +1,114 @@
+{
+  "plastic_bag_film": {
+    "single": "Plastic Bag / Film",
+    "multiple": "Pile of Plastic Bags / Film"
+  },
+  "cigarette": {
+    "single": "Cigarette Waste",
+    "multiple": "Pile of Cigarette Waste"
+  },
+  "small_accessory": {
+    "single": "Small Waste Accessory",
+    "multiple": "Pile of Small Waste Accessories"
+  },
+  "scrap_metal": {
+    "single": "Scrap Metal",
+    "multiple": "Pile of Scrap Metal"
+  },
+  "plastic_bottle": {
+    "single": "Plastic Bottle",
+    "multiple": "Pile of Plastic Bottles"
+  },
+  "drink_can": {
+    "single": "Drink Can",
+    "multiple": "Pile of Drink Cans"
+  },
+  "other_plastic": {
+    "single": "Other Plastic",
+    "multiple": "Pile of Other Plastic"
+  },
+  "paper": {
+    "single": "Paper",
+    "multiple": "Pile of Paper"
+  },
+  "glass": {
+    "single": "Glass",
+    "multiple": "Pile of Glass"
+  },
+  "cardboard_carton": {
+    "single": "Cardboard / Carton",
+    "multiple": "Pile of Cardboard / Cartons"
+  },
+  "disposable_utensils_straw": {
+    "single": "Disposable Utensil / Straw",
+    "multiple": "Pile of Disposable Utensils / Straws"
+  },
+  "disposable_plastic_container": {
+    "single": "Plastic Container",
+    "multiple": "Pile of Plastic Containers"
+  },
+  "foam_styrofoam": {
+    "single": "Foam / Styrofoam",
+    "multiple": "Pile of Foam / Styrofoam"
+  },
+  "general_waste": {
+    "single": "General Waste",
+    "multiple": "Pile of General Waste"
+  },
+  "rope_strings": {
+    "single": "Rope / String",
+    "multiple": "Pile of Rope / Strings"
+  },
+  "food_waste": {
+    "single": "Food Waste",
+    "multiple": "Pile of Food Waste"
+  },
+  "food_wrapper": {
+    "single": "Food Wrapper",
+    "multiple": "Pile of Food Wrappers"
+  },
+  "dirty_tissue": {
+    "single": "Dirty Tissue",
+    "multiple": "Pile of Dirty Tissues"
+  },
+  "used_diaper": {
+    "single": "Used Diaper",
+    "multiple": "Pile of Used Diapers"
+  },
+  "contaminated_packaging": {
+    "single": "Contaminated Packaging",
+    "multiple": "Pile of Contaminated Packaging"
+  },
+  "electronic_waste": {
+    "single": "Electronic Waste",
+    "multiple": "Pile of Electronic Waste"
+  },
+  "battery": {
+    "single": "Battery",
+    "multiple": "Pile of Batteries"
+  },
+  "mattress": {
+    "single": "Mattress",
+    "multiple": "Pile of Mattresses"
+  },
+  "sofa": {
+    "single": "Sofa",
+    "multiple": "Pile of Sofas"
+  },
+  "large_table": {
+    "single": "Large Table",
+    "multiple": "Pile of Large Tables"
+  },
+  "refrigerator": {
+    "single": "Refrigerator",
+    "multiple": "Pile of Refrigerators"
+  },
+  "washing_machine": {
+    "single": "Washing Machine",
+    "multiple": "Pile of Washing Machines"
+  },
+  "large_appliance": {
+    "single": "Large Appliance",
+    "multiple": "Pile of Large Appliances"
+  }
+}

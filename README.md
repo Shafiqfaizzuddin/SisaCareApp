@@ -47,6 +47,16 @@ Copy-Item backend\.env.example backend\.env
 
 The current examples contain no secrets. Do not commit populated `.env` files.
 
+For waste-location support, configure:
+
+- `TOMTOM_API_KEY` in `backend/.env` for Search and Reverse Geocoding.
+- `VITE_TOMTOM_API_KEY` in `frontend/.env.local` for browser Map Display tiles.
+
+The browser key is visible to map users by design. Create a separate TomTom key
+for Map Display and, if your TomTom plan supports it, restrict it to your
+local/production domains. Restrict the backend key to Search and Reverse
+Geocoding where key controls are available. Neither key is logged by the application.
+
 Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in
 `frontend/.env.local`. Create member accounts in Supabase Authentication. Admin
 accounts must have `app_metadata.role` set to `admin`; user-editable metadata is
@@ -90,6 +100,13 @@ Build the frontend:
 ```powershell
 cd frontend
 npm run build
+```
+
+Run the frontend location tests:
+
+```powershell
+cd frontend
+npm test
 ```
 
 Supabase CLI configuration is present in `supabase/config.toml`, and frontend

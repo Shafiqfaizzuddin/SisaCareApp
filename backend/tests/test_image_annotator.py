@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -71,6 +72,27 @@ def test_save_annotated_image_copies_image_without_detections(tmp_path: Path) ->
 
     with Image.open(output_path) as annotated_image:
         assert annotated_image.size == (40, 30)
+
+
+def test_concurrent_annotations_never_share_an_output_file(tmp_path: Path) -> None:
+    source_path = tmp_path / "source.png"
+    Image.new("RGB", (80, 60), "white").save(source_path)
+    output_dir = tmp_path / "annotated"
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        paths = list(
+            executor.map(
+                lambda _index: save_annotated_image(
+                    fake_result(),
+                    source_path,
+                    output_dir,
+                ),
+                range(24),
+            )
+        )
+
+    assert len(set(paths)) == 24
+    assert all(path.is_file() and path.stat().st_size > 0 for path in paths)
 
 
 def test_save_annotated_image_removes_partial_output_on_failure(

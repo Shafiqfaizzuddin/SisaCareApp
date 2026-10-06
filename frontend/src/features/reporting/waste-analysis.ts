@@ -39,46 +39,63 @@ function isFailure(value: unknown): value is WasteAnalysisFailure {
   )
 }
 
-function isNumberRecord(value: unknown): value is Record<string, number> {
-  return (
-    isObject(value) &&
-    Object.values(value).every(
-      (item) =>
-        typeof item === 'number' && Number.isInteger(item) && item >= 0,
-    )
+const finalCategories = new Set([
+  'Non-Recyclable',
+  'Recyclable Waste',
+  'Bulky Waste',
+  'Unknown',
+])
+
+function isBoundingBoxOrNull(value: unknown): boolean {
+  if (value === null) return true
+  if (!isObject(value)) return false
+  return [value.x1, value.y1, value.x2, value.y2].every(
+    (coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate),
   )
 }
 
-function isDetection(value: unknown): boolean {
-  if (!isObject(value) || !isObject(value.bounding_box)) return false
-  const box = value.bounding_box
+function isFusedObject(value: unknown): boolean {
   return (
-    typeof value.class_name === 'string' &&
-    Number.isInteger(value.class_id) &&
-    typeof value.confidence === 'number' &&
-    Number.isFinite(value.confidence) &&
-    value.confidence >= 0 &&
-    value.confidence <= 1 &&
+    isObject(value) &&
+    typeof value.name === 'string' &&
     typeof value.display_name === 'string' &&
-    typeof value.waste_category === 'string' &&
-    typeof value.material === 'string' &&
-    typeof value.recyclable === 'boolean' &&
-    typeof value.recommended_handling === 'string' &&
-    [box.x1, box.y1, box.x2, box.y2].every(
-      (coordinate) =>
-        typeof coordinate === 'number' && Number.isFinite(coordinate),
-    )
+    finalCategories.has(value.category as string) &&
+    ['mapping', 'vlm', 'unknown'].includes(value.category_source as string) &&
+    ['yolo', 'vlm', 'yolo+vlm'].includes(value.source as string) &&
+    (value.confidence === null || typeof value.confidence === 'number') &&
+    (value.confidence_level === null ||
+      ['high', 'medium', 'low'].includes(value.confidence_level as string)) &&
+    typeof value.supported_by_vlm === 'boolean' &&
+    isBoundingBoxOrNull(value.bounding_box)
+  )
+}
+
+function isGroupedObject(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    typeof value.name === 'string' &&
+    typeof value.label === 'string' &&
+    (value.count === null ||
+      (Number.isInteger(value.count) && (value.count as number) >= 1)) &&
+    finalCategories.has(value.category as string) &&
+    Array.isArray(value.sources) &&
+    value.sources.every((source) => source === 'yolo' || source === 'vlm') &&
+    (value.average_yolo_confidence === null ||
+      typeof value.average_yolo_confidence === 'number')
   )
 }
 
 function isReport(value: unknown): boolean {
   return (
     isObject(value) &&
-    typeof value.title === 'string' &&
-    typeof value.summary === 'string' &&
-    typeof value.waste_identified === 'string' &&
-    typeof value.recommended_action === 'string' &&
-    typeof value.environmental_concern === 'string'
+    Object.keys(value).length === 5 &&
+    [
+      value.title,
+      value.summary,
+      value.waste_identified,
+      value.recommended_action,
+      value.environmental_concern,
+    ].every((field) => typeof field === 'string' && field.trim().length > 0)
   )
 }
 
@@ -88,14 +105,16 @@ function isSuccess(value: unknown): value is WasteAnalysisSuccess {
     value.success === true &&
     typeof value.analysis_id === 'string' &&
     typeof value.original_image === 'string' &&
-    typeof value.annotated_image === 'string' &&
-    isObject(value.detection) &&
-    typeof value.detection.total_objects === 'number' &&
-    Number.isInteger(value.detection.total_objects) &&
-    value.detection.total_objects >= 0 &&
-    isNumberRecord(value.detection.counts) &&
-    Array.isArray(value.detection.detections) &&
-    value.detection.detections.every(isDetection) &&
+    (value.annotated_image === null || typeof value.annotated_image === 'string') &&
+    Array.isArray(value.detections) &&
+    value.detections.every(isFusedObject) &&
+    Array.isArray(value.grouped_objects) &&
+    value.grouped_objects.every(isGroupedObject) &&
+    Array.isArray(value.categories_detected) &&
+    value.categories_detected.every((category) =>
+      finalCategories.has(category as string),
+    ) &&
+    typeof value.scene_description === 'string' &&
     isReport(value.report)
   )
 }
@@ -161,28 +180,34 @@ export async function analyzeWasteImage(
     )
   }
 
-  const imageResponse = await authenticatedFetch(responseData.annotated_image, {
-    signal,
-  })
-  if (!imageResponse.ok) {
-    throw new WasteAnalysisRequestError(
-      'The protected annotated image could not be loaded.',
-      'ANNOTATED_IMAGE_UNAVAILABLE',
-    )
-  }
-  const imageBlob = await imageResponse.blob()
-  if (!imageBlob.type.startsWith('image/')) {
-    throw new WasteAnalysisRequestError(
-      'The analysis service returned an invalid annotated image.',
-      'INVALID_ANNOTATED_IMAGE',
-    )
-  }
-  if (signal?.aborted) {
-    throw new DOMException('The analysis request was cancelled.', 'AbortError')
+  if (responseData.annotated_image) {
+    try {
+      const imageResponse = await authenticatedFetch(responseData.annotated_image, {
+        signal,
+      })
+      if (imageResponse.ok) {
+        const imageBlob = await imageResponse.blob()
+        if (imageBlob.type.startsWith('image/')) {
+          if (signal?.aborted) {
+            throw new DOMException('The analysis request was cancelled.', 'AbortError')
+          }
+          return {
+            ...responseData,
+            annotated_image: URL.createObjectURL(imageBlob),
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw error
+      }
+    }
+
+    return {
+      ...responseData,
+      annotated_image: null,
+    }
   }
 
-  return {
-    ...responseData,
-    annotated_image: URL.createObjectURL(imageBlob),
-  }
+  return responseData
 }

@@ -1021,8 +1021,7 @@ a:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
-.detection-item__title,
-.detection-confidence {
+.detection-item__title {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1043,19 +1042,29 @@ a:focus-visible {
   font-weight: 750;
 }
 
-.detection-item p {
-  margin: 4px 0 10px;
+.detection-item__details {
+  margin: 12px 0 0;
+  display: grid;
+  gap: 7px;
+}
+
+.detection-item__details > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
   font-size: 0.72rem;
 }
 
-.detection-confidence {
+.detection-item__details dt {
   color: var(--ink-muted);
-  font-size: 0.7rem;
 }
 
-.detection-confidence strong {
+.detection-item__details dd {
+  margin: 0;
   color: var(--ink);
-  font-size: 0.72rem;
+  font-weight: 750;
+  text-align: right;
 }
 
 .ai-report {
@@ -1190,6 +1199,188 @@ a:focus-visible {
 
 .input-with-icon input {
   padding-left: 40px;
+}
+
+.location-picker {
+  display: grid;
+  gap: 16px;
+}
+
+.location-picker__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.location-search {
+  position: relative;
+  z-index: 5;
+  margin: 0;
+}
+
+.location-search__results {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  max-height: 240px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.location-search__results button {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.location-search__results button:hover,
+.location-search__results button:focus-visible {
+  background: var(--surface-subtle);
+}
+
+.location-search__results svg {
+  flex: 0 0 auto;
+  color: var(--coral);
+}
+
+.location-map-shell {
+  position: relative;
+  min-width: 0;
+}
+
+.location-map {
+  width: 100%;
+  height: 320px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #e4ebe6;
+}
+
+.location-map--error,
+.map-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--ink-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.location-map__status {
+  position: absolute;
+  z-index: 500;
+  top: 10px;
+  left: 50%;
+  max-width: calc(100% - 24px);
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--ink-soft);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow-sm);
+  font-size: 0.7rem;
+  transform: translateX(-50%);
+}
+
+.location-map__status--error {
+  border-color: #e7b7ad;
+  color: #843b32;
+}
+
+.tomtom-marker {
+  background: transparent;
+}
+
+.tomtom-marker span {
+  width: 28px;
+  height: 28px;
+  border: 3px solid #ffffff;
+  border-radius: 50% 50% 50% 4px;
+  display: block;
+  background: var(--coral);
+  box-shadow: var(--shadow-md);
+  transform: rotate(-45deg);
+}
+
+.location-picker__status,
+.location-picker__message {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-muted);
+  font-size: 0.74rem;
+}
+
+.location-picker__message--error {
+  color: #843b32;
+}
+
+.location-picker__message svg,
+.location-picker__status svg {
+  flex: 0 0 auto;
+}
+
+.selected-location {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px 20px;
+  background: var(--surface-subtle);
+}
+
+.selected-location > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.selected-location span,
+.selected-location dt,
+.report-location-details dt {
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.selected-location strong {
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.selected-location dl {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.selected-location dd,
+.report-location-details dd {
+  margin: 3px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.75rem;
 }
 
 .category-options {
@@ -2324,59 +2515,6 @@ a:focus-visible {
   font-size: 0.8rem;
 }
 
-.map-placeholder {
-  position: relative;
-  min-height: 170px;
-  overflow: hidden;
-  background-color: #dbe8e3;
-  background-image: linear-gradient(#cbdad5 1px, transparent 1px),
-    linear-gradient(90deg, #cbdad5 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-
-.map-placeholder__road {
-  position: absolute;
-  height: 13px;
-  background: #ffffff;
-  box-shadow: 0 0 0 1px #c3d2cd;
-}
-
-.map-placeholder__road--one {
-  width: 130%;
-  top: 42%;
-  left: -15%;
-  transform: rotate(14deg);
-}
-
-.map-placeholder__road--two {
-  width: 100%;
-  top: 25%;
-  left: 24%;
-  transform: rotate(80deg);
-}
-
-.map-placeholder__marker {
-  position: absolute;
-  z-index: 2;
-  top: 50%;
-  left: 50%;
-  width: 38px;
-  height: 38px;
-  border: 3px solid #ffffff;
-  border-radius: 50% 50% 50% 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
-  background: var(--coral);
-  box-shadow: var(--shadow-md);
-  transform: translate(-50%, -50%) rotate(-45deg);
-}
-
-.map-placeholder__marker svg {
-  transform: rotate(45deg);
-}
-
 .detail-list,
 .activity-panel {
   padding: 20px;
@@ -3208,6 +3346,25 @@ a:focus-visible {
   font-size: 0.74rem;
 }
 
+.map-panel .location-map-shell,
+.map-panel .location-map,
+.map-unavailable {
+  min-height: 210px;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+
+.map-unavailable {
+  background: var(--surface-subtle);
+}
+
+.report-location-details {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
 .validation-error {
   margin-top: 10px;
   color: var(--coral);
@@ -3781,6 +3938,15 @@ a:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .selected-location {
+    grid-template-columns: 1fr;
+  }
+
+  .selected-location .button,
+  .selected-location dl {
+    grid-column: 1;
+  }
+
   .admin-detection-list dl {
     grid-template-columns: 1fr;
   }
@@ -3794,9 +3960,6 @@ a:focus-visible {
     border-left: 0;
   }
 
-  .map-placeholder {
-    min-height: 150px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

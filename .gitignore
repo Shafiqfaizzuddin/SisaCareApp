@@ -1,6 +1,8 @@
 # Environment files
 .env
 **/.env
+.env.*
+**/.env.*
 !.env.example
 !**/.env.example
 
@@ -29,3 +31,6 @@ Thumbs.db
 # Supabase local state
 supabase/.branches/
 supabase/.temp/
+
+# Local backend-generated images
+backend/.runtime/

@@ -1,0 +1,221 @@
+{
+  "plastic_bag_film": {
+    "display_name": "Plastic Bag / Film",
+    "aliases": [
+      "plastic bag film",
+      "plastic bag",
+      "plastic film",
+      "soft plastic bag"
+    ]
+  },
+  "cigarette": {
+    "display_name": "Cigarette Waste",
+    "aliases": [
+      "cigarette",
+      "cigarette butt",
+      "cigarette waste"
+    ]
+  },
+  "small_accessory": {
+    "display_name": "Small Waste Accessory",
+    "aliases": [
+      "small accessory",
+      "small waste accessory"
+    ]
+  },
+  "scrap_metal": {
+    "display_name": "Scrap Metal",
+    "aliases": [
+      "scrap metal",
+      "metal scrap"
+    ]
+  },
+  "plastic_bottle": {
+    "display_name": "Plastic Bottle",
+    "aliases": [
+      "plastic bottle",
+      "plastic_bottle",
+      "pet bottle"
+    ]
+  },
+  "drink_can": {
+    "display_name": "Drink Can",
+    "aliases": [
+      "drink can",
+      "metal drink can",
+      "beverage can",
+      "aluminium drink can",
+      "aluminum drink can",
+      "metal_can"
+    ]
+  },
+  "other_plastic": {
+    "display_name": "Other Plastic",
+    "aliases": [
+      "other plastic"
+    ]
+  },
+  "paper": {
+    "display_name": "Paper",
+    "aliases": [
+      "paper",
+      "paper waste"
+    ]
+  },
+  "glass": {
+    "display_name": "Glass",
+    "aliases": [
+      "glass",
+      "glass waste",
+      "glass bottle"
+    ]
+  },
+  "cardboard_carton": {
+    "display_name": "Cardboard / Carton",
+    "aliases": [
+      "cardboard carton",
+      "cardboard box",
+      "cardboard packaging"
+    ]
+  },
+  "disposable_utensils_straw": {
+    "display_name": "Disposable Utensils / Straw",
+    "aliases": [
+      "disposable utensils straw",
+      "disposable utensils and straw"
+    ]
+  },
+  "disposable_plastic_container": {
+    "display_name": "Plastic Container",
+    "aliases": [
+      "disposable plastic container",
+      "plastic container",
+      "plastic food container"
+    ]
+  },
+  "foam_styrofoam": {
+    "display_name": "Foam / Styrofoam",
+    "aliases": [
+      "foam styrofoam",
+      "styrofoam",
+      "polystyrene foam",
+      "foam packaging"
+    ]
+  },
+  "general_waste": {
+    "display_name": "General Waste",
+    "aliases": [
+      "general waste",
+      "mixed general waste"
+    ]
+  },
+  "rope_strings": {
+    "display_name": "Rope / Strings",
+    "aliases": [
+      "rope strings",
+      "rope and strings"
+    ]
+  },
+  "food_waste": {
+    "display_name": "Food Waste",
+    "aliases": [
+      "food waste",
+      "food scraps",
+      "discarded food"
+    ]
+  },
+  "food_wrapper": {
+    "display_name": "Food Wrapper",
+    "aliases": [
+      "food wrapper",
+      "snack wrapper",
+      "food packaging wrapper"
+    ]
+  },
+  "dirty_tissue": {
+    "display_name": "Dirty Tissue",
+    "aliases": [
+      "dirty tissue",
+      "used tissue",
+      "soiled tissue"
+    ]
+  },
+  "used_diaper": {
+    "display_name": "Used Diaper",
+    "aliases": [
+      "used diaper",
+      "used nappy",
+      "soiled diaper",
+      "soiled nappy"
+    ]
+  },
+  "contaminated_packaging": {
+    "display_name": "Contaminated Packaging",
+    "aliases": [
+      "contaminated packaging",
+      "soiled packaging"
+    ]
+  },
+  "electronic_waste": {
+    "display_name": "Electronic Waste",
+    "aliases": [
+      "electronic waste",
+      "e waste",
+      "e-waste"
+    ]
+  },
+  "battery": {
+    "display_name": "Battery",
+    "aliases": [
+      "battery",
+      "batteries"
+    ]
+  },
+  "mattress": {
+    "display_name": "Mattress",
+    "aliases": [
+      "mattress",
+      "discarded mattress"
+    ]
+  },
+  "sofa": {
+    "display_name": "Sofa",
+    "aliases": [
+      "sofa",
+      "couch",
+      "discarded sofa",
+      "discarded couch"
+    ]
+  },
+  "large_table": {
+    "display_name": "Large Table",
+    "aliases": [
+      "large table",
+      "discarded large table"
+    ]
+  },
+  "refrigerator": {
+    "display_name": "Refrigerator",
+    "aliases": [
+      "refrigerator",
+      "fridge",
+      "discarded refrigerator",
+      "discarded fridge"
+    ]
+  },
+  "washing_machine": {
+    "display_name": "Washing Machine",
+    "aliases": [
+      "washing machine",
+      "discarded washing machine"
+    ]
+  },
+  "large_appliance": {
+    "display_name": "Large Appliance",
+    "aliases": [
+      "large appliance",
+      "large household appliance",
+      "discarded large appliance"
+    ]
+  }
+}

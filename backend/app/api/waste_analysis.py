@@ -18,7 +18,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from app.core.auth import AuthenticatedUser, require_authenticated_user
 from app.core.config import get_settings
 from app.core.rate_limit import enforce_ai_analysis_rate_limit
-from app.services.ai import analyze_waste_image
+from app.services.ai import analyze_waste_image, generate_waste_report
+from app.services.ai.category_mapping import get_category_metadata
 from app.services.ai.image_annotator import ANNOTATED_OUTPUT_DIR
 from app.services.ai.image_validation import ImageValidationError, validate_image
 from app.repositories.reports import (
@@ -78,6 +79,7 @@ def _failure_status(code: str) -> int:
         "UNSUPPORTED_FILE_TYPE",
         "INVALID_CONFIDENCE_THRESHOLD",
         "INVALID_DETECTION_DATA",
+        "INVALID_ANALYSIS_DATA",
     }:
         return 400
     if code == "OLLAMA_TIMEOUT":
@@ -131,6 +133,53 @@ def _remove_temporary_file(path: str | Path, root: Path) -> None:
         candidate.unlink(missing_ok=True)
     except (OSError, ValueError):
         return
+
+
+def _draft_detection_payload(result: dict[str, Any]) -> dict[str, Any]:
+    """Preserve individual AI facts without duplicating derived groups."""
+
+    stored_detections: list[dict[str, Any]] = []
+    objects = result["analysis"]["objects"]
+    for item in objects:
+        bounding_box = item.get("bounding_box")
+        confidence = item.get("confidence")
+        metadata = get_category_metadata(item["name"])
+        stored_detections.append(
+            {
+                "class_name": item["name"],
+                "display_name": item["display_name"],
+                "waste_category": item["category"],
+                "material": metadata["material"],
+                "confidence": (
+                    float(confidence)
+                    if isinstance(confidence, (int, float))
+                    else None
+                ),
+                "bounding_box": (
+                    bounding_box if isinstance(bounding_box, dict) else None
+                ),
+                "source": item["source"],
+            }
+        )
+    yolo = result["yolo"]
+    vlm = result["vlm"]
+    analysis = result["analysis"]
+    return {
+        "detections": stored_detections,
+        "raw_yolo": {
+            "available": yolo.get("available"),
+            "error": yolo.get("error"),
+        },
+        "raw_vlm": {
+            "available": vlm.get("available"),
+            "error": vlm.get("error"),
+            "scene_description": vlm.get("scene_description", ""),
+        },
+        "analysis": {
+            "mode": analysis.get("mode"),
+            "categories_detected": analysis.get("categories_detected", []),
+        },
+    }
 
 
 @router.get("/uploads/{filename}", response_class=FileResponse)
@@ -334,23 +383,36 @@ async def analyze_uploaded_waste(
             "code": result["code"],
             "message": result["message"],
             "stage": result["stage"],
+            "annotated_image": None,
         }
-        detection = result.get("detection")
-        if isinstance(detection, dict):
-            failure_content["detection"] = detection
+        for field in ("yolo", "vlm", "analysis", "detection"):
+            value = result.get(field)
+            if isinstance(value, dict):
+                failure_content[field] = value
         return JSONResponse(
             status_code=_failure_status(result["code"]),
             content=failure_content,
         )
 
+    report_input = {
+        "grouped_objects": result["analysis"]["grouped_objects"],
+        "categories_detected": result["analysis"]["categories_detected"],
+    }
     try:
-        annotated_image = _annotated_image_url(result["annotated_image"])
-    except ValueError:
+        report = await run_in_threadpool(generate_waste_report, report_input)
+    except Exception as exc:
         _remove_temporary_file(destination, UPLOAD_DIR)
-        _remove_temporary_file(result["annotated_image"], ANNOTATED_OUTPUT_DIR)
+        annotated_path = result.get("annotated_image")
+        if isinstance(annotated_path, str):
+            _remove_temporary_file(annotated_path, ANNOTATED_OUTPUT_DIR)
+        logger.exception(
+            "report_generation_error request_id=%s error_type=%s",
+            request_id,
+            type(exc).__name__,
+        )
         _log_analysis_failure(
             request_id,
-            "ANNOTATED_IMAGE_ERROR",
+            "REPORT_GENERATION_ERROR",
             request_started,
             level=logging.ERROR,
         )
@@ -358,24 +420,67 @@ async def analyze_uploaded_waste(
             status_code=500,
             content={
                 "success": False,
-                "code": "ANNOTATED_IMAGE_ERROR",
-                "message": "The annotated image is unavailable.",
-                "stage": "detection",
+                "code": "REPORT_GENERATION_ERROR",
+                "message": "The report draft could not be generated.",
+                "stage": "report_generation",
+                "annotated_image": None,
             },
         )
+    if report.get("success") is False:
+        _remove_temporary_file(destination, UPLOAD_DIR)
+        annotated_path = result.get("annotated_image")
+        if isinstance(annotated_path, str):
+            _remove_temporary_file(annotated_path, ANNOTATED_OUTPUT_DIR)
+        report_code = str(report["code"])
+        _log_analysis_failure(request_id, report_code, request_started)
+        return JSONResponse(
+            status_code=_failure_status(report_code),
+            content={
+                "success": False,
+                "code": report_code,
+                "message": report["message"],
+                "stage": "report_generation",
+                "annotated_image": None,
+            },
+        )
+
+    annotated_path = result["annotated_image"]
+    annotated_image: str | None = None
+    if isinstance(annotated_path, str):
+        try:
+            annotated_image = _annotated_image_url(annotated_path)
+        except ValueError:
+            _remove_temporary_file(destination, UPLOAD_DIR)
+            _remove_temporary_file(annotated_path, ANNOTATED_OUTPUT_DIR)
+            _log_analysis_failure(
+                request_id,
+                "ANNOTATED_IMAGE_ERROR",
+                request_started,
+                level=logging.ERROR,
+            )
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "code": "ANNOTATED_IMAGE_ERROR",
+                    "message": "The annotated image is unavailable.",
+                    "stage": "analysis",
+                },
+            )
 
     try:
         analysis_id = await run_in_threadpool(
             create_analysis_draft,
             original_image_path=destination,
-            annotated_image_path=result["annotated_image"],
-            detection=result["detection"],
-            report=result["report"],
+            annotated_image_path=annotated_path or destination,
+            detection=_draft_detection_payload(result),
+            report=report,
             user_id=user["id"],
         )
     except (OSError, TypeError, ValueError, sqlite3.Error) as exc:
         _remove_temporary_file(destination, UPLOAD_DIR)
-        _remove_temporary_file(result["annotated_image"], ANNOTATED_OUTPUT_DIR)
+        if isinstance(annotated_path, str):
+            _remove_temporary_file(annotated_path, ANNOTATED_OUTPUT_DIR)
         logger.exception(
             "analysis_draft_storage_failed request_id=%s error_type=%s",
             request_id,
@@ -393,11 +498,11 @@ async def analyze_uploaded_waste(
                 "success": False,
                 "code": "DRAFT_STORAGE_ERROR",
                 "message": "The analysis draft could not be stored.",
-                "stage": "report_generation",
+                "stage": "analysis",
             },
         )
 
-    detection_count = result["detection"]["total_objects"]
+    detection_count = len(result["analysis"]["objects"])
     logger.info(
         "analysis_request_completed request_id=%s detection_count=%d "
         "duration_ms=%d",
@@ -406,10 +511,15 @@ async def analyze_uploaded_waste(
         round((perf_counter() - request_started) * 1000),
     )
     return {
-        **result,
+        "success": True,
         "analysis_id": analysis_id,
         "original_image": f"/api/waste/uploads/{quote(destination.name)}",
         "annotated_image": annotated_image,
+        "detections": result["analysis"]["objects"],
+        "grouped_objects": result["analysis"]["grouped_objects"],
+        "categories_detected": result["analysis"]["categories_detected"],
+        "scene_description": result["vlm"]["scene_description"] or "",
+        "report": report,
     }
 
 

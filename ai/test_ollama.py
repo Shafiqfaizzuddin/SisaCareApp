@@ -28,8 +28,8 @@ def main() -> int:
     try:
         response_text = check_ollama_connection(
             base_url=settings.ollama_base_url,
-            model=settings.ollama_model,
-            timeout_seconds=settings.ollama_timeout_seconds,
+            model=settings.ollama_report_model,
+            timeout_seconds=settings.ollama_report_timeout_seconds,
         )
     except OllamaUnavailableError as exc:
         print(f"OLLAMA_UNAVAILABLE: {exc}", file=sys.stderr)

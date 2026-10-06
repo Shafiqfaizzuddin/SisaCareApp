@@ -1,7 +1,7 @@
 {
   "plastic_bag_film": {
     "display_name": "Plastic Bag / Film",
-    "waste_category": "Non-Recyclable Waste",
+    "waste_category": "Non-Recyclable",
     "material": "Soft Plastic",
     "recyclable": false,
     "recommended_handling": "Keep separate from recyclable materials and dispose of through the appropriate general-waste or soft-plastic collection stream where available."
@@ -9,7 +9,7 @@
 
   "cigarette": {
     "display_name": "Cigarette Waste",
-    "waste_category": "Non-Recyclable Waste",
+    "waste_category": "Non-Recyclable",
     "material": "Mixed Material",
     "recyclable": false,
     "recommended_handling": "Ensure the cigarette is fully extinguished and dispose of it securely in the general-waste stream."
@@ -17,7 +17,7 @@
 
   "small_accessory": {
     "display_name": "Small Waste Accessory",
-    "waste_category": "Non-Recyclable Waste",
+    "waste_category": "Non-Recyclable",
     "material": "Mixed Material",
     "recyclable": false,
     "recommended_handling": "Collect small accessories securely and place them in the appropriate general-waste stream unless a specific recycling facility accepts them."
@@ -39,9 +39,17 @@
     "recommended_handling": "Empty, rinse, and place in an appropriate plastic recycling stream."
   },
 
+  "drink_can": {
+    "display_name": "Drink Can",
+    "waste_category": "Recyclable Waste",
+    "material": "Metal",
+    "recyclable": true,
+    "recommended_handling": "Empty, rinse, and place in an appropriate metal recycling stream."
+  },
+
   "other_plastic": {
     "display_name": "Other Plastic",
-    "waste_category": "Non-Recyclable Waste",
+    "waste_category": "Non-Recyclable",
     "material": "Plastic",
     "recyclable": false,
     "recommended_handling": "Dispose of through the appropriate general-waste stream unless the specific plastic type is accepted by a local recycling facility."
@@ -73,7 +81,7 @@
 
   "disposable_utensils_straw": {
     "display_name": "Disposable Utensils / Straw",
-    "waste_category": "Non-Recyclable Waste",
+    "waste_category": "Non-Recyclable",
     "material": "Mixed Disposable Material",
     "recyclable": false,
     "recommended_handling": "Place used disposable utensils and straws in the appropriate general-waste stream."
@@ -89,7 +97,7 @@
 
   "foam_styrofoam": {
     "display_name": "Foam / Styrofoam",
-    "waste_category": "Non-Recyclable Waste",
+    "waste_category": "Non-Recyclable",
     "material": "Expanded Plastic Foam",
     "recyclable": false,
     "recommended_handling": "Keep separate from recyclable materials and dispose of through the appropriate general-waste stream unless a specialised collection facility is available."
@@ -97,7 +105,7 @@
 
   "general_waste": {
     "display_name": "General Waste",
-    "waste_category": "Non-Recyclable Waste",
+    "waste_category": "Non-Recyclable",
     "material": "Mixed or Unknown Material",
     "recyclable": false,
     "recommended_handling": "Bag securely and place in the appropriate general-waste collection stream."
@@ -105,7 +113,7 @@
 
   "rope_strings": {
     "display_name": "Rope / Strings",
-    "waste_category": "Non-Recyclable Waste",
+    "waste_category": "Non-Recyclable",
     "material": "Mixed Fibre or Plastic",
     "recyclable": false,
     "recommended_handling": "Bundle or contain loose rope and strings securely before placing them in the appropriate general-waste stream."
@@ -113,15 +121,47 @@
 
   "food_waste": {
     "display_name": "Food Waste",
-    "waste_category": "Non-Recyclable Waste",
+    "waste_category": "Non-Recyclable",
     "material": "Organic Material",
     "recyclable": false,
     "recommended_handling": "Keep separate from recyclable materials. Use composting or an organic-waste collection stream where available; otherwise use the appropriate general-waste stream."
   },
 
+  "food_wrapper": {
+    "display_name": "Food Wrapper",
+    "waste_category": "Non-Recyclable",
+    "material": "Mixed Packaging Material",
+    "recyclable": false,
+    "recommended_handling": "Place the wrapper in the appropriate general-waste stream unless its material is specifically accepted by a local recycling facility."
+  },
+
+  "dirty_tissue": {
+    "display_name": "Dirty Tissue",
+    "waste_category": "Non-Recyclable",
+    "material": "Contaminated Paper",
+    "recyclable": false,
+    "recommended_handling": "Bag securely and place in the appropriate general-waste stream."
+  },
+
+  "used_diaper": {
+    "display_name": "Used Diaper",
+    "waste_category": "Non-Recyclable",
+    "material": "Contaminated Mixed Material",
+    "recyclable": false,
+    "recommended_handling": "Bag securely and place in the appropriate general-waste stream."
+  },
+
+  "contaminated_packaging": {
+    "display_name": "Contaminated Packaging",
+    "waste_category": "Non-Recyclable",
+    "material": "Contaminated Packaging Material",
+    "recyclable": false,
+    "recommended_handling": "Place in the appropriate general-waste stream when it cannot be emptied and cleaned for recycling."
+  },
+
   "electronic_waste": {
     "display_name": "Electronic Waste",
-    "waste_category": "Non-Recyclable Waste",
+    "waste_category": "Non-Recyclable",
     "material": "Electronic Components",
     "recyclable": false,
     "recommended_handling": "Do not place electronic waste in normal recycling bins. Keep it dry and intact and deliver it to an authorised electronic-waste collection or recovery facility."
@@ -129,9 +169,57 @@
 
   "battery": {
     "display_name": "Battery",
-    "waste_category": "Non-Recyclable Waste",
+    "waste_category": "Non-Recyclable",
     "material": "Battery / Hazardous Electronic Material",
     "recyclable": false,
     "recommended_handling": "Do not place batteries in household recycling or general-waste bins. Keep terminals protected where appropriate and deliver them to an authorised battery or electronic-waste collection point."
+  },
+
+  "sofa": {
+    "display_name": "Sofa",
+    "waste_category": "Bulky Waste",
+    "material": "Mixed Furniture Material",
+    "recyclable": false,
+    "recommended_handling": "Arrange collection through an appropriate bulky-waste or furniture recovery service."
+  },
+
+  "mattress": {
+    "display_name": "Mattress",
+    "waste_category": "Bulky Waste",
+    "material": "Mixed Bedding Material",
+    "recyclable": false,
+    "recommended_handling": "Arrange collection through an appropriate bulky-waste or mattress recovery service."
+  },
+
+  "large_table": {
+    "display_name": "Large Table",
+    "waste_category": "Bulky Waste",
+    "material": "Mixed Furniture Material",
+    "recyclable": false,
+    "recommended_handling": "Arrange collection through an appropriate bulky-waste or furniture recovery service."
+  },
+
+  "refrigerator": {
+    "display_name": "Refrigerator",
+    "waste_category": "Bulky Waste",
+    "material": "Large Electrical Appliance",
+    "recyclable": false,
+    "recommended_handling": "Arrange collection through an authorised bulky-waste or appliance recovery service."
+  },
+
+  "washing_machine": {
+    "display_name": "Washing Machine",
+    "waste_category": "Bulky Waste",
+    "material": "Large Electrical Appliance",
+    "recyclable": false,
+    "recommended_handling": "Arrange collection through an authorised bulky-waste or appliance recovery service."
+  },
+
+  "large_appliance": {
+    "display_name": "Large Appliance",
+    "waste_category": "Bulky Waste",
+    "material": "Large Electrical Appliance",
+    "recyclable": false,
+    "recommended_handling": "Arrange collection through an authorised bulky-waste or appliance recovery service."
   }
 }

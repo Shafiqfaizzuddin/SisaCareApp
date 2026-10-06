@@ -26,9 +26,14 @@ class ImageAnnotationError(RuntimeError):
 
 
 def _unique_output_path(output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
     while True:
         candidate = output_dir / f"annotated-{uuid4().hex}.jpg"
-        if not candidate.exists():
+        try:
+            candidate.touch(exist_ok=False)
+        except FileExistsError:
+            continue
+        else:
             return candidate
 
 
@@ -97,7 +102,6 @@ def save_annotated_image(
     output_path = _unique_output_path(resolved_output_dir)
 
     try:
-        resolved_output_dir.mkdir(parents=True, exist_ok=True)
         with Image.open(resolved_source_path) as source_image:
             annotated_image = source_image.convert("RGB")
         _draw_detections(annotated_image, result)

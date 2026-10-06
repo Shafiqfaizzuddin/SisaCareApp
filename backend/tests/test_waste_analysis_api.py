@@ -39,7 +39,8 @@ SUCCESS_RESULT: dict[str, Any] = {
     "success": True,
     "original_image": "ignored-by-api.jpg",
     "annotated_image": "",
-    "detection": {
+    "yolo": {
+        "available": True,
         "total_objects": 1,
         "counts": {"plastic_bottle": 1},
         "detections": [
@@ -47,22 +48,58 @@ SUCCESS_RESULT: dict[str, Any] = {
                 "class_name": "plastic_bottle",
                 "class_id": 0,
                 "confidence": 0.91,
-                "display_name": "Plastic Bottle",
-                "waste_category": "Recyclable Waste",
-                "material": "Plastic",
-                "recyclable": True,
-                "recommended_handling": "Recycle appropriately.",
                 "bounding_box": {"x1": 1.0, "y1": 2.0, "x2": 3.0, "y2": 4.0},
+                "source": "yolo",
             }
         ],
+        "error": None,
     },
-    "report": {
-        "title": "Municipal Waste Report",
-        "summary": "One item was detected.",
-        "waste_identified": "One plastic bottle.",
-        "recommended_action": "Recycle the bottle.",
-        "environmental_concern": "Improper disposal may contribute to litter.",
+    "vlm": {
+        "available": True,
+        "scene_description": "A plastic bottle is visible.",
+        "objects": [],
+        "error": None,
     },
+    "analysis": {
+        "mode": "hybrid",
+        "objects": [
+            {
+                "name": "plastic_bottle",
+                "display_name": "Plastic Bottle",
+                "category": "Recyclable Waste",
+                "category_source": "mapping",
+                "source": "yolo",
+                "confidence": 0.91,
+                "confidence_level": None,
+                "supported_by_vlm": False,
+                "bounding_box": {
+                    "x1": 1.0,
+                    "y1": 2.0,
+                    "x2": 3.0,
+                    "y2": 4.0,
+                },
+            }
+        ],
+        "grouped_objects": [
+            {
+                "name": "plastic_bottle",
+                "label": "Plastic Bottle",
+                "count": 1,
+                "category": "Recyclable Waste",
+                "sources": ["yolo"],
+                "average_yolo_confidence": 0.91,
+            }
+        ],
+        "categories_detected": ["Recyclable Waste"],
+    },
+}
+
+REPORT_DRAFT = {
+    "title": "Recyclable Waste Observation",
+    "summary": "The analysis identifies recyclable waste.",
+    "waste_identified": "Plastic Bottle (count: 1)",
+    "recommended_action": "Recycling through an appropriate service is recommended.",
+    "environmental_concern": "Improper handling may contribute to litter.",
 }
 
 
@@ -89,11 +126,18 @@ def test_analyze_endpoint_returns_browser_accessible_image_urls(
     annotated_path = annotated_dir / f"annotated-{'a' * 32}.jpg"
     annotated_path.write_bytes(b"annotated")
     result = {**SUCCESS_RESULT, "annotated_image": str(annotated_path)}
+    report_inputs: list[dict[str, Any]] = []
+    draft_inputs: list[dict[str, Any]] = []
     monkeypatch.setattr(waste_analysis, "analyze_waste_image", lambda _path: result)
     monkeypatch.setattr(
         waste_analysis,
+        "generate_waste_report",
+        lambda report_input: report_inputs.append(report_input) or REPORT_DRAFT,
+    )
+    monkeypatch.setattr(
+        waste_analysis,
         "create_analysis_draft",
-        lambda **_kwargs: "draft-123",
+        lambda **kwargs: draft_inputs.append(kwargs) or "draft-123",
     )
     monkeypatch.setattr(
         waste_analysis,
@@ -114,6 +158,28 @@ def test_analyze_endpoint_returns_browser_accessible_image_urls(
         f"/api/waste/annotated/annotated-{'a' * 32}.jpg"
     )
     assert payload["original_image"].startswith("/api/waste/uploads/upload-")
+    assert payload["detections"] == SUCCESS_RESULT["analysis"]["objects"]
+    assert payload["grouped_objects"] == SUCCESS_RESULT["analysis"]["grouped_objects"]
+    assert payload["categories_detected"] == ["Recyclable Waste"]
+    assert payload["scene_description"] == "A plastic bottle is visible."
+    assert payload["report"] == REPORT_DRAFT
+    assert "yolo" not in payload
+    assert "vlm" not in payload
+    assert "analysis" not in payload
+    assert report_inputs == [
+        {
+            "grouped_objects": SUCCESS_RESULT["analysis"]["grouped_objects"],
+            "categories_detected": ["Recyclable Waste"],
+        }
+    ]
+    assert len(draft_inputs) == 1
+    assert draft_inputs[0]["report"] == REPORT_DRAFT
+    assert draft_inputs[0]["user_id"] == AUTHENTICATED_USER["id"]
+    assert draft_inputs[0]["detection"]["analysis"] == {
+        "mode": "hybrid",
+        "categories_detected": ["Recyclable Waste"],
+    }
+    assert "grouped_objects" not in draft_inputs[0]["detection"]["analysis"]
     assert len(list(upload_dir.glob("*.png"))) == 1
 
     original_response = client.get(payload["original_image"])
@@ -129,6 +195,90 @@ def test_analyze_endpoint_returns_browser_accessible_image_urls(
     assert "detection_count=1" in caplog.text
     assert "waste.png" not in caplog.text
     assert AUTHENTICATED_USER["email"] not in caplog.text
+
+
+def test_draft_payload_preserves_vlm_only_observation_without_geometry() -> None:
+    result = {
+        **SUCCESS_RESULT,
+        "analysis": {
+            **SUCCESS_RESULT["analysis"],
+            "objects": [
+                *SUCCESS_RESULT["analysis"]["objects"],
+                {
+                    "name": "mattress",
+                    "display_name": "Mattress",
+                    "category": "Bulky Waste",
+                    "category_source": "mapping",
+                    "source": "vlm",
+                    "confidence": None,
+                    "confidence_level": "high",
+                    "supported_by_vlm": False,
+                    "bounding_box": None,
+                },
+            ],
+            "categories_detected": ["Recyclable Waste", "Bulky Waste"],
+        },
+    }
+
+    payload = waste_analysis._draft_detection_payload(result)
+
+    assert len(payload["detections"]) == 2
+    assert payload["detections"][1] == {
+        "class_name": "mattress",
+        "display_name": "Mattress",
+        "waste_category": "Bulky Waste",
+        "material": "Mixed Bedding Material",
+        "confidence": None,
+        "bounding_box": None,
+        "source": "vlm",
+    }
+    assert payload["analysis"] == {
+        "mode": "hybrid",
+        "categories_detected": ["Recyclable Waste", "Bulky Waste"],
+    }
+
+
+def test_report_generation_failure_does_not_create_a_draft(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    upload_dir, annotated_dir = configure_temp_storage(monkeypatch, tmp_path)
+    annotated_path = annotated_dir / f"annotated-{'c' * 32}.jpg"
+    annotated_path.write_bytes(b"annotated")
+    result = {**SUCCESS_RESULT, "annotated_image": str(annotated_path)}
+    monkeypatch.setattr(waste_analysis, "analyze_waste_image", lambda _path: result)
+    monkeypatch.setattr(
+        waste_analysis,
+        "generate_waste_report",
+        lambda _analysis: {
+            "success": False,
+            "code": "OLLAMA_UNAVAILABLE",
+            "message": "The local report-generation service is unavailable.",
+        },
+    )
+    monkeypatch.setattr(
+        waste_analysis,
+        "create_analysis_draft",
+        lambda **_kwargs: pytest.fail(
+            "A failed report generation must not create an analysis draft."
+        ),
+    )
+
+    response = client.post(
+        "/api/waste/analyze",
+        files={"image": ("waste.png", VALID_PNG, "image/png")},
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "success": False,
+        "code": "OLLAMA_UNAVAILABLE",
+        "message": "The local report-generation service is unavailable.",
+        "stage": "report_generation",
+        "annotated_image": None,
+    }
+    assert list(upload_dir.iterdir()) == []
+    assert list(annotated_dir.iterdir()) == []
 
 
 def test_no_detection_is_returned_without_report(
@@ -157,7 +307,7 @@ def test_no_detection_is_returned_without_report(
     assert list((tmp_path / "uploads").iterdir()) == []
 
 
-def test_report_failure_does_not_expose_temporary_file_paths(
+def test_analysis_failure_does_not_expose_temporary_file_paths(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -165,12 +315,12 @@ def test_report_failure_does_not_expose_temporary_file_paths(
     annotated_path = annotated_dir / f"annotated-{'b' * 32}.jpg"
     annotated_path.write_bytes(b"annotated")
 
-    def failed_report(image_path: Path) -> dict[str, Any]:
+    def failed_analysis(image_path: Path) -> dict[str, Any]:
         return {
             "success": False,
-            "code": "INVALID_OLLAMA_RESPONSE",
-            "message": "Ollama returned an invalid waste report response.",
-            "stage": "report_generation",
+            "code": "AI_ANALYSIS_FAILED",
+            "message": "Waste analysis is temporarily unavailable.",
+            "stage": "analysis",
             "original_image": str(image_path),
             "annotated_image": str(annotated_path),
             "detection": {
@@ -180,7 +330,7 @@ def test_report_failure_does_not_expose_temporary_file_paths(
             },
         }
 
-    monkeypatch.setattr(waste_analysis, "analyze_waste_image", failed_report)
+    monkeypatch.setattr(waste_analysis, "analyze_waste_image", failed_analysis)
 
     response = client.post(
         "/api/waste/analyze",
@@ -188,12 +338,12 @@ def test_report_failure_does_not_expose_temporary_file_paths(
     )
 
     payload = response.json()
-    assert response.status_code == 502
-    assert payload["code"] == "INVALID_OLLAMA_RESPONSE"
-    assert payload["stage"] == "report_generation"
+    assert response.status_code == 500
+    assert payload["code"] == "AI_ANALYSIS_FAILED"
+    assert payload["stage"] == "analysis"
     assert payload["detection"]["total_objects"] == 1
     assert "original_image" not in payload
-    assert "annotated_image" not in payload
+    assert payload["annotated_image"] is None
     assert list(upload_dir.iterdir()) == []
     assert list(annotated_dir.iterdir()) == []
 

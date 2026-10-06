@@ -90,6 +90,8 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
                 recommended_action TEXT NOT NULL DEFAULT '',
                 environmental_concern TEXT NOT NULL DEFAULT '',
                 category TEXT NOT NULL,
+                final_categories_json TEXT NOT NULL DEFAULT '[]',
+                ai_analysis_json TEXT,
                 location TEXT NOT NULL,
                 latitude REAL,
                 longitude REAL,
@@ -116,11 +118,12 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
                 display_name TEXT NOT NULL,
                 waste_category TEXT NOT NULL,
                 material TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                x1 REAL NOT NULL,
-                y1 REAL NOT NULL,
-                x2 REAL NOT NULL,
-                y2 REAL NOT NULL,
+                confidence REAL,
+                x1 REAL,
+                y1 REAL,
+                x2 REAL,
+                y2 REAL,
+                source TEXT NOT NULL DEFAULT 'yolo',
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
             );
@@ -145,6 +148,8 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
         _ensure_analysis_draft_owner_column(database)
         _ensure_report_validation_columns(database)
         _ensure_report_location_columns(database)
+        _ensure_report_ai_columns(database)
+        _ensure_waste_detection_storage(database)
         _migrate_legacy_report_detections(database)
         database.commit()
     finally:
@@ -197,12 +202,90 @@ def _ensure_report_location_columns(database: sqlite3.Connection) -> None:
             database.execute(f"ALTER TABLE reports ADD COLUMN {name} {data_type}")
 
 
+def _ensure_report_ai_columns(database: sqlite3.Connection) -> None:
+    """Add immutable server-owned AI facts to previously created databases."""
+
+    columns = {
+        row["name"] for row in database.execute("PRAGMA table_info(reports)")
+    }
+    if "final_categories_json" not in columns:
+        database.execute(
+            "ALTER TABLE reports ADD COLUMN final_categories_json "
+            "TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "ai_analysis_json" not in columns:
+        database.execute("ALTER TABLE reports ADD COLUMN ai_analysis_json TEXT")
+
+
+def _ensure_waste_detection_storage(database: sqlite3.Connection) -> None:
+    """Allow one child table to store both YOLO and VLM observations."""
+
+    columns = {
+        row["name"]: row
+        for row in database.execute("PRAGMA table_info(waste_detections)")
+    }
+    nullable_fields = ("confidence", "x1", "y1", "x2", "y2")
+    needs_rebuild = "source" not in columns or any(
+        columns[field]["notnull"] for field in nullable_fields
+    )
+    if not needs_rebuild:
+        return
+
+    database.execute("DROP INDEX IF EXISTS idx_waste_detections_report_id")
+    database.execute(
+        "ALTER TABLE waste_detections RENAME TO waste_detections_legacy"
+    )
+    database.execute(
+        """
+        CREATE TABLE waste_detections (
+            id TEXT PRIMARY KEY,
+            report_id TEXT NOT NULL,
+            class_name TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            waste_category TEXT NOT NULL,
+            material TEXT NOT NULL,
+            confidence REAL,
+            x1 REAL,
+            y1 REAL,
+            x2 REAL,
+            y2 REAL,
+            source TEXT NOT NULL DEFAULT 'yolo',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+        )
+        """
+    )
+    legacy_columns = {
+        row["name"]
+        for row in database.execute("PRAGMA table_info(waste_detections_legacy)")
+    }
+    source_expression = "source" if "source" in legacy_columns else "'yolo'"
+    database.execute(
+        f"""
+        INSERT INTO waste_detections (
+            id, report_id, class_name, display_name, waste_category,
+            material, confidence, x1, y1, x2, y2, source, created_at
+        )
+        SELECT
+            id, report_id, class_name, display_name, waste_category,
+            material, confidence, x1, y1, x2, y2,
+            {source_expression}, created_at
+        FROM waste_detections_legacy
+        """
+    )
+    database.execute("DROP TABLE waste_detections_legacy")
+    database.execute(
+        "CREATE INDEX idx_waste_detections_report_id "
+        "ON waste_detections(report_id)"
+    )
+
+
 def create_analysis_draft(
     *,
     original_image_path: str | Path,
     annotated_image_path: str | Path,
     detection: Mapping[str, Any],
-    report: Mapping[str, Any],
+    report: Mapping[str, Any] | None,
     user_id: str,
 ) -> str:
     """Persist the server-owned result of analysis without creating a report."""
@@ -267,6 +350,53 @@ def _deserialize_detections(detection_json: str) -> list[dict[str, Any]]:
     return detections
 
 
+def _deserialize_ai_analysis(
+    detection_json: str,
+) -> tuple[list[str], dict[str, Any] | None]:
+    """Read immutable hybrid facts from a server-owned analysis draft."""
+
+    payload = json.loads(detection_json)
+    if not isinstance(payload, dict):
+        return [], None
+    analysis = payload.get("analysis")
+    if not isinstance(analysis, dict):
+        return [], None
+    raw_categories = analysis.get("categories_detected")
+    final_categories = (
+        list(dict.fromkeys(raw_categories))
+        if isinstance(raw_categories, list)
+        and all(isinstance(category, str) for category in raw_categories)
+        else []
+    )
+    raw_yolo = payload.get("raw_yolo")
+    raw_vlm = payload.get("raw_vlm")
+    metadata = {
+        "mode": analysis.get("mode"),
+        "scene_description": (
+            raw_vlm.get("scene_description")
+            if isinstance(raw_vlm, dict)
+            else None
+        ),
+        "yolo_available": (
+            raw_yolo.get("available")
+            if isinstance(raw_yolo, dict)
+            else None
+        ),
+        "vlm_available": (
+            raw_vlm.get("available")
+            if isinstance(raw_vlm, dict)
+            else None
+        ),
+        "yolo_error": (
+            raw_yolo.get("error") if isinstance(raw_yolo, dict) else None
+        ),
+        "vlm_error": (
+            raw_vlm.get("error") if isinstance(raw_vlm, dict) else None
+        ),
+    }
+    return final_categories, metadata
+
+
 def _insert_detection_rows(
     database: sqlite3.Connection,
     *,
@@ -276,7 +406,20 @@ def _insert_detection_rows(
 ) -> None:
     rows: list[tuple[Any, ...]] = []
     for detection in detections:
-        bounding_box = detection["bounding_box"]
+        bounding_box = detection.get("bounding_box")
+        if bounding_box is None:
+            coordinates: tuple[float | None, ...] = (None, None, None, None)
+        else:
+            coordinates = (
+                float(bounding_box["x1"]),
+                float(bounding_box["y1"]),
+                float(bounding_box["x2"]),
+                float(bounding_box["y2"]),
+            )
+        confidence = detection.get("confidence")
+        source = detection.get("source", "yolo")
+        if source not in {"yolo", "vlm", "yolo+vlm"}:
+            raise ValueError("Detection source is not supported.")
         rows.append(
             (
                 uuid4().hex,
@@ -285,11 +428,9 @@ def _insert_detection_rows(
                 detection["display_name"],
                 detection["waste_category"],
                 detection["material"],
-                float(detection["confidence"]),
-                float(bounding_box["x1"]),
-                float(bounding_box["y1"]),
-                float(bounding_box["x2"]),
-                float(bounding_box["y2"]),
+                float(confidence) if confidence is not None else None,
+                *coordinates,
+                source,
                 created_at,
             )
         )
@@ -298,8 +439,8 @@ def _insert_detection_rows(
         """
         INSERT INTO waste_detections (
             id, report_id, class_name, display_name, waste_category,
-            material, confidence, x1, y1, x2, y2, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            material, confidence, x1, y1, x2, y2, source, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )
@@ -399,6 +540,8 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
         original_image: str | None = None
         annotated_image: str | None = None
         detections: list[dict[str, Any]] = []
+        final_categories: list[str] = []
+        ai_analysis: dict[str, Any] | None = None
         if analysis_id:
             draft = database.execute(
                 "SELECT * FROM analysis_drafts WHERE id = ?",
@@ -427,6 +570,9 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 report_id,
             )
             detections = _deserialize_detections(draft["detection_json"])
+            final_categories, ai_analysis = _deserialize_ai_analysis(
+                draft["detection_json"]
+            )
         elif uploaded_image_path := submission.get("uploaded_image_path"):
             original_image, report_directory = _persist_uploaded_image(
                 Path(uploaded_image_path),
@@ -439,13 +585,14 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 id, reference, analysis_id, reporter_role, user_id,
                 guest_name, guest_email, original_image, annotated_image,
                 title, summary, waste_identified, recommended_action,
-                environmental_concern, category, location, latitude, longitude,
+                environmental_concern, category, final_categories_json,
+                ai_analysis_json, location, latitude, longitude,
                 location_address, location_street, location_city, location_state,
                 location_postcode, location_country, location_source, site_notes,
                 status, validation_status, created_at, updated_at
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -464,6 +611,12 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 submission.get("recommended_action", ""),
                 submission.get("environmental_concern", ""),
                 submission["category"],
+                json.dumps(final_categories, ensure_ascii=True),
+                (
+                    json.dumps(ai_analysis, ensure_ascii=True)
+                    if ai_analysis is not None
+                    else None
+                ),
                 submission["location"],
                 submission["latitude"],
                 submission["longitude"],
@@ -558,7 +711,7 @@ def list_reports() -> list[dict[str, Any]]:
 
 
 def get_report(report_id: str) -> dict[str, Any] | None:
-    """Return one persisted report with all associated YOLO detections."""
+    """Return one persisted report with all associated AI detections."""
     with _connect() as database:
         initialize_database(database)
         report = database.execute(
@@ -575,6 +728,10 @@ def get_report(report_id: str) -> dict[str, Any] | None:
             """,
             (report_id,),
         ).fetchall()
+        reward_points = database.execute(
+            "SELECT COALESCE(SUM(points), 0) FROM reward_events WHERE report_id = ?",
+            (report_id,),
+        ).fetchone()[0]
         generated_report = None
         if report["analysis_id"]:
             draft = database.execute(
@@ -599,6 +756,23 @@ def get_report(report_id: str) -> dict[str, Any] | None:
                     generated_report = {
                         field: candidate[field] for field in report_fields
                     }
+        try:
+            stored_categories = json.loads(report["final_categories_json"])
+        except (json.JSONDecodeError, TypeError):
+            stored_categories = []
+        final_categories = (
+            stored_categories
+            if isinstance(stored_categories, list)
+            and all(isinstance(category, str) for category in stored_categories)
+            else []
+        )
+        try:
+            stored_ai_analysis = json.loads(report["ai_analysis_json"])
+        except (json.JSONDecodeError, TypeError):
+            stored_ai_analysis = None
+        ai_analysis = (
+            stored_ai_analysis if isinstance(stored_ai_analysis, dict) else None
+        )
 
     return {
         "id": report["id"],
@@ -617,6 +791,7 @@ def get_report(report_id: str) -> dict[str, Any] | None:
         "site_notes": report["site_notes"],
         "status": report["status"],
         "validation_status": report["validation_status"],
+        "reward_points": int(reward_points),
         "validated_at": report["validated_at"],
         "reporter_role": report["reporter_role"],
         "reporter": (
@@ -630,6 +805,8 @@ def get_report(report_id: str) -> dict[str, Any] | None:
         "recommended_action": report["recommended_action"],
         "environmental_concern": report["environmental_concern"],
         "generated_report": generated_report,
+        "final_categories": final_categories,
+        "ai_analysis": ai_analysis,
         "original_image": report["original_image"] or "",
         "annotated_image": report["annotated_image"] or "",
         "created_at": report["created_at"],
@@ -646,6 +823,7 @@ def get_report(report_id: str) -> dict[str, Any] | None:
                 "y1": detection["y1"],
                 "x2": detection["x2"],
                 "y2": detection["y2"],
+                "source": detection["source"],
                 "created_at": detection["created_at"],
             }
             for detection in detections

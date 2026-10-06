@@ -3,7 +3,7 @@ from ipaddress import ip_address
 from pathlib import Path
 from urllib.parse import urlparse
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,8 +21,30 @@ class Settings(BaseSettings):
     yolo_confidence_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
 
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.2"
-    ollama_timeout_seconds: float = Field(default=30.0, gt=0.0)
+    ollama_vision_model: str = ""
+    ollama_report_model: str = Field(
+        default="llama3.2",
+        validation_alias=AliasChoices("OLLAMA_REPORT_MODEL", "OLLAMA_MODEL"),
+    )
+    ollama_vision_timeout_seconds: float = Field(
+        default=120.0,
+        gt=0.0,
+        le=300.0,
+        validation_alias=AliasChoices(
+            "OLLAMA_VISION_TIMEOUT_SECONDS",
+            "OLLAMA_TIMEOUT_SECONDS",
+        ),
+    )
+    ollama_report_timeout_seconds: float = Field(
+        default=60.0,
+        gt=0.0,
+        le=300.0,
+        validation_alias=AliasChoices(
+            "OLLAMA_REPORT_TIMEOUT_SECONDS",
+            "OLLAMA_TIMEOUT_SECONDS",
+        ),
+    )
+    ollama_keep_alive: str = "10m"
     ollama_allow_remote: bool = False
 
     max_upload_size: int = Field(default=10 * 1024 * 1024, gt=0)
@@ -76,6 +98,26 @@ class Settings(BaseSettings):
         if normalized not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("LOG_LEVEL must be a standard Python logging level.")
         return normalized
+
+    @field_validator("ollama_vision_model", "ollama_report_model", mode="after")
+    @classmethod
+    def validate_ollama_model_name(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("ollama_keep_alive", mode="after")
+    @classmethod
+    def validate_ollama_keep_alive(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("OLLAMA_KEEP_ALIVE must not be empty.")
+        return normalized
+
+    @field_validator("ollama_report_model", mode="after")
+    @classmethod
+    def require_report_model(cls, value: str) -> str:
+        if not value:
+            raise ValueError("OLLAMA_REPORT_MODEL must not be empty.")
+        return value
 
     @field_validator("tomtom_country_set", mode="after")
     @classmethod

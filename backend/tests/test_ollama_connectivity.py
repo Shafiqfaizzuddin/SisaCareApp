@@ -74,7 +74,7 @@ def test_missing_model_is_reported() -> None:
     )
 
     with httpx.Client(transport=transport) as client:
-        with pytest.raises(OllamaModelNotInstalledError, match="missing-model"):
+        with pytest.raises(OllamaModelNotInstalledError, match="configured Ollama model"):
             check_ollama_connection(
                 base_url="http://localhost:11434",
                 model="missing-model",
