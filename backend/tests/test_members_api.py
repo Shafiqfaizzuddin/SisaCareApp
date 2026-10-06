@@ -30,6 +30,15 @@ def report_submission(user_id: str, index: int) -> dict[str, object]:
         "environmental_concern": "",
         "category": "household",
         "location": f"Location {index}",
+        "latitude": 6.4436,
+        "longitude": 100.2700,
+        "location_address": f"Location {index}",
+        "location_street": None,
+        "location_city": "Arau",
+        "location_state": "Perlis",
+        "location_postcode": None,
+        "location_country": "Malaysia",
+        "location_source": "map",
         "site_notes": "",
     }
 

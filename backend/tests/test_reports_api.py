@@ -115,6 +115,15 @@ def submission_payload(draft_id: str | None) -> dict[str, Any]:
         "environmental_concern": "It may contribute to litter.",
         "category": "recyclable",
         "location": "Near the community hall",
+        "latitude": 6.4436,
+        "longitude": 100.2700,
+        "location_address": "Near the community hall, Arau, Perlis",
+        "location_street": "Jalan Arau",
+        "location_city": "Arau",
+        "location_state": "Perlis",
+        "location_postcode": "02600",
+        "location_country": "Malaysia",
+        "location_source": "map",
         "site_notes": "Accessible from the main road.",
     }
 
@@ -193,8 +202,18 @@ def test_member_submission_persists_reviewed_report_and_images(
     assert report["guest_name"] is None
     assert report["user_id"] == MEMBER_USER["id"]
     assert report["summary"] == "The user-edited final summary."
+    assert report["latitude"] == pytest.approx(6.4436)
+    assert report["longitude"] == pytest.approx(100.2700)
+    assert report["location_city"] == "Arau"
+    assert report["location_source"] == "map"
     assert report["status"] == "processing"
     assert "detection_json" not in report_columns
+    assert {
+        "latitude",
+        "longitude",
+        "location_address",
+        "location_source",
+    }.issubset(report_columns)
     assert len(detections) == 2
     assert detections[0]["class_name"] == "metal_can"
     assert detections[0]["display_name"] == "Metal Can"
@@ -441,6 +460,10 @@ def test_admin_report_reads_include_saved_ai_detections(
     assert detail["reference"] == submission.json()["reference"]
     assert detail["generated_report"] == GENERATED_REPORT
     assert detail["summary"] == "The user-edited final summary."
+    assert detail["latitude"] == pytest.approx(6.4436)
+    assert detail["longitude"] == pytest.approx(100.2700)
+    assert detail["location_address"] == "Near the community hall, Arau, Perlis"
+    assert detail["location_source"] == "map"
     assert detail["original_image"].startswith("/api/reports/files/")
     assert detail["annotated_image"].startswith("/api/reports/files/")
     assert len(detail["detections"]) == 2
@@ -453,6 +476,31 @@ def test_admin_report_reads_include_saved_ai_detections(
     assert image_response.headers["cache-control"] == "private, no-store"
 
 
+def test_admin_report_handles_historical_row_without_coordinates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    submission = client.post("/api/reports", json=submission_payload(None))
+    report_id = submission.json()["id"]
+    with sqlite3.connect(report_repository.DATABASE_PATH) as database:
+        database.execute(
+            """
+            UPDATE reports
+            SET latitude = NULL, longitude = NULL, location_source = NULL
+            WHERE id = ?
+            """,
+            (report_id,),
+        )
+
+    response = client.get(f"/api/reports/{report_id}")
+
+    assert response.status_code == 200
+    assert response.json()["latitude"] is None
+    assert response.json()["longitude"] is None
+    assert response.json()["location_source"] is None
+
+
 def test_guest_submission_requires_guest_identity(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -460,6 +508,25 @@ def test_guest_submission_requires_guest_identity(
     configure_report_storage(monkeypatch, tmp_path)
     payload = submission_payload(None)
     payload["guest_name"] = ""
+
+    response = client.post("/api/reports", json=payload)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("latitude", 90.1), ("latitude", -90.1), ("longitude", 180.1)],
+)
+def test_report_submission_rejects_invalid_coordinates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    field: str,
+    value: float,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    payload = submission_payload(None)
+    payload[field] = value
 
     response = client.post("/api/reports", json=payload)
 

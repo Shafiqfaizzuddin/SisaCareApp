@@ -10,10 +10,12 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
+from app.core.config import get_settings
 
-STORAGE_ROOT = Path(__file__).resolve().parents[2] / "storage"
-DATABASE_PATH = STORAGE_ROOT / "sisacare.db"
-REPORT_ASSETS_DIR = STORAGE_ROOT / "reports"
+
+_settings = get_settings()
+DATABASE_PATH = _settings.database_path
+REPORT_ASSETS_DIR = _settings.report_assets_dir
 REPORT_ASSET_URL_PREFIX = "/api/reports/files"
 REPORT_VALIDATION_REWARD_POINTS = 40
 
@@ -89,6 +91,15 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
                 environmental_concern TEXT NOT NULL DEFAULT '',
                 category TEXT NOT NULL,
                 location TEXT NOT NULL,
+                latitude REAL,
+                longitude REAL,
+                location_address TEXT,
+                location_street TEXT,
+                location_city TEXT,
+                location_state TEXT,
+                location_postcode TEXT,
+                location_country TEXT,
+                location_source TEXT,
                 site_notes TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL,
                 validation_status TEXT NOT NULL DEFAULT 'pending',
@@ -133,6 +144,7 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
         )
         _ensure_analysis_draft_owner_column(database)
         _ensure_report_validation_columns(database)
+        _ensure_report_location_columns(database)
         _migrate_legacy_report_detections(database)
         database.commit()
     finally:
@@ -161,6 +173,28 @@ def _ensure_analysis_draft_owner_column(database: sqlite3.Connection) -> None:
     }
     if "user_id" not in columns:
         database.execute("ALTER TABLE analysis_drafts ADD COLUMN user_id TEXT")
+
+
+def _ensure_report_location_columns(database: sqlite3.Connection) -> None:
+    """Add structured location fields without invalidating historical reports."""
+
+    columns = {
+        row["name"] for row in database.execute("PRAGMA table_info(reports)")
+    }
+    definitions = {
+        "latitude": "REAL",
+        "longitude": "REAL",
+        "location_address": "TEXT",
+        "location_street": "TEXT",
+        "location_city": "TEXT",
+        "location_state": "TEXT",
+        "location_postcode": "TEXT",
+        "location_country": "TEXT",
+        "location_source": "TEXT",
+    }
+    for name, data_type in definitions.items():
+        if name not in columns:
+            database.execute(f"ALTER TABLE reports ADD COLUMN {name} {data_type}")
 
 
 def create_analysis_draft(
@@ -405,10 +439,13 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 id, reference, analysis_id, reporter_role, user_id,
                 guest_name, guest_email, original_image, annotated_image,
                 title, summary, waste_identified, recommended_action,
-                environmental_concern, category, location, site_notes,
+                environmental_concern, category, location, latitude, longitude,
+                location_address, location_street, location_city, location_state,
+                location_postcode, location_country, location_source, site_notes,
                 status, validation_status, created_at, updated_at
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -428,6 +465,15 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 submission.get("environmental_concern", ""),
                 submission["category"],
                 submission["location"],
+                submission["latitude"],
+                submission["longitude"],
+                submission.get("location_address"),
+                submission.get("location_street"),
+                submission.get("location_city"),
+                submission.get("location_state"),
+                submission.get("location_postcode"),
+                submission.get("location_country"),
+                submission["location_source"],
                 submission.get("site_notes", ""),
                 "processing",
                 "pending",
@@ -559,6 +605,15 @@ def get_report(report_id: str) -> dict[str, Any] | None:
         "reference": report["reference"],
         "category": report["category"],
         "location": report["location"],
+        "latitude": report["latitude"],
+        "longitude": report["longitude"],
+        "location_address": report["location_address"],
+        "location_street": report["location_street"],
+        "location_city": report["location_city"],
+        "location_state": report["location_state"],
+        "location_postcode": report["location_postcode"],
+        "location_country": report["location_country"],
+        "location_source": report["location_source"],
         "site_notes": report["site_notes"],
         "status": report["status"],
         "validation_status": report["validation_status"],

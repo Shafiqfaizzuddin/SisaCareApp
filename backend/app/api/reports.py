@@ -72,6 +72,15 @@ class ReportSubmission(BaseModel):
     environmental_concern: str = Field(default="", max_length=2000)
     category: Literal["household", "recyclable", "construction_debris", "other"]
     location: str = Field(min_length=1, max_length=500)
+    latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
+    location_address: str | None = Field(default=None, max_length=500)
+    location_street: str | None = Field(default=None, max_length=200)
+    location_city: str | None = Field(default=None, max_length=120)
+    location_state: str | None = Field(default=None, max_length=120)
+    location_postcode: str | None = Field(default=None, max_length=30)
+    location_country: str | None = Field(default=None, max_length=120)
+    location_source: Literal["gps", "map", "search"]
     site_notes: str = Field(default="", max_length=4000)
 
     @model_validator(mode="after")
