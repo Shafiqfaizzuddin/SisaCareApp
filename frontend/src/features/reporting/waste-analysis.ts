@@ -66,7 +66,10 @@ function isFusedObject(value: unknown): boolean {
     (value.confidence_level === null ||
       ['high', 'medium', 'low'].includes(value.confidence_level as string)) &&
     typeof value.supported_by_vlm === 'boolean' &&
-    isBoundingBoxOrNull(value.bounding_box)
+    isBoundingBoxOrNull(value.bounding_box) &&
+    (value.material === undefined || typeof value.material === 'string') &&
+    (value.recyclable === undefined || typeof value.recyclable === 'boolean') &&
+    (value.rule_known === undefined || typeof value.rule_known === 'boolean')
   )
 }
 

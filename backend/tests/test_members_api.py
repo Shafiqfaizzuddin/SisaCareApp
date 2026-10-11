@@ -70,7 +70,7 @@ def test_member_dashboard_uses_persisted_reports_and_rewards() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["points"] == 40
+    assert payload["points"] == 2
     assert payload["valid_reports"] == 1
     assert payload["rank"] == 2
     assert {report["id"] for report in payload["reports"]} == {

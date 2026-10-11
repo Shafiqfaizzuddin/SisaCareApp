@@ -13,6 +13,8 @@ import { Link } from 'react-router-dom'
 import { ReportStatus } from '../components/reports/ReportStatus'
 import { useRole } from '../features/authentication/useRole'
 import { achievements } from '../features/authentication/member-data'
+import { AccountIdentity } from '../components/common/AccountIdentity'
+import { RecyclingActionHistory } from '../components/recycling/RecyclingActionHistory'
 
 export function MemberDashboardPage() {
   const {
@@ -67,6 +69,8 @@ export function MemberDashboardPage() {
             <ArrowRight size={17} />
           </Link>
         </header>
+
+        <AccountIdentity />
 
         <section className="member-stats" aria-label="Member reward summary">
           <div>
@@ -203,6 +207,7 @@ export function MemberDashboardPage() {
             </Link>
           </section>
         </div>
+        <RecyclingActionHistory />
       </div>
     </section>
   )

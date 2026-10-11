@@ -25,8 +25,11 @@ import {
 import { Link, useNavigate } from 'react-router-dom'
 import { PageIntro } from '../components/common/PageIntro'
 import { LocationPicker } from '../components/location/LocationPicker'
+import { RecyclingRecommendations } from '../components/location/RecyclingRecommendations'
 import { useRole } from '../features/authentication/useRole'
-import { wasteCategoryOptions } from '../features/reporting/categories'
+import { categoryForItems, suggestedItems, type ConfirmedItem } from '../features/reporting/campus-workflow'
+import { NearbyRecyclingMap } from '../components/location/NearbyRecyclingMap'
+import { fetchRecyclingPoints, type RecyclingPoint } from '../features/reporting/recycling-points'
 import {
   ReportSubmissionRequestError,
   submitWasteReport,
@@ -39,7 +42,6 @@ import type {
   ReportLocation,
   WasteAnalysisSuccess,
   WasteAnalysisReport,
-  WasteCategory,
 } from '../types'
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024
@@ -63,7 +65,9 @@ function groupDetections(analysis: WasteAnalysisSuccess): DetectionGroup[] {
   return analysis.grouped_objects.map((group) => ({
     name: group.name,
     label: group.label,
-    category: group.category,
+    category: group.category === 'Non-Recyclable'
+      ? 'Non-Recyclable Waste'
+      : group.category === 'Unknown' ? 'Needs confirmation' : group.category,
     count: group.count,
   }))
 }
@@ -78,7 +82,11 @@ export function SubmitReportPage() {
   const [analysisError, setAnalysisError] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [annotatedImageError, setAnnotatedImageError] = useState(false)
-  const [category, setCategory] = useState<WasteCategory>('household')
+  const [confirmedItems, setConfirmedItems] = useState<ConfirmedItem[]>([])
+  const [chosenAction, setChosenAction] = useState<'report' | 'recycle' | 'nearby' | null>(null)
+  const [recyclingPoints, setRecyclingPoints] = useState<RecyclingPoint[]>([])
+  const [recyclingPointError, setRecyclingPointError] = useState('')
+  const [recyclingPointsLoading, setRecyclingPointsLoading] = useState(false)
   const [reportDraft, setReportDraft] = useState<WasteAnalysisReport>(EMPTY_REPORT)
   const [siteNotes, setSiteNotes] = useState('')
   const [selectedLocation, setSelectedLocation] = useState<ReportLocation | null>(null)
@@ -90,6 +98,20 @@ export function SubmitReportPage() {
   const canUseAi = role === 'user'
   const hasCurrentAnalysis =
     selectedFile !== null && analysis !== null && analyzedFile === selectedFile
+  const category = categoryForItems(confirmedItems)
+  const reportAction = category !== 'Recyclable Waste' || chosenAction === 'report'
+  useEffect(() => {
+    if (chosenAction !== 'recycle' && chosenAction !== 'nearby') return
+    const controller = new AbortController()
+    setRecyclingPointsLoading(true)
+    void fetchRecyclingPoints(controller.signal)
+      .then((points) => { setRecyclingPoints(points); setRecyclingPointError('') })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setRecyclingPointError(error instanceof Error ? error.message : 'Registered recycling points could not be loaded.')
+      })
+      .finally(() => { if (!controller.signal.aborted) setRecyclingPointsLoading(false) })
+    return () => controller.abort()
+  }, [chosenAction])
 
   useEffect(() => {
     if (!selectedFile) {
@@ -127,6 +149,8 @@ export function SubmitReportPage() {
     setAnalysis(null)
     setAnalyzedFile(null)
     setReportDraft(EMPTY_REPORT)
+    setConfirmedItems([])
+    setChosenAction(null)
   }, [canUseAi])
 
   function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
@@ -137,6 +161,8 @@ export function SubmitReportPage() {
     setAnalyzedFile(null)
     setAnnotatedImageError(false)
     setReportDraft(EMPTY_REPORT)
+    setConfirmedItems([])
+    setChosenAction(null)
     setSubmissionError('')
 
     const file = event.target.files?.[0] ?? null
@@ -174,7 +200,6 @@ export function SubmitReportPage() {
       setAnalysisError('Choose a waste photo before starting analysis.')
       return
     }
-
     const controller = new AbortController()
     analysisRequest.current = controller
     setIsAnalyzing(true)
@@ -183,6 +208,8 @@ export function SubmitReportPage() {
     setAnalyzedFile(null)
     setAnnotatedImageError(false)
     setReportDraft(EMPTY_REPORT)
+    setConfirmedItems([])
+    setChosenAction(null)
     setSubmissionError('')
 
     try {
@@ -191,6 +218,7 @@ export function SubmitReportPage() {
         setAnalysis(result)
         setAnalyzedFile(selectedFile)
         setReportDraft(result.report)
+        setConfirmedItems(suggestedItems(result.detections))
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -199,7 +227,7 @@ export function SubmitReportPage() {
       const message =
         error instanceof WasteAnalysisRequestError
           ? error.message
-          : 'Waste analysis failed unexpectedly. Please try again.'
+          : error instanceof Error ? error.message : 'Waste analysis failed unexpectedly. Please try again.'
       setAnalysisError(message)
     } finally {
       if (analysisRequest.current === controller) {
@@ -226,36 +254,33 @@ export function SubmitReportPage() {
       setSubmissionError('Select and confirm the waste location before submitting.')
       return
     }
+    if (!category || !reportAction) {
+      setSubmissionError('Confirm every detected item and choose Report It Instead to submit a report.')
+      return
+    }
 
-    const formData = new FormData(event.currentTarget)
     const controller = new AbortController()
     submissionRequest.current = controller
     setIsSubmitting(true)
     setSubmissionError('')
 
     try {
-      const selectedCategory = wasteCategoryOptions.find(
-        (option) => option.value === category,
-      )
       const result = await submitWasteReport(
         {
-          analysis_id: canUseAi ? analysis?.analysis_id : undefined,
-          reporter_role: canUseAi ? 'user' : 'guest',
-          user_id: canUseAi ? user?.id : undefined,
-          guest_name:
-            canUseAi ? undefined : String(formData.get('reporterName') ?? ''),
-          guest_email:
-            canUseAi ? undefined : String(formData.get('reporterEmail') ?? ''),
-          title: canUseAi
-            ? reportDraft.title
-            : `${selectedCategory?.label ?? 'Community waste'} report`,
-          summary: canUseAi ? reportDraft.summary : siteNotes,
-          waste_identified: canUseAi ? reportDraft.waste_identified : '',
-          recommended_action: canUseAi ? reportDraft.recommended_action : '',
-          environmental_concern: canUseAi
-            ? reportDraft.environmental_concern
-            : '',
+          analysis_id: analysis?.analysis_id,
+          reporter_role: 'user',
+          user_id: user?.id,
+          title: reportDraft.title,
+          summary: reportDraft.summary,
+          waste_identified: reportDraft.waste_identified,
+          recommended_action: reportDraft.recommended_action,
+          environmental_concern: reportDraft.environmental_concern,
           category,
+          confirmed_items: confirmedItems.map((item) => ({
+            name: item.name.trim(),
+            category: item.category as Exclude<ConfirmedItem['category'], ''>,
+            material: item.material,
+          })),
           location: selectedLocation.address,
           latitude: selectedLocation.latitude,
           longitude: selectedLocation.longitude,
@@ -266,10 +291,9 @@ export function SubmitReportPage() {
           location_postcode: selectedLocation.postcode ?? undefined,
           location_country: selectedLocation.country ?? undefined,
           location_source: selectedLocation.source,
-          site_notes: canUseAi ? siteNotes : '',
+          site_notes: siteNotes,
         },
         controller.signal,
-        canUseAi ? undefined : selectedFile,
       )
       if (controller.signal.aborted) {
         return
@@ -305,9 +329,9 @@ export function SubmitReportPage() {
     <section className="section report-page">
       <div className="container">
         <PageIntro
-          eyebrow={role === 'user' ? 'Member report' : 'Guest report'}
-          title="Report illegal dumping"
-          description="Share a clear image and location. Avoid touching unknown waste or entering unsafe areas."
+          eyebrow="Waste reporting"
+          title="Report waste"
+          description="Analyze a photo first, review the findings, then add an incident location if you submit a report."
         />
 
         <div className="report-layout">
@@ -376,7 +400,6 @@ export function SubmitReportPage() {
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
-                  required
                   disabled={isSubmitting}
                   onChange={handleImageChange}
                 />
@@ -389,6 +412,17 @@ export function SubmitReportPage() {
                     ? 'Photo selected. Choose another file to replace it.'
                     : 'JPG, PNG, or WEBP up to 10 MB'}
                 </span>
+              </label>
+              <label className="button button--secondary camera-capture">
+                <Camera size={17} /> Take a photo
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  capture="environment"
+                  aria-label="Take a photo"
+                  disabled={isSubmitting}
+                  onChange={handleImageChange}
+                />
               </label>
               {previewUrl && (
                 <figure className="upload-preview">
@@ -485,6 +519,7 @@ export function SubmitReportPage() {
                   <div>
                     <strong>Analysis could not be completed</strong>
                     <p>{analysisError}</p>
+                    <p>Check the photo and retry. You can keep the selected image while correcting the error.</p>
                   </div>
                 </div>
               )}
@@ -539,6 +574,46 @@ export function SubmitReportPage() {
                               </div>
                             </dl>
                           </article>
+                        ))}
+                      </div>
+                      <div className="confirmed-items">
+                        <h3>Confirm each detected item</h3>
+                        <p>AI suggestions may be uncertain. Check the material and disposal guidance, then correct each item before choosing an action.</p>
+                        {analysis.detections.map((detection, index) => (
+                          <div className="confirmed-item" key={`${detection.name}-${index}`}>
+                            <div className="field">
+                              <label htmlFor={`item-name-${index}`}>Item {index + 1}</label>
+                              <input
+                                id={`item-name-${index}`}
+                                value={confirmedItems[index]?.name ?? ''}
+                                maxLength={150}
+                                onChange={(event) => {
+                                  setConfirmedItems((items) => items.map((item, itemIndex) =>
+                                    itemIndex === index ? { ...item, name: event.target.value } : item))
+                                  setChosenAction(null)
+                                }}
+                              />
+                            </div>
+                            <p>Material: {detection.material || 'Unknown'} · {detection.recommended_handling || 'Confirm a safe disposal route.'}</p>
+                            {!detection.rule_known && <p className="field__hint">Classification uncertain. Choose a category manually.</p>}
+                            <div className="field">
+                              <label htmlFor={`item-category-${index}`}>Confirmed category for item {index + 1}</label>
+                              <select
+                                id={`item-category-${index}`}
+                                value={confirmedItems[index]?.category ?? ''}
+                                onChange={(event) => {
+                                  setConfirmedItems((items) => items.map((item, itemIndex) =>
+                                    itemIndex === index ? { ...item, category: event.target.value as ConfirmedItem['category'] } : item))
+                                  setChosenAction(null)
+                                }}
+                              >
+                                <option value="">Select category</option>
+                                <option value="Recyclable Waste">Recyclable Waste</option>
+                                <option value="Non-Recyclable Waste">Non-Recyclable Waste</option>
+                                <option value="Bulky Waste">Bulky Waste</option>
+                              </select>
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -642,8 +717,49 @@ export function SubmitReportPage() {
               <div className="form-section__heading">
                 <span>3</span>
                 <div>
-                  <h2>Waste location</h2>
-                  <p>Use device GPS, search for a place, or select the site on the map.</p>
+                  <h2>Choose an action</h2>
+                  <p>Each item must be confirmed before the overall action is available.</p>
+                </div>
+              </div>
+              {category ? (
+                <div className="action-choice">
+                  <p><strong>Confirmed overall category: {category}</strong></p>
+                  {category === 'Recyclable Waste' ? (
+                    <div className="action-choice__buttons">
+                      <button type="button" className="button button--secondary" onClick={() => setChosenAction('recycle')}>Recycle It</button>
+                      <button type="button" className="button button--secondary" onClick={() => setChosenAction('nearby')}>View nearby recycling points</button>
+                      <button type="button" className="button button--primary" onClick={() => setChosenAction('report')}>Report It Instead</button>
+                    </div>
+                  ) : (
+                    <p>{category === 'Bulky Waste' ? 'Bulky waste should be reported for collection.' : 'This waste should be reported for collection.'}</p>
+                  )}
+                  {chosenAction === 'nearby' && <>
+                    {recyclingPointError && <p role="alert">{recyclingPointError}</p>}
+                    <NearbyRecyclingMap registeredPoints={recyclingPoints} />
+                  </>}
+                  {chosenAction === 'recycle' && category === 'Recyclable Waste' && (
+                    <RecyclingRecommendations points={recyclingPoints} items={confirmedItems}
+                      wasteLocation={selectedLocation} loading={recyclingPointsLoading}
+                      error={recyclingPointError} analysisId={analysis?.analysis_id ?? ''}
+                      onReport={() => setChosenAction('report')}
+                      onSubmitted={() => { refreshMemberData(); navigate('/account?recycling=submitted') }} />
+                  )}
+                </div>
+              ) : hasCurrentAnalysis ? <p role="status">Confirm every detected item to continue.</p> : null}
+              <label className="checkbox-field">
+                <input type="checkbox" required />
+                <span>
+                  I confirm this report is accurate to the best of my knowledge.
+                </span>
+              </label>
+            </section>
+
+            <section className="form-section">
+              <div className="form-section__heading">
+                <span>4</span>
+                <div>
+                  <h2>Waste incident location</h2>
+                  <p>Required when submitting a report. Use GPS, search, or the map to identify the incident location.</p>
                 </div>
               </div>
               <LocationPicker
@@ -662,61 +778,12 @@ export function SubmitReportPage() {
                 }}
               />
               <div className="field">
-                <label htmlFor="description">
-                  {canUseAi ? 'Additional site notes' : 'What can you see?'}
-                </label>
-                <textarea
-                  id="description"
-                  name="description"
-                  rows={4}
-                  value={siteNotes}
+                <label htmlFor="description">{canUseAi ? 'Additional site notes' : 'What can you see?'}</label>
+                <textarea id="description" name="description" rows={4} value={siteNotes}
                   placeholder="Describe the amount of waste, nearby hazards, or anything blocking access."
-                  required={!canUseAi}
-                  onChange={(event) => setSiteNotes(event.target.value)}
-                />
+                  required={!canUseAi} onChange={(event) => setSiteNotes(event.target.value)} />
                 <span className="field__hint">Do not include sensitive personal information.</span>
               </div>
-            </section>
-
-            <section className="form-section">
-              <div className="form-section__heading">
-                <span>4</span>
-                <div>
-                  <h2>Choose a waste category</h2>
-                  <p>Select the closest match. The report can be reviewed later.</p>
-                </div>
-              </div>
-              <div className="category-options">
-                {wasteCategoryOptions.map((option) => (
-                  <label
-                    className={`category-option ${
-                      category === option.value ? 'category-option--selected' : ''
-                    }`}
-                    key={option.value}
-                  >
-                    <input
-                      type="radio"
-                      name="category"
-                      value={option.value}
-                      checked={category === option.value}
-                      onChange={() => setCategory(option.value)}
-                    />
-                    <span className="category-option__check">
-                      <Check size={14} />
-                    </span>
-                    <span>
-                      <strong>{option.label}</strong>
-                      <small>{option.description}</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-              <label className="checkbox-field">
-                <input type="checkbox" required />
-                <span>
-                  I confirm this report is accurate to the best of my knowledge.
-                </span>
-              </label>
             </section>
 
             <div className="form-actions">
@@ -741,7 +808,9 @@ export function SubmitReportPage() {
                   isSubmitting ||
                   !selectedFile ||
                   !isLocationConfirmed ||
-                  (canUseAi && !hasCurrentAnalysis)
+                  !hasCurrentAnalysis ||
+                  !category ||
+                  !reportAction
                 }
               >
                 {isSubmitting ? 'Submitting report' : 'Submit report'}

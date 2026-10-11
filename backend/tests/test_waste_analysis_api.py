@@ -158,7 +158,9 @@ def test_analyze_endpoint_returns_browser_accessible_image_urls(
         f"/api/waste/annotated/annotated-{'a' * 32}.jpg"
     )
     assert payload["original_image"].startswith("/api/waste/uploads/upload-")
-    assert payload["detections"] == SUCCESS_RESULT["analysis"]["objects"]
+    assert [{key: item[key] for key in SUCCESS_RESULT["analysis"]["objects"][0]} for item in payload["detections"]] == SUCCESS_RESULT["analysis"]["objects"]
+    assert payload["detections"][0]["material"] == "Plastic"
+    assert payload["detections"][0]["rule_known"] is True
     assert payload["grouped_objects"] == SUCCESS_RESULT["analysis"]["grouped_objects"]
     assert payload["categories_detected"] == ["Recyclable Waste"]
     assert payload["scene_description"] == "A plastic bottle is visible."

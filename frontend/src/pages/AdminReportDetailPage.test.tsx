@@ -59,6 +59,7 @@ const REPORT: AdminReportDetail = {
   },
   finalCategories: ['Recyclable Waste', 'Bulky Waste'],
   aiAnalysis: { mode: 'hybrid' },
+  confirmedItems: [{ name: 'Plastic Bottle', category: 'Recyclable Waste', material: 'Plastic' }],
   originalImage: 'blob:original',
   annotatedImage: 'blob:annotated',
   createdAt: '2026-10-06T08:00:00+00:00',
@@ -119,8 +120,9 @@ describe('AdminReportDetailPage', () => {
     })
     expect(screen.getByAltText('Original uploaded waste evidence')).toBeTruthy()
     expect(screen.getByAltText('YOLO annotated waste evidence')).toBeTruthy()
-    expect(screen.getByText('Final grouped waste summary')).toBeTruthy()
-    expect(screen.getByText('Plastic Bottle')).toBeTruthy()
+    expect(screen.getByText('Participant confirmed waste')).toBeTruthy()
+    expect(screen.getByText('Original AI detections')).toBeTruthy()
+    expect(screen.getAllByText('Plastic Bottle').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Recyclable Waste').length).toBeGreaterThan(0)
     expect(screen.getByText('YOLO + VLM')).toBeTruthy()
     expect(screen.getByText('Quantity not established')).toBeTruthy()

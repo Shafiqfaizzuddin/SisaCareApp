@@ -203,6 +203,7 @@ export async function fetchPersistedReport(
             typeof category === 'string' &&
             [
               'Non-Recyclable',
+              'Non-Recyclable Waste',
               'Recyclable Waste',
               'Bulky Waste',
               'Unknown',
@@ -210,6 +211,13 @@ export async function fetchPersistedReport(
         )
       : [],
     aiAnalysis: isObject(value.ai_analysis) ? value.ai_analysis : null,
+    confirmedItems: isObject(value.confirmed_results) && Array.isArray(value.confirmed_results.items)
+      ? value.confirmed_results.items.filter((item: unknown) =>
+          isObject(item) && typeof item.name === 'string' &&
+          typeof item.material === 'string' &&
+          ['Recyclable Waste', 'Non-Recyclable Waste', 'Bulky Waste'].includes(item.category as string),
+        ) as AdminReportDetail['confirmedItems']
+      : [],
     originalImage:
       typeof value.original_image === 'string' ? value.original_image : '',
     annotatedImage:

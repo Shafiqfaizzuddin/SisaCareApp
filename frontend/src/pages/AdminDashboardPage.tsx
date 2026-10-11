@@ -143,6 +143,7 @@ export function AdminDashboardPage() {
               onChange={(event) => setStatus(event.target.value as StatusFilter)}
             >
               <option value="all">All statuses</option>
+              <option value="submitted">Submitted</option>
               <option value="processing">Processing</option>
               <option value="in_progress">In progress</option>
               <option value="completed">Completed</option>

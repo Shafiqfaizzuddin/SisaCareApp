@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 from urllib.parse import quote
 
@@ -186,6 +187,42 @@ async def reverse_geocode(
     }
 
 
+async def search_nearby_recycling(
+    latitude: float, longitude: float, *, settings: Settings,
+    client: httpx.AsyncClient | None = None,
+) -> list[dict[str, object]]:
+    """Search TomTom recycling POIs; their accepted materials are not supplied."""
+    payload = await _request_json(
+        "/search/2/categorySearch/recycling.json",
+        params={"lat": latitude, "lon": longitude, "radius": 20000, "limit": 50, "language": "en-MY"},
+        settings=settings, client=client,
+    )
+    results = payload.get("results")
+    if not isinstance(results, list):
+        raise TomTomInvalidResponseError("TomTom recycling results are invalid.")
+    points: list[dict[str, object]] = []
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        position, poi = result.get("position"), result.get("poi")
+        if not isinstance(position, dict) or not isinstance(poi, dict):
+            continue
+        lat, lon = position.get("lat"), position.get("lon")
+        name = _optional_string(poi.get("name"))
+        if not name or isinstance(lat, bool) or isinstance(lon, bool) or not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+            continue
+        if not math.isfinite(lat) or not math.isfinite(lon) or not -90 <= lat <= 90 or not -180 <= lon <= 180:
+            continue
+        address = result.get("address")
+        points.append({
+            "id": str(result.get("id") or f"tomtom:{lat},{lon}"),
+            "name": name, "latitude": float(lat), "longitude": float(lon),
+            "address": _address_payload(address)["address"] if isinstance(address, dict) else None,
+            "accepted_materials": None, "source": "tomtom",
+        })
+    return points
+
+
 __all__ = [
     "TomTomConfigurationError",
     "TomTomError",
@@ -193,4 +230,5 @@ __all__ = [
     "TomTomUnavailableError",
     "reverse_geocode",
     "search_locations",
+    "search_nearby_recycling",
 ]

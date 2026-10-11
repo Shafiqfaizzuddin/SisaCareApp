@@ -25,6 +25,8 @@ interface LocationPickerProps {
   confirmed: boolean
   onChange: (location: ReportLocation) => void
   onConfirm: () => void
+  idPrefix?: string
+  mapLabel?: string
 }
 
 function coordinateAddress(latitude: number, longitude: number): string {
@@ -49,6 +51,8 @@ export function LocationPicker({
   confirmed,
   onChange,
   onConfirm,
+  idPrefix = 'location',
+  mapLabel = 'Select the waste location on the TomTom map',
 }: LocationPickerProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<LocationSearchResult[]>([])
@@ -222,14 +226,14 @@ export function LocationPicker({
       </div>
 
       <div className="field location-search">
-        <label htmlFor="location-search">Search address or place</label>
+        <label htmlFor={`${idPrefix}-search`}>Search address or place</label>
         <div className="input-with-icon">
           {isSearching ? <LoaderCircle className="spin" size={18} /> : <Search size={18} />}
           <input
-            id="location-search"
+            id={`${idPrefix}-search`}
             autoComplete="off"
             value={query}
-            placeholder="e.g. UiTM Arau or Jalan Kangar"
+            placeholder="Search a town, road, or nearby place"
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
@@ -250,7 +254,7 @@ export function LocationPicker({
       <TomTomMap
         interactive
         location={value}
-        ariaLabel="Select the waste location on the TomTom map"
+        ariaLabel={mapLabel}
         onSelect={(latitude, longitude) => {
           void updateCoordinates(latitude, longitude, 'map')
         }}

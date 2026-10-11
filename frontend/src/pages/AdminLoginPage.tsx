@@ -87,7 +87,7 @@ export function AdminLoginPage() {
             <div className="field">
               <div className="field__label-row">
                 <label htmlFor="admin-password">Password</label>
-                <button type="button">Forgot password?</button>
+                <Link to="/password-reset">Forgot password?</Link>
               </div>
               <input
                 id="admin-password"

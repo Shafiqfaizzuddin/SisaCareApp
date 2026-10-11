@@ -317,11 +317,25 @@ export function AdminReportDetailPage() {
             </section>
           )}
 
+          {persistedReport && persistedReport.confirmedItems.length > 0 && (
+            <section className="admin-panel ai-detection-detail">
+              <h2>Participant confirmed waste</h2>
+              <p>Overall category: {persistedReport.category}</p>
+              <ul>
+                {persistedReport.confirmedItems.map((item, index) => (
+                  <li key={`${item.name}-${index}`}>
+                    {item.name} — {item.category} ({item.material})
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           {persistedReport && persistedReport.detections.length > 0 && (
             <section className="admin-panel ai-detection-detail">
               <header className="admin-panel__heading">
                 <div>
-                  <h2>Final grouped waste summary</h2>
+                  <h2>Original AI detections</h2>
                   <p>
                     {persistedReport.detections.length} detected objects
                     {persistedReport.finalCategories.length > 0 &&

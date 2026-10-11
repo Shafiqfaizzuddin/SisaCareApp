@@ -16,7 +16,7 @@ export function ReportSuccessPage() {
     submittedAt?: string
     isMember?: boolean
   } | null
-  const reference = state?.reference ?? 'SCA-1051'
+  const reference = state?.reference ?? 'Unavailable'
   const submittedAt = state?.submittedAt
     ? new Intl.DateTimeFormat('en-MY', {
         dateStyle: 'medium',
@@ -31,7 +31,7 @@ export function ReportSuccessPage() {
           <Check size={31} />
         </div>
         <p className="eyebrow">Report received</p>
-        <h1>Thank you for looking out for your community.</h1>
+        <h1>Your UiTM Arau waste report was submitted.</h1>
         <p className="success-page__lead">
           Your report has been recorded for review. Keep the reference number
           below to identify it in future updates.
@@ -78,7 +78,7 @@ export function ReportSuccessPage() {
             <span><Clock3 size={19} /></span>
             <div>
               <strong>Response planning</strong>
-              <p>The appropriate municipal team assesses priority and access.</p>
+              <p>Campus staff assess priority and access.</p>
             </div>
           </div>
         </div>

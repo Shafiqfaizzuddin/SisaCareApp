@@ -1,4 +1,4 @@
-import L, { type Map as LeafletMap, type Marker } from 'leaflet'
+import L, { type LayerGroup, type Map as LeafletMap, type Marker, type Polyline } from 'leaflet'
 import { useEffect, useRef, useState } from 'react'
 import type { ReportLocation } from '../../types'
 
@@ -12,6 +12,8 @@ interface TomTomMapProps {
   onSelect?: (latitude: number, longitude: number) => void
   apiKey?: string
   ariaLabel?: string
+  markers?: Array<{ id: string; name: string; latitude: number; longitude: number }>
+  route?: Array<{ latitude: number; longitude: number }>
 }
 
 export function TomTomMap({
@@ -20,10 +22,14 @@ export function TomTomMap({
   onSelect,
   apiKey = configuredApiKey?.trim() ?? '',
   ariaLabel = 'TomTom map',
+  markers = [],
+  route = [],
 }: TomTomMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<LeafletMap | null>(null)
   const markerRef = useRef<Marker | null>(null)
+  const pointsRef = useRef<LayerGroup | null>(null)
+  const routeRef = useRef<Polyline | null>(null)
   const onSelectRef = useRef(onSelect)
   const initialLocationRef = useRef(location)
   const [mapState, setMapState] = useState<'loading' | 'ready' | 'error'>(
@@ -65,6 +71,8 @@ export function TomTomMap({
     mapRef.current = map
     return () => {
       markerRef.current = null
+      pointsRef.current = null
+      routeRef.current = null
       mapRef.current = null
       map.remove()
     }
@@ -96,6 +104,35 @@ export function TomTomMap({
     }
     map.setView(coordinates, Math.max(map.getZoom(), 16))
   }, [interactive, location])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    pointsRef.current?.remove()
+    const group = L.layerGroup()
+    for (const point of markers) {
+      const label = document.createElement('span')
+      label.textContent = point.name
+      L.marker([point.latitude, point.longitude], {
+        icon: L.divIcon({ className: 'recycling-map-marker', html: '<span aria-hidden="true"></span>', iconSize: [24, 30] }),
+      }).bindPopup(label).addTo(group)
+    }
+    group.addTo(map)
+    pointsRef.current = group
+    if (location && markers.length > 0) {
+      map.fitBounds(L.latLngBounds([[location.latitude, location.longitude], ...markers.map(point => [point.latitude, point.longitude] as [number, number])]), { padding: [30, 30], maxZoom: 17 })
+    }
+  }, [location, markers])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    routeRef.current?.remove()
+    routeRef.current = route.length > 1
+      ? L.polyline(route.map(point => [point.latitude, point.longitude]), { color: '#156a50', weight: 5 }).addTo(map)
+      : null
+    if (routeRef.current) map.fitBounds(routeRef.current.getBounds(), { padding: [30, 30], maxZoom: 17 })
+  }, [route])
 
   if (!apiKey) {
     return (

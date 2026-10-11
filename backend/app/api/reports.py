@@ -18,8 +18,10 @@ from app.core.auth import (
     AuthenticatedUser,
     get_optional_authenticated_user,
     require_admin_user,
+    require_authenticated_user,
 )
 from app.repositories import reports as report_repository
+from app.repositories.identities import activity_affiliation
 from app.repositories.reports import (
     DraftAccessDeniedError,
     DraftAlreadySubmittedError,
@@ -33,6 +35,7 @@ from app.repositories.reports import (
     validate_report,
 )
 from app.services.ai.image_validation import ImageValidationError, validate_image
+from app.services.ai.category_mapping import get_category_metadata
 from app.services.image_uploads import (
     MAX_UPLOAD_SIZE,
     UploadMetadataError,
@@ -59,6 +62,23 @@ REPORT_MEDIA_TYPES = {
 }
 
 
+CampusCategory = Literal["Recyclable Waste", "Non-Recyclable Waste", "Bulky Waste"]
+
+
+class ConfirmedWasteItem(BaseModel):
+    name: str = Field(min_length=1, max_length=150)
+    category: CampusCategory
+    material: str = Field(default="Unknown", max_length=150)
+
+
+def category_for_items(items: list[ConfirmedWasteItem]) -> CampusCategory:
+    if any(item.category == "Bulky Waste" for item in items):
+        return "Bulky Waste"
+    if all(item.category == "Recyclable Waste" for item in items):
+        return "Recyclable Waste"
+    return "Non-Recyclable Waste"
+
+
 class ReportSubmission(BaseModel):
     analysis_id: str | None = Field(default=None, min_length=1, max_length=64)
     reporter_role: Literal["guest", "user"]
@@ -70,7 +90,8 @@ class ReportSubmission(BaseModel):
     waste_identified: str = Field(default="", max_length=2000)
     recommended_action: str = Field(default="", max_length=2000)
     environmental_concern: str = Field(default="", max_length=2000)
-    category: Literal["household", "recyclable", "construction_debris", "other"]
+    category: CampusCategory
+    confirmed_items: list[ConfirmedWasteItem] = Field(min_length=1, max_length=100)
     location: str = Field(min_length=1, max_length=500)
     latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
@@ -91,48 +112,54 @@ class ReportSubmission(BaseModel):
             email = (self.guest_email or "").strip()
             if "@" not in email or email.startswith("@") or email.endswith("@"):
                 raise ValueError("A valid email is required for guest reports.")
+        for item in self.confirmed_items:
+            rule = get_category_metadata(item.name)
+            if rule["waste_category"] != "Unknown":
+                expected = (
+                    "Non-Recyclable Waste" if rule["waste_category"] == "Non-Recyclable"
+                    else rule["waste_category"]
+                )
+                if item.category != expected:
+                    raise ValueError(
+                        f"{item.name} has a material disposal rule for {expected}. Correct the item name if the AI identified it incorrectly."
+                    )
+                item.material = rule["material"]
+        if self.category != category_for_items(self.confirmed_items):
+            raise ValueError("Report category must match the confirmed waste items.")
         return self
 
 
 class ReportValidation(BaseModel):
     validation_status: Literal["valid", "invalid"]
+    rejection_reason: str | None = Field(default=None, max_length=2000)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def submit_report(
     submission: ReportSubmission,
-    user: Annotated[
-        AuthenticatedUser | None,
-        Depends(get_optional_authenticated_user),
-    ],
+    user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
 ) -> dict[str, str]:
+    if submission.analysis_id is None:
+        raise HTTPException(status_code=422, detail="Analyze a photo before submitting, or upload a photo with the manual report form.")
     submission_data = _authorize_submission(submission, user)
     return await _create_report(submission_data)
 
 
 def _authorize_submission(
     submission: ReportSubmission,
-    user: AuthenticatedUser | None,
+    user: AuthenticatedUser,
 ) -> dict[str, object]:
     if submission.reporter_role == "guest":
-        if submission.analysis_id is not None:
-            raise HTTPException(
-                status_code=403,
-                detail="AI analysis drafts require an authenticated member.",
-            )
-        return submission.model_dump()
+        raise HTTPException(status_code=403, detail="Student sign-in is required for reports.")
 
-    if user is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication is required for member reports.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    if user["role"] != "user":
+        raise HTTPException(status_code=403, detail="Participant access is required.")
 
     submission_data = submission.model_dump()
     submission_data["user_id"] = user["id"]
     submission_data["guest_name"] = None
     submission_data["guest_email"] = None
+    submission_data["activity_affiliation"] = activity_affiliation(user["id"], user.get("claimed_affiliation"))
     return submission_data
 
 
@@ -159,10 +186,7 @@ async def _create_report(submission: dict[str, object]) -> dict[str, str]:
 
 @router.post("/with-image", status_code=status.HTTP_201_CREATED)
 async def submit_report_with_image(
-    user: Annotated[
-        AuthenticatedUser | None,
-        Depends(get_optional_authenticated_user),
-    ],
+    user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
     payload: str = Form(...),
     image: UploadFile = File(...),
 ) -> dict[str, str]:
@@ -242,13 +266,15 @@ async def read_reports(
 async def validate_submitted_report(
     report_id: str,
     validation: ReportValidation,
-    _admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
+    admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
 ) -> dict[str, object]:
     try:
         return await run_in_threadpool(
             validate_report,
             report_id,
             validation.validation_status,
+            admin["id"],
+            validation.rejection_reason,
         )
     except ReportNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

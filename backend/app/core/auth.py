@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 import httpx
 from fastapi import Depends, HTTPException, status
@@ -15,6 +15,12 @@ class AuthenticatedUser(TypedDict):
     id: str
     email: str
     role: Literal["user", "admin"]
+    email_verified: bool
+    google_sub: str | None
+    google_email: str | None
+    has_email_identity: bool
+    has_google_provider: bool
+    claimed_affiliation: NotRequired[Literal["student", "staff"] | None]
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -82,17 +88,52 @@ async def authenticate_access_token(
         )
 
     app_metadata = payload.get("app_metadata")
+    providers = app_metadata.get("providers") if isinstance(app_metadata, dict) else None
+    has_google_provider = (
+        isinstance(app_metadata, dict) and app_metadata.get("provider") == "google"
+    ) or (isinstance(providers, list) and "google" in providers)
     role = (
         "admin"
         if isinstance(app_metadata, dict) and app_metadata.get("role") == "admin"
         else "user"
     )
     email = payload.get("email")
-    return {
+    verified = bool(payload.get("email_confirmed_at"))
+    identities = payload.get("identities")
+    user_metadata = payload.get("user_metadata")
+    claim = user_metadata.get("claimed_affiliation") if isinstance(user_metadata, dict) else None
+    google_sub = None
+    google_email = None
+    has_email_identity = False
+    if isinstance(identities, list):
+        for identity in identities:
+            if not isinstance(identity, dict):
+                continue
+            if identity.get("provider") == "email":
+                has_email_identity = True
+            if identity.get("provider") == "google":
+                identity_data = identity.get("identity_data")
+                candidate = identity.get("provider_id")
+                if not isinstance(candidate, str) and isinstance(identity_data, dict):
+                    candidate = identity_data.get("sub")
+                if isinstance(candidate, str):
+                    google_sub = candidate
+                    if isinstance(identity_data, dict) and isinstance(identity_data.get("email"), str):
+                        google_email = identity_data["email"]
+                    break
+    authenticated_user: AuthenticatedUser = {
         "id": payload["id"],
         "email": email if isinstance(email, str) else "",
         "role": role,
+        "email_verified": verified,
+        "google_sub": google_sub,
+        "google_email": google_email,
+        "has_email_identity": has_email_identity,
+        "has_google_provider": has_google_provider,
     }
+    if claim in {"student", "staff"}:
+        authenticated_user["claimed_affiliation"] = claim
+    return authenticated_user
 
 
 async def get_optional_authenticated_user(
@@ -119,6 +160,19 @@ async def require_authenticated_user(
             detail="Authentication is required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if not user["email_verified"]:
+        raise HTTPException(status_code=403, detail="Confirm your email before participating.")
+    if user["has_google_provider"] and not user["google_sub"]:
+        raise HTTPException(status_code=403, detail="Google identity details are unavailable.")
+    if user["google_sub"] is not None:
+        from app.repositories.identities import has_google_sub
+        from app.core.google_identity import ALLOWED_GOOGLE_DOMAINS, normalized_email_domain
+
+        google_email = user["google_email"] or (user["email"] if not user["has_email_identity"] else "")
+        if normalized_email_domain(google_email) not in ALLOWED_GOOGLE_DOMAINS:
+            raise HTTPException(status_code=403, detail="Use a verified UiTM Google account.")
+        if not has_google_sub(user["id"], user["google_sub"]):
+            raise HTTPException(status_code=403, detail="Complete Google sign-in verification.")
     return user
 
 

@@ -7,6 +7,9 @@ export interface WasteCategoryOption {
 }
 
 export const wasteCategoryOptions: WasteCategoryOption[] = [
+  { value: 'Recyclable Waste', label: 'Recyclable Waste', description: 'Confirmed recyclable materials.' },
+  { value: 'Non-Recyclable Waste', label: 'Non-Recyclable Waste', description: 'General or mixed waste requiring appropriate collection.' },
+  { value: 'Bulky Waste', label: 'Bulky Waste', description: 'Large items routed to a waste report.' },
   {
     value: 'household',
     label: 'Household waste',

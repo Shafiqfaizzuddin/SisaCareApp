@@ -13,6 +13,9 @@ const categoryIcons: Record<WasteCategory, LucideIcon> = {
   recyclable: Recycle,
   construction_debris: Hammer,
   other: CircleHelp,
+  'Recyclable Waste': Recycle,
+  'Non-Recyclable Waste': House,
+  'Bulky Waste': Hammer,
 }
 
 export function WasteGuideCard({ topic }: { topic: EducationTopic }) {

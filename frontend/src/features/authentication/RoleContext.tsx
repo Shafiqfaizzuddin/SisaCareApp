@@ -33,6 +33,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     void supabaseClient.auth.getSession().then(({ data }) => {
       if (!active) return
       const profile = data.session?.user
+        && data.session.user.email_confirmed_at
         ? profileFromAuthUser(data.session.user)
         : null
       setUser(profile)
@@ -40,7 +41,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     })
     const { data } = supabaseClient.auth.onAuthStateChange((_event, session) => {
       if (!active) return
-      const profile = session?.user ? profileFromAuthUser(session.user) : null
+      const profile = session?.user?.email_confirmed_at ? profileFromAuthUser(session.user) : null
       setUser((current) =>
         profile && current?.id === profile.id && current.role === 'user'
           ? {
@@ -126,6 +127,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       if (error || !data.user) {
         throw new AuthenticationError('Email or password is incorrect.')
       }
+      if (!data.user.email_confirmed_at) {
+        await supabaseClient.auth.signOut()
+        throw new AuthenticationError('Confirm your email before signing in.')
+      }
 
       const profile = profileFromAuthUser(data.user)
       if (profile.role !== expectedRole) {
@@ -153,7 +158,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signUp = useCallback(
-    async (fullName: string, email: string, password: string) => {
+    async (fullName: string, email: string, password: string, claimedAffiliation: 'student' | 'staff') => {
       if (!supabaseClient) {
         throw new AuthenticationError(
           'Authentication is not configured. Add the Supabase URL and publishable key.',
@@ -164,7 +169,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         email: email.trim(),
         password,
         options: {
-          data: { full_name: fullName.trim() },
+          data: { full_name: fullName.trim(), claimed_affiliation: claimedAffiliation },
           emailRedirectTo: `${window.location.origin}/login`,
         },
       })
@@ -173,10 +178,12 @@ export function RoleProvider({ children }: { children: ReactNode }) {
           error?.message ?? 'The account could not be created. Please try again.',
         )
       }
-      if (data.session) {
+      if (data.session && data.user.email_confirmed_at) {
         setUser(profileFromAuthUser(data.user))
+      } else if (data.session) {
+        await supabaseClient.auth.signOut()
       }
-      return { requiresEmailConfirmation: data.session === null }
+      return { requiresEmailConfirmation: !data.user.email_confirmed_at }
     },
     [],
   )

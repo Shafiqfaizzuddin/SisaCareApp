@@ -56,6 +56,8 @@ class Settings(BaseSettings):
 
     supabase_url: str = ""
     supabase_publishable_key: str = ""
+    supabase_service_role_key: SecretStr = SecretStr("")
+    google_client_id: str = ""
     cors_allowed_origins: str = (
         "http://localhost:5173,http://127.0.0.1:5173"
     )
@@ -161,11 +163,12 @@ class Settings(BaseSettings):
             )
         if has_supabase_url:
             parsed_supabase_url = urlparse(self.supabase_url)
+            local_supabase = parsed_supabase_url.hostname in {"localhost", "127.0.0.1", "::1"}
             if (
-                parsed_supabase_url.scheme != "https"
+                parsed_supabase_url.scheme not in ({"http", "https"} if local_supabase else {"https"})
                 or not parsed_supabase_url.hostname
             ):
-                raise ValueError("SUPABASE_URL must be a valid HTTPS URL.")
+                raise ValueError("SUPABASE_URL must use HTTPS except on loopback.")
         return self
 
     @property

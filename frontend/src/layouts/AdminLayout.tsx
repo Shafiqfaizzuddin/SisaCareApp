@@ -4,6 +4,8 @@ import {
   LayoutDashboard,
   LogOut,
   Settings,
+  UserCheck,
+  Recycle,
 } from 'lucide-react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { Brand } from '../components/common/Brand'
@@ -24,6 +26,18 @@ export function AdminLayout() {
           <NavLink to="/admin?view=reports">
             <ClipboardList size={18} />
             Reports
+          </NavLink>
+          <NavLink to="/admin/matric">
+            <UserCheck size={18} />
+            Matric reviews
+          </NavLink>
+          <NavLink to="/admin/recycling-points">
+            <Recycle size={18} />
+            Recycling points
+          </NavLink>
+          <NavLink to="/admin/recycling-reviews">
+            <UserCheck size={18} />
+            Recycling reviews
           </NavLink>
           <span className="admin-sidebar__disabled">
             <Settings size={18} />

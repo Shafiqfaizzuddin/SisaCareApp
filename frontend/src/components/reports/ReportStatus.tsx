@@ -1,6 +1,7 @@
 import type { ReportStatus as ReportStatusValue } from '../../types'
 
 const labels: Record<ReportStatusValue, string> = {
+  submitted: 'Submitted',
   processing: 'Processing',
   in_progress: 'In progress',
   completed: 'Completed',

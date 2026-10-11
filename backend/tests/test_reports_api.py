@@ -9,8 +9,10 @@ import pytest
 
 from app.main import app
 from app.api import reports as reports_api
+from app.core.config import Settings
 from app.core.auth import get_optional_authenticated_user, require_admin_user
 from app.repositories import reports as report_repository
+from app.repositories import identities as identity_repository
 
 
 client = TestClient(app)
@@ -18,16 +20,29 @@ MEMBER_USER = {
     "id": "usr-204",
     "email": "member@example.com",
     "role": "user",
+    "email_verified": True,
+    "google_sub": None,
+    "google_email": None,
+    "has_email_identity": True,
+    "has_google_provider": False,
 }
 ADMIN_USER = {
     "id": "admin-1",
     "email": "admin@example.com",
     "role": "admin",
+    "email_verified": True,
+    "google_sub": None,
+    "google_email": None,
+    "has_email_identity": True,
+    "has_google_provider": False,
 }
 
 
 @pytest.fixture(autouse=True)
-def authenticated_api_users() -> None:
+def authenticated_api_users(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(identity_repository, "get_settings", lambda: Settings(
+        _env_file=None, database_path=tmp_path / "identities.db",
+    ))
     app.dependency_overrides[get_optional_authenticated_user] = lambda: MEMBER_USER
     app.dependency_overrides[require_admin_user] = lambda: ADMIN_USER
     yield
@@ -127,16 +142,17 @@ def create_draft(tmp_path: Path) -> str:
 def submission_payload(draft_id: str | None) -> dict[str, Any]:
     return {
         "analysis_id": draft_id,
-        "reporter_role": "user" if draft_id else "guest",
-        "user_id": MEMBER_USER["id"] if draft_id else None,
-        "guest_name": None if draft_id else "Test Reporter",
-        "guest_email": None if draft_id else "reporter@example.com",
+        "reporter_role": "user",
+        "user_id": MEMBER_USER["id"],
+        "guest_name": None,
+        "guest_email": None,
         "title": "Reviewed waste report",
         "summary": "The user-edited final summary.",
         "waste_identified": "One plastic bottle.",
         "recommended_action": "Collect and recycle it.",
         "environmental_concern": "It may contribute to litter.",
-        "category": "recyclable",
+        "category": "Recyclable Waste",
+        "confirmed_items": [{"name": "Plastic Bottle", "category": "Recyclable Waste", "material": "Plastic"}],
         "location": "Near the community hall",
         "latitude": 6.4436,
         "longitude": 100.2700,
@@ -208,7 +224,7 @@ def test_member_submission_persists_reviewed_report_and_images(
     assert response.status_code == 201
     result = response.json()
     assert result["reference"].startswith("SCA-")
-    assert result["status"] == "processing"
+    assert result["status"] == "submitted"
     assert result["original_image"].startswith("/api/reports/files/")
     assert result["annotated_image"].startswith("/api/reports/files/")
 
@@ -216,7 +232,7 @@ def test_member_submission_persists_reviewed_report_and_images(
         database.row_factory = sqlite3.Row
         report = database.execute("SELECT * FROM reports").fetchone()
         draft = database.execute(
-            "SELECT consumed_at FROM analysis_drafts WHERE id = ?",
+            "SELECT consumed_at, detection_json FROM analysis_drafts WHERE id = ?",
             (draft_id,),
         ).fetchone()
         detections = database.execute(
@@ -239,10 +255,7 @@ def test_member_submission_persists_reviewed_report_and_images(
     assert report["waste_identified"] == "One plastic bottle."
     assert report["recommended_action"] == "Collect and recycle it."
     assert report["environmental_concern"] == "It may contribute to litter."
-    assert json.loads(report["final_categories_json"]) == [
-        "Recyclable Waste",
-        "Bulky Waste",
-    ]
+    assert json.loads(report["final_categories_json"]) == ["Recyclable Waste"]
     ai_analysis = json.loads(report["ai_analysis_json"])
     assert ai_analysis["mode"] == "hybrid"
     assert ai_analysis["scene_description"] == "Two recyclable items are visible."
@@ -251,7 +264,10 @@ def test_member_submission_persists_reviewed_report_and_images(
     assert report["longitude"] == pytest.approx(100.2700)
     assert report["location_city"] == "Arau"
     assert report["location_source"] == "map"
-    assert report["status"] == "processing"
+    assert report["status"] == "submitted"
+    assert json.loads(report["confirmed_ai_result_json"])["items"] == payload["confirmed_items"]
+    assert draft["consumed_at"] is not None
+    assert json.loads(draft["detection_json"])["analysis"]["categories_detected"] == ["Recyclable Waste", "Bulky Waste"]
     assert "detection_json" not in report_columns
     assert {
         "latitude",
@@ -281,6 +297,95 @@ def test_member_submission_persists_reviewed_report_and_images(
     assert detections[2]["report_id"] == report["id"]
     assert draft["consumed_at"] is not None
     assert len(list((tmp_path / "assets" / result["id"]).iterdir())) == 2
+
+
+def test_mixed_items_route_to_non_recyclable_and_submission_awards_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    payload = submission_payload(create_draft(tmp_path))
+    payload["category"] = "Non-Recyclable Waste"
+    payload["confirmed_items"].append({
+        "name": "Food Wrapper", "category": "Non-Recyclable Waste", "material": "client value",
+    })
+    response = client.post("/api/reports", json=payload)
+    assert response.status_code == 201
+    assert response.json()["status"] == "submitted"
+    with sqlite3.connect(report_repository.DATABASE_PATH) as database:
+        category, confirmed = database.execute(
+            "SELECT category, confirmed_ai_result_json FROM reports WHERE id = ?",
+            (response.json()["id"],),
+        ).fetchone()
+        assert database.execute("SELECT COUNT(*) FROM reward_events").fetchone()[0] == 0
+    assert category == "Non-Recyclable Waste"
+    assert json.loads(confirmed)["items"][1]["material"] == "Mixed Packaging Material"
+
+
+def test_recyclable_category_cannot_hide_non_recyclable_item(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    payload = submission_payload(create_draft(tmp_path))
+    payload["confirmed_items"].append({
+        "name": "Food Wrapper", "category": "Non-Recyclable Waste", "material": "Mixed Packaging Material",
+    })
+    assert client.post("/api/reports", json=payload).status_code == 422
+    payload["confirmed_items"][1]["category"] = "Recyclable Waste"
+    assert client.post("/api/reports", json=payload).status_code == 422
+
+
+def test_bulky_item_routes_mixed_photo_to_campus_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    payload = submission_payload(create_draft(tmp_path))
+    payload["category"] = "Bulky Waste"
+    payload["confirmed_items"].append({
+        "name": "Mattress", "category": "Bulky Waste", "material": "client value",
+    })
+    response = client.post("/api/reports", json=payload)
+    assert response.status_code == 201
+    with sqlite3.connect(report_repository.DATABASE_PATH) as database:
+        row = database.execute("SELECT category, confirmed_ai_result_json FROM reports").fetchone()
+    assert row[0] == "Bulky Waste"
+    assert json.loads(row[1])["items"][1]["category"] == "Bulky Waste"
+
+
+def test_report_submission_accepts_valid_location_outside_former_campus_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    assert client.post("/api/reports/campus-location/check", json={
+        "latitude": 6.8, "longitude": 100.27,
+    }).status_code == 404
+    payload = submission_payload(create_draft(tmp_path))
+    payload["latitude"] = 6.8
+    response = client.post("/api/reports", json=payload)
+    assert response.status_code == 201
+    with sqlite3.connect(report_repository.DATABASE_PATH) as database:
+        assert database.execute("SELECT latitude FROM reports").fetchone()[0] == 6.8
+
+
+def test_report_submission_does_not_require_boundary_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    response = client.post("/api/reports", json=submission_payload(create_draft(tmp_path)))
+    assert response.status_code == 201
+
+
+def test_unknown_item_can_be_confirmed_for_reporting(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    payload = submission_payload(create_draft(tmp_path))
+    payload["confirmed_items"] = [{
+        "name": "Unidentified fragment", "category": "Non-Recyclable Waste", "material": "Unknown",
+    }]
+    payload["category"] = "Non-Recyclable Waste"
+    response = client.post("/api/reports", json=payload)
+    assert response.status_code == 201
+    assert response.json()["status"] == "submitted"
 
 
 def test_member_submission_stores_user_id(
@@ -352,14 +457,14 @@ def test_member_reward_is_created_once_after_admin_validation(
         "validation_status": "valid",
         "status": "in_progress",
         "reward_awarded": True,
-        "reward_points": 40,
+        "reward_points": 2,
     }
     assert retried_validation.status_code == 200
     assert retried_validation.json()["reward_awarded"] is False
     assert retried_validation.json()["reward_points"] == 0
     reopened = client.get(f"/api/reports/{report_id}")
     assert reopened.status_code == 200
-    assert reopened.json()["reward_points"] == 40
+    assert reopened.json()["reward_points"] == 2
 
     with sqlite3.connect(report_repository.DATABASE_PATH) as database:
         report = database.execute(
@@ -372,7 +477,7 @@ def test_member_reward_is_created_once_after_admin_validation(
     assert report[0:2] == ("valid", "in_progress")
     assert report[2] is not None
     assert rewards == [
-        (report_id, "usr-204", 40, "validated_report"),
+        (report_id, "usr-204", 2, "validated_report"),
     ]
 
 
@@ -381,7 +486,7 @@ def test_invalid_report_cannot_generate_a_reward_or_be_revalidated(
     tmp_path: Path,
 ) -> None:
     configure_report_storage(monkeypatch, tmp_path)
-    payload = submission_payload(None)
+    payload = submission_payload(create_draft(tmp_path))
     payload.update(
         reporter_role="user",
         user_id="usr-204",
@@ -426,7 +531,7 @@ def test_analysis_draft_cannot_be_submitted_twice(
     assert response.json()["detail"] == "This analysis draft has already been submitted."
 
 
-def test_non_ai_report_submission_remains_supported(
+def test_report_without_photo_or_analysis_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -438,18 +543,11 @@ def test_non_ai_report_submission_remains_supported(
 
     response = client.post("/api/reports", json=payload)
 
-    assert response.status_code == 201
-    result = response.json()
-    assert result["original_image"] == ""
-    assert result["annotated_image"] == ""
-    with sqlite3.connect(report_repository.DATABASE_PATH) as database:
-        detection_count = database.execute(
-            "SELECT COUNT(*) FROM waste_detections"
-        ).fetchone()[0]
-    assert detection_count == 0
+    assert response.status_code == 422
+    assert "photo" in response.json()["detail"].lower()
 
 
-def test_guest_can_submit_uploaded_image_without_ai(
+def test_member_can_submit_uploaded_image_without_ai(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -477,7 +575,7 @@ def test_guest_can_submit_uploaded_image_without_ai(
     assert stored_images[0].name == "original.png"
 
 
-def test_guest_submission_succeeds_when_temporary_cleanup_fails(
+def test_member_submission_succeeds_when_temporary_cleanup_fails(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -527,7 +625,8 @@ def test_admin_report_reads_include_saved_ai_detections(
     assert detail["generated_report"] == GENERATED_REPORT
     assert detail["reward_points"] == 0
     assert detail["summary"] == "The user-edited final summary."
-    assert detail["final_categories"] == ["Recyclable Waste", "Bulky Waste"]
+    assert detail["final_categories"] == ["Recyclable Waste"]
+    assert detail["confirmed_results"]["items"] == submission_payload(draft_id)["confirmed_items"]
     assert detail["ai_analysis"]["mode"] == "hybrid"
     assert detail["latitude"] == pytest.approx(6.4436)
     assert detail["longitude"] == pytest.approx(100.2700)
@@ -555,7 +654,7 @@ def test_admin_report_handles_historical_row_without_coordinates(
     tmp_path: Path,
 ) -> None:
     configure_report_storage(monkeypatch, tmp_path)
-    submission = client.post("/api/reports", json=submission_payload(None))
+    submission = client.post("/api/reports", json=submission_payload(create_draft(tmp_path)))
     report_id = submission.json()["id"]
     with sqlite3.connect(report_repository.DATABASE_PATH) as database:
         database.execute(
@@ -575,17 +674,17 @@ def test_admin_report_handles_historical_row_without_coordinates(
     assert response.json()["location_source"] is None
 
 
-def test_guest_submission_requires_guest_identity(
+def test_guest_submission_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     configure_report_storage(monkeypatch, tmp_path)
-    payload = submission_payload(None)
-    payload["guest_name"] = ""
+    payload = submission_payload(create_draft(tmp_path))
+    payload.update(reporter_role="guest", user_id=None, guest_name="Test Reporter", guest_email="reporter@example.com")
 
     response = client.post("/api/reports", json=payload)
 
-    assert response.status_code == 422
+    assert response.status_code == 403
 
 
 @pytest.mark.parametrize(
@@ -689,7 +788,7 @@ def test_database_initialization_allows_vlm_detection_rows(
     tmp_path: Path,
 ) -> None:
     configure_report_storage(monkeypatch, tmp_path)
-    response = client.post("/api/reports", json=submission_payload(None))
+    response = client.post("/api/reports", json=submission_payload(create_draft(tmp_path)))
     report_id = response.json()["id"]
 
     with sqlite3.connect(report_repository.DATABASE_PATH) as database:

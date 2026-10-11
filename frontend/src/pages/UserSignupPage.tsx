@@ -9,6 +9,7 @@ interface SignupFields {
   email: string
   password: string
   confirmPassword: string
+  claimedAffiliation: 'student' | 'staff'
 }
 
 const EMPTY_FIELDS: SignupFields = {
@@ -16,6 +17,7 @@ const EMPTY_FIELDS: SignupFields = {
   email: '',
   password: '',
   confirmPassword: '',
+  claimedAffiliation: 'student',
 }
 
 export function UserSignupPage() {
@@ -50,7 +52,7 @@ export function UserSignupPage() {
     setIsSubmitting(true)
     setSignupError('')
     try {
-      const result = await signUp(fields.fullName, fields.email, fields.password)
+      const result = await signUp(fields.fullName, fields.email, fields.password, fields.claimedAffiliation)
       if (result.requiresEmailConfirmation) {
         setConfirmationEmail(fields.email.trim())
       } else {
@@ -167,6 +169,13 @@ export function UserSignupPage() {
                     disabled={isSubmitting}
                     required
                   />
+                </div>
+                <div className="field">
+                  <label htmlFor="signup-affiliation">I am a</label>
+                  <select id="signup-affiliation" value={fields.claimedAffiliation} onChange={event => updateField('claimedAffiliation', event.target.value as 'student' | 'staff')}>
+                    <option value="student">Student</option><option value="staff">Staff</option>
+                  </select>
+                  <span className="field__hint">This is a claim. Verification and admin permissions are separate.</span>
                 </div>
                 {signupError && (
                   <p className="login-error" role="alert">{signupError}</p>

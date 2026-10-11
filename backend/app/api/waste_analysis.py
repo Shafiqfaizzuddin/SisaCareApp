@@ -515,7 +515,17 @@ async def analyze_uploaded_waste(
         "analysis_id": analysis_id,
         "original_image": f"/api/waste/uploads/{quote(destination.name)}",
         "annotated_image": annotated_image,
-        "detections": result["analysis"]["objects"],
+        "detections": [
+            {
+                **item,
+                "material": metadata["material"],
+                "recyclable": metadata["recyclable"],
+                "recommended_handling": metadata["recommended_handling"],
+                "rule_known": metadata["waste_category"] != "Unknown",
+            }
+            for item in result["analysis"]["objects"]
+            for metadata in [get_category_metadata(item["name"])]
+        ],
         "grouped_objects": result["analysis"]["grouped_objects"],
         "categories_detected": result["analysis"]["categories_detected"],
         "scene_description": result["vlm"]["scene_description"] or "",

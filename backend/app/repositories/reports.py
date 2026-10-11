@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import sqlite3
 from datetime import datetime, timezone
@@ -17,7 +18,7 @@ _settings = get_settings()
 DATABASE_PATH = _settings.database_path
 REPORT_ASSETS_DIR = _settings.report_assets_dir
 REPORT_ASSET_URL_PREFIX = "/api/reports/files"
-REPORT_VALIDATION_REWARD_POINTS = 40
+REPORT_VALIDATION_REWARD_POINTS = 2
 
 
 class DraftNotFoundError(LookupError):
@@ -106,6 +107,14 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
                 status TEXT NOT NULL,
                 validation_status TEXT NOT NULL DEFAULT 'pending',
                 validated_at TEXT,
+                reviewer_id TEXT,
+                reviewed_at TEXT,
+                rejection_reason TEXT,
+                confirmed_ai_result_json TEXT,
+                activity_key TEXT,
+                data_origin TEXT NOT NULL DEFAULT 'legacy_unknown'
+                    CHECK (data_origin IN ('production', 'demo', 'legacy_unknown')),
+                activity_affiliation TEXT NOT NULL DEFAULT 'unknown',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (analysis_id) REFERENCES analysis_drafts(id)
@@ -131,14 +140,96 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
             CREATE INDEX IF NOT EXISTS idx_waste_detections_report_id
                 ON waste_detections(report_id);
 
+            CREATE TABLE IF NOT EXISTS recycling_points (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+                latitude REAL NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+                longitude REAL NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+                accepted_materials_json TEXT NOT NULL
+                    CHECK (json_valid(accepted_materials_json) AND json_type(accepted_materials_json) = 'array'),
+                active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+                description TEXT NOT NULL DEFAULT '',
+                data_origin TEXT NOT NULL DEFAULT 'production'
+                    CHECK (data_origin IN ('production', 'demo')),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS recycling_actions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                analysis_id TEXT UNIQUE REFERENCES analysis_drafts(id),
+                original_photo TEXT,
+                confirmed_waste_json TEXT NOT NULL CHECK (json_valid(confirmed_waste_json)),
+                recycling_point_id TEXT NOT NULL REFERENCES recycling_points(id),
+                proof_photo TEXT NOT NULL CHECK (length(trim(proof_photo)) > 0),
+                proof_latitude REAL CHECK (proof_latitude BETWEEN -90 AND 90),
+                proof_longitude REAL CHECK (proof_longitude BETWEEN -180 AND 180),
+                proof_location TEXT,
+                proof_location_source TEXT CHECK (proof_location_source IN ('gps', 'manual')),
+                activity_key TEXT NOT NULL,
+                activity_affiliation TEXT NOT NULL DEFAULT 'unknown'
+                    CHECK (activity_affiliation IN ('student', 'staff', 'unknown')),
+                verification_status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (verification_status IN ('pending', 'verified', 'rejected')),
+                reviewer_id TEXT,
+                reviewed_at TEXT,
+                rejection_reason TEXT,
+                data_origin TEXT NOT NULL DEFAULT 'production'
+                    CHECK (data_origin IN ('production', 'demo')),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                CHECK (original_photo IS NOT NULL OR analysis_id IS NOT NULL),
+                CHECK ((proof_latitude IS NULL) = (proof_longitude IS NULL)),
+                CHECK (proof_latitude IS NOT NULL OR length(trim(COALESCE(proof_location, ''))) > 0),
+                CHECK (verification_status = 'pending' OR (reviewer_id IS NOT NULL AND reviewed_at IS NOT NULL)),
+                CHECK (verification_status != 'rejected' OR rejection_reason IS NOT NULL)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_recycling_points_active
+                ON recycling_points(active, data_origin);
+            CREATE INDEX IF NOT EXISTS idx_recycling_actions_participant
+                ON recycling_actions(user_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_recycling_actions_review
+                ON recycling_actions(verification_status, created_at);
+
             CREATE TABLE IF NOT EXISTS reward_events (
                 id TEXT PRIMARY KEY,
-                report_id TEXT NOT NULL UNIQUE,
+                report_id TEXT UNIQUE REFERENCES reports(id) ON DELETE RESTRICT,
+                recycling_action_id TEXT UNIQUE REFERENCES recycling_actions(id) ON DELETE RESTRICT,
                 user_id TEXT NOT NULL,
-                points INTEGER NOT NULL,
+                signed_amount INTEGER NOT NULL CHECK (signed_amount != 0),
+                points INTEGER NOT NULL CHECK (points = signed_amount),
+                transaction_type TEXT NOT NULL CHECK (transaction_type IN ('report_award', 'recycling_award', 'adjustment')),
+                source_activity_type TEXT NOT NULL CHECK (source_activity_type IN ('report', 'recycling_action', 'manual')),
+                source_activity_id TEXT NOT NULL,
+                activity_key TEXT,
                 reason TEXT NOT NULL,
+                activity_affiliation TEXT NOT NULL DEFAULT 'unknown'
+                    CHECK (activity_affiliation IN ('student', 'staff', 'unknown')),
+                e_merit_classification TEXT NOT NULL DEFAULT 'ineligible_unknown'
+                    CHECK (e_merit_classification IN ('eligible_student', 'ineligible_staff', 'ineligible_unknown', 'legacy_unclassified')),
+                audit_reference TEXT NOT NULL,
+                reviewer_id TEXT,
+                data_origin TEXT NOT NULL DEFAULT 'production'
+                    CHECK (data_origin IN ('production', 'demo', 'legacy_unknown')),
                 created_at TEXT NOT NULL,
-                FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+                CHECK (
+                    (transaction_type = 'report_award' AND report_id IS NOT NULL
+                     AND recycling_action_id IS NULL AND signed_amount > 0
+                     AND source_activity_type = 'report' AND source_activity_id = report_id)
+                    OR (transaction_type = 'recycling_award' AND recycling_action_id IS NOT NULL
+                     AND report_id IS NULL AND signed_amount > 0
+                     AND source_activity_type = 'recycling_action' AND source_activity_id = recycling_action_id)
+                    OR (transaction_type = 'adjustment' AND report_id IS NULL
+                     AND recycling_action_id IS NULL)
+                ),
+                CHECK (transaction_type = 'adjustment' OR activity_key IS NOT NULL),
+                CHECK (e_merit_classification != 'eligible_student' OR
+                       (transaction_type != 'adjustment' AND activity_affiliation = 'student'
+                        AND data_origin = 'production')),
+                CHECK (transaction_type != 'report_award' OR signed_amount = 2),
+                CHECK (transaction_type != 'recycling_award' OR signed_amount = 5)
             );
 
             CREATE INDEX IF NOT EXISTS idx_reward_events_user_id
@@ -149,6 +240,8 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
         _ensure_report_validation_columns(database)
         _ensure_report_location_columns(database)
         _ensure_report_ai_columns(database)
+        _ensure_campus_columns(database)
+        _ensure_recycling_action_columns(database)
         _ensure_waste_detection_storage(database)
         _migrate_legacy_report_detections(database)
         database.commit()
@@ -178,6 +271,12 @@ def _ensure_analysis_draft_owner_column(database: sqlite3.Connection) -> None:
     }
     if "user_id" not in columns:
         database.execute("ALTER TABLE analysis_drafts ADD COLUMN user_id TEXT")
+
+
+def _ensure_recycling_action_columns(database: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in database.execute("PRAGMA table_info(recycling_actions)")}
+    if "proof_location_source" not in columns:
+        database.execute("ALTER TABLE recycling_actions ADD COLUMN proof_location_source TEXT")
 
 
 def _ensure_report_location_columns(database: sqlite3.Connection) -> None:
@@ -215,6 +314,115 @@ def _ensure_report_ai_columns(database: sqlite3.Connection) -> None:
         )
     if "ai_analysis_json" not in columns:
         database.execute("ALTER TABLE reports ADD COLUMN ai_analysis_json TEXT")
+
+
+def _ensure_campus_columns(database: sqlite3.Connection) -> None:
+    """Extend existing rows conservatively; historical points stay unclassified."""
+    report_columns = {row["name"] for row in database.execute("PRAGMA table_info(reports)")}
+    report_additions = {
+        "activity_affiliation": "TEXT NOT NULL DEFAULT 'unknown'",
+        "reviewer_id": "TEXT",
+        "reviewed_at": "TEXT",
+        "rejection_reason": "TEXT",
+        "confirmed_ai_result_json": "TEXT",
+        "activity_key": "TEXT",
+        "data_origin": "TEXT NOT NULL DEFAULT 'legacy_unknown'",
+    }
+    for name, definition in report_additions.items():
+        if name not in report_columns:
+            database.execute(f"ALTER TABLE reports ADD COLUMN {name} {definition}")
+    if "user_id" in report_columns:
+        database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reports_participant ON reports(user_id, created_at)"
+        )
+    if "created_at" in report_columns:
+        database.execute(
+            "CREATE INDEX IF NOT EXISTS idx_reports_review ON reports(validation_status, created_at)"
+        )
+    reward_columns = {row["name"] for row in database.execute("PRAGMA table_info(reward_events)")}
+    reward_additions = {
+        "activity_affiliation": "TEXT NOT NULL DEFAULT 'unknown'",
+        "recycling_action_id": "TEXT REFERENCES recycling_actions(id)",
+        "signed_amount": "INTEGER",
+        "transaction_type": "TEXT NOT NULL DEFAULT 'report_award'",
+        "source_activity_type": "TEXT NOT NULL DEFAULT 'report'",
+        "source_activity_id": "TEXT",
+        "activity_key": "TEXT",
+        "e_merit_classification": "TEXT NOT NULL DEFAULT 'legacy_unclassified'",
+        "audit_reference": "TEXT",
+        "reviewer_id": "TEXT",
+        "data_origin": "TEXT NOT NULL DEFAULT 'legacy_unknown'",
+    }
+    for name, definition in reward_additions.items():
+        if name not in reward_columns:
+            database.execute(f"ALTER TABLE reward_events ADD COLUMN {name} {definition}")
+    database.execute(
+        """UPDATE reward_events SET signed_amount = COALESCE(signed_amount, points),
+           source_activity_id = COALESCE(source_activity_id, report_id),
+           audit_reference = COALESCE(audit_reference, 'legacy:' || id)
+           WHERE signed_amount IS NULL OR source_activity_id IS NULL OR audit_reference IS NULL"""
+    )
+    database.execute(
+        """CREATE UNIQUE INDEX IF NOT EXISTS ux_reward_activity_key
+           ON reward_events(activity_key)
+           WHERE transaction_type IN ('report_award', 'recycling_award')
+             AND activity_key IS NOT NULL"""
+    )
+    database.execute(
+        """CREATE UNIQUE INDEX IF NOT EXISTS ux_reward_recycling_action
+           ON reward_events(recycling_action_id) WHERE recycling_action_id IS NOT NULL"""
+    )
+    database.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reward_eligible ON reward_events(user_id, e_merit_classification, created_at)"
+    )
+    database.executescript(
+        """CREATE TRIGGER IF NOT EXISTS trg_recycling_action_evidence_immutable
+           BEFORE UPDATE OF analysis_id, original_photo, confirmed_waste_json,
+             recycling_point_id, proof_photo, proof_latitude, proof_longitude,
+             proof_location, proof_location_source, activity_key, activity_affiliation,
+             user_id ON recycling_actions
+           WHEN OLD.verification_status != 'pending'
+           BEGIN
+             SELECT RAISE(ABORT, 'reviewed recycling evidence is immutable');
+           END;
+           CREATE TRIGGER IF NOT EXISTS trg_recycling_action_point_insert
+           BEFORE INSERT ON recycling_actions
+           BEGIN
+             SELECT CASE WHEN NOT EXISTS (
+               SELECT 1 FROM recycling_points p WHERE p.id = NEW.recycling_point_id
+                 AND p.active = 1 AND p.data_origin = NEW.data_origin)
+               THEN RAISE(ABORT, 'active recycling point with matching origin required') END;
+           END;
+           CREATE TRIGGER IF NOT EXISTS trg_reward_award_insert
+           BEFORE INSERT ON reward_events
+           WHEN NEW.transaction_type IN ('report_award', 'recycling_award')
+           BEGIN
+             SELECT CASE WHEN NEW.signed_amount <= 0 OR NEW.points != NEW.signed_amount
+                 OR NEW.activity_key IS NULL OR NEW.audit_reference IS NULL
+                 OR (NEW.transaction_type = 'report_award' AND NEW.signed_amount != 2)
+                 OR (NEW.transaction_type = 'recycling_award' AND NEW.signed_amount != 5)
+               THEN RAISE(ABORT, 'invalid activity award') END;
+             SELECT CASE WHEN NEW.transaction_type = 'report_award' AND NOT EXISTS (
+               SELECT 1 FROM reports r WHERE r.id = NEW.report_id AND r.user_id = NEW.user_id
+                 AND r.activity_key = NEW.activity_key AND r.validation_status = 'valid'
+                 AND NEW.source_activity_type = 'report' AND NEW.source_activity_id = r.id
+                 AND NEW.activity_affiliation = r.activity_affiliation
+                 AND NEW.data_origin = r.data_origin)
+               THEN RAISE(ABORT, 'report award source mismatch') END;
+             SELECT CASE WHEN NEW.transaction_type = 'recycling_award' AND NOT EXISTS (
+               SELECT 1 FROM recycling_actions a WHERE a.id = NEW.recycling_action_id
+                 AND a.user_id = NEW.user_id AND a.activity_key = NEW.activity_key
+                 AND a.verification_status = 'verified'
+                 AND NEW.source_activity_type = 'recycling_action'
+                 AND NEW.source_activity_id = a.id
+                 AND NEW.activity_affiliation = a.activity_affiliation
+                 AND NEW.data_origin = a.data_origin)
+               THEN RAISE(ABORT, 'recycling award source mismatch') END;
+             SELECT CASE WHEN NEW.e_merit_classification = 'eligible_student'
+                 AND (NEW.activity_affiliation != 'student' OR NEW.data_origin != 'production')
+               THEN RAISE(ABORT, 'ineligible activity') END;
+           END;"""
+    )
 
 
 def _ensure_waste_detection_storage(database: sqlite3.Connection) -> None:
@@ -542,6 +750,7 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
         detections: list[dict[str, Any]] = []
         final_categories: list[str] = []
         ai_analysis: dict[str, Any] | None = None
+        source_photo: Path | None = None
         if analysis_id:
             draft = database.execute(
                 "SELECT * FROM analysis_drafts WHERE id = ?",
@@ -565,6 +774,7 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 Path(draft["original_image_path"]),
                 Path(draft["annotated_image_path"]),
             )
+            source_photo = draft_sources[0]
             original_image, annotated_image, report_directory = _persist_draft_assets(
                 draft,
                 report_id,
@@ -574,10 +784,22 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 draft["detection_json"]
             )
         elif uploaded_image_path := submission.get("uploaded_image_path"):
+            source_photo = Path(uploaded_image_path)
             original_image, report_directory = _persist_uploaded_image(
                 Path(uploaded_image_path),
                 report_id,
             )
+
+        confirmed_items = submission.get("confirmed_items")
+        if confirmed_items:
+            final_categories = list(dict.fromkeys(
+                item["category"] for item in confirmed_items
+            ))
+
+        activity_key = (
+            "sha256:" + hashlib.sha256(source_photo.read_bytes()).hexdigest()
+            if source_photo is not None else f"report:{report_id}"
+        )
 
         database.execute(
             """
@@ -589,10 +811,11 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 ai_analysis_json, location, latitude, longitude,
                 location_address, location_street, location_city, location_state,
                 location_postcode, location_country, location_source, site_notes,
-                status, validation_status, created_at, updated_at
+                status, validation_status, activity_affiliation, activity_key,
+                confirmed_ai_result_json, data_origin, created_at, updated_at
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -628,8 +851,19 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 submission.get("location_country"),
                 submission["location_source"],
                 submission.get("site_notes", ""),
-                "processing",
+                "submitted",
                 "pending",
+                submission.get("activity_affiliation", "unknown"),
+                activity_key,
+                json.dumps({
+                    "analysis": ai_analysis,
+                    "final_categories": final_categories,
+                    "category": submission["category"],
+                    "waste_identified": submission.get("waste_identified", ""),
+                    "recommended_action": submission.get("recommended_action", ""),
+                    "items": confirmed_items or [],
+                }, ensure_ascii=True),
+                "production",
                 now,
                 now,
             ),
@@ -664,7 +898,7 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
     return {
         "id": report_id,
         "reference": reference,
-        "status": "processing",
+        "status": "submitted",
         "submitted_at": now,
         "original_image": original_image or "",
         "annotated_image": annotated_image or "",
@@ -773,6 +1007,10 @@ def get_report(report_id: str) -> dict[str, Any] | None:
         ai_analysis = (
             stored_ai_analysis if isinstance(stored_ai_analysis, dict) else None
         )
+        try:
+            confirmed_results = json.loads(report["confirmed_ai_result_json"])
+        except (json.JSONDecodeError, TypeError):
+            confirmed_results = None
 
     return {
         "id": report["id"],
@@ -807,6 +1045,7 @@ def get_report(report_id: str) -> dict[str, Any] | None:
         "generated_report": generated_report,
         "final_categories": final_categories,
         "ai_analysis": ai_analysis,
+        "confirmed_results": confirmed_results,
         "original_image": report["original_image"] or "",
         "annotated_image": report["annotated_image"] or "",
         "created_at": report["created_at"],
@@ -844,8 +1083,9 @@ def get_member_dashboard(user_id: str, *, report_limit: int = 5) -> dict[str, An
                 SELECT
                     user_id,
                     SUM(points) AS points,
-                    COUNT(*) AS valid_reports
+                    SUM(CASE WHEN transaction_type = 'report_award' THEN 1 ELSE 0 END) AS valid_reports
                 FROM reward_events
+                WHERE data_origin != 'demo'
                 GROUP BY user_id
             ),
             current_member AS (
@@ -909,7 +1149,10 @@ def get_member_dashboard(user_id: str, *, report_limit: int = 5) -> dict[str, An
     }
 
 
-def validate_report(report_id: str, validation_status: str) -> dict[str, Any]:
+def validate_report(
+    report_id: str, validation_status: str, reviewer_id: str | None = None,
+    rejection_reason: str | None = None,
+) -> dict[str, Any]:
     """Persist one final validation decision and award a member report once."""
     if validation_status not in {"valid", "invalid"}:
         raise ValueError("Validation status must be 'valid' or 'invalid'.")
@@ -921,7 +1164,8 @@ def validate_report(report_id: str, validation_status: str) -> dict[str, Any]:
         database.execute("BEGIN IMMEDIATE")
         report = database.execute(
             """
-            SELECT reporter_role, user_id, validation_status, status
+            SELECT reporter_role, user_id, validation_status, status, activity_affiliation,
+                   activity_key, data_origin
             FROM reports
             WHERE id = ?
             """,
@@ -949,10 +1193,14 @@ def validate_report(report_id: str, validation_status: str) -> dict[str, Any]:
         database.execute(
             """
             UPDATE reports
-            SET validation_status = ?, validated_at = ?, status = ?, updated_at = ?
+            SET validation_status = ?, validated_at = ?, status = ?, updated_at = ?,
+                reviewer_id = ?, reviewed_at = ?, rejection_reason = ?,
+                activity_key = COALESCE(activity_key, ?)
             WHERE id = ?
             """,
-            (validation_status, now, report_status, now, report_id),
+            (validation_status, now, report_status, now, reviewer_id, now,
+             rejection_reason if validation_status == "invalid" else None,
+             f"report:{report_id}", report_id),
         )
 
         reward_awarded = False
@@ -963,16 +1211,31 @@ def validate_report(report_id: str, validation_status: str) -> dict[str, Any]:
         ):
             cursor = database.execute(
                 """
-                INSERT OR IGNORE INTO reward_events (
-                    id, report_id, user_id, points, reason, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO reward_events (
+                    id, report_id, user_id, signed_amount, points, transaction_type,
+                    source_activity_type, source_activity_id, activity_key, reason,
+                    activity_affiliation, e_merit_classification, audit_reference,
+                    reviewer_id, data_origin, created_at
+                ) VALUES (?, ?, ?, ?, ?, 'report_award', 'report', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT DO NOTHING
                 """,
                 (
                     uuid4().hex,
                     report_id,
                     report["user_id"],
                     REPORT_VALIDATION_REWARD_POINTS,
+                    REPORT_VALIDATION_REWARD_POINTS,
+                    report_id,
+                    report["activity_key"] or f"report:{report_id}",
                     "validated_report",
+                    report["activity_affiliation"],
+                    ("eligible_student" if report["activity_affiliation"] == "student"
+                     and report["data_origin"] == "production" else
+                     "ineligible_staff" if report["activity_affiliation"] == "staff" else
+                     "ineligible_unknown"),
+                    f"report-review:{report_id}",
+                    reviewer_id,
+                    report["data_origin"],
                     now,
                 ),
             )

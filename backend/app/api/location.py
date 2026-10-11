@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.config import Settings, get_settings
+from app.core.auth import AuthenticatedUser, require_authenticated_user
 from app.core.rate_limit import enforce_location_rate_limit
 from app.services.tomtom import (
     TomTomConfigurationError,
@@ -14,6 +15,7 @@ from app.services.tomtom import (
     TomTomUnavailableError,
     reverse_geocode,
     search_locations,
+    search_nearby_recycling,
 )
 
 
@@ -78,6 +80,20 @@ async def read_reverse_geocode(
             detail="No readable address was found for these coordinates.",
         )
     return location
+
+
+@router.get("/recycling/nearby")
+async def nearby_recycling_points(
+    latitude: Annotated[float, Query(ge=-90, le=90, allow_inf_nan=False)],
+    longitude: Annotated[float, Query(ge=-180, le=180, allow_inf_nan=False)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    _user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
+) -> dict[str, object]:
+    try:
+        points = await search_nearby_recycling(latitude, longitude, settings=settings)
+    except (TomTomConfigurationError, TomTomInvalidResponseError, TomTomUnavailableError) as exc:
+        raise _service_error(exc) from exc
+    return {"results": points}
 
 
 __all__ = ["router"]

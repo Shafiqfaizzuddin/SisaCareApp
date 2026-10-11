@@ -3,8 +3,13 @@ export type WasteCategory =
   | 'recyclable'
   | 'construction_debris'
   | 'other'
+  | 'Recyclable Waste'
+  | 'Non-Recyclable Waste'
+  | 'Bulky Waste'
 
-export type ReportStatus = 'processing' | 'in_progress' | 'completed'
+export type CampusWasteCategory = 'Recyclable Waste' | 'Non-Recyclable Waste' | 'Bulky Waste'
+
+export type ReportStatus = 'submitted' | 'processing' | 'in_progress' | 'completed'
 
 export type UserRole = 'guest' | 'user' | 'admin'
 
@@ -88,6 +93,7 @@ export interface WasteDetection {
 
 export type FinalWasteCategory =
   | 'Non-Recyclable'
+  | 'Non-Recyclable Waste'
   | 'Recyclable Waste'
   | 'Bulky Waste'
   | 'Unknown'
@@ -110,6 +116,10 @@ export interface FusedWasteObject {
   confidence_level: 'high' | 'medium' | 'low' | null
   supported_by_vlm: boolean
   bounding_box: WasteBoundingBox | null
+  material?: string
+  recyclable?: boolean
+  recommended_handling?: string
+  rule_known?: boolean
 }
 
 export interface GroupedWasteObject {
@@ -161,7 +171,8 @@ export interface ReportSubmissionPayload {
   waste_identified: string
   recommended_action: string
   environmental_concern: string
-  category: WasteCategory
+  category: CampusWasteCategory
+  confirmed_items: Array<{ name: string; category: CampusWasteCategory; material: string }>
   location: string
   latitude: number
   longitude: number
@@ -216,6 +227,7 @@ export interface AdminReportDetail {
   generatedReport: WasteAnalysisReport | null
   finalCategories: FinalWasteCategory[]
   aiAnalysis: Record<string, unknown> | null
+  confirmedItems: Array<{ name: string; category: CampusWasteCategory; material: string }>
   originalImage: string
   annotatedImage: string
   createdAt: string
