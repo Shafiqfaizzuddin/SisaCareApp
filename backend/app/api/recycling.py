@@ -46,9 +46,13 @@ class RecyclingPointInput(BaseModel):
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
     accepted_materials: list[str] = Field(min_length=1, max_length=30)
     description: str = Field(default="", max_length=2000)
+    address: str | None = Field(default=None, max_length=500)
+    address_source: str | None = Field(default=None, pattern="^(google|manual|coordinates)$")
+    access_notes: str = Field(default="", max_length=1000)
+    opening_hours: str = Field(default="", max_length=500)
     active: bool = True
 
-    @field_validator("name", "description")
+    @field_validator("name", "description", "access_notes", "opening_hours")
     @classmethod
     def trim_text(cls, value: str) -> str:
         return value.strip()
@@ -124,6 +128,8 @@ def _serialize(row: sqlite3.Row) -> dict[str, object]:
         "latitude": row["latitude"], "longitude": row["longitude"],
         "accepted_materials": json.loads(row["accepted_materials_json"]),
         "description": row["description"], "active": bool(row["active"]),
+        "address": row["address"], "address_source": row["address_source"],
+        "access_notes": row["access_notes"], "opening_hours": row["opening_hours"],
         "created_at": row["created_at"], "updated_at": row["updated_at"],
     }
 
@@ -149,18 +155,22 @@ def _save_point(point: RecyclingPointInput, point_id: str | None) -> dict[str, o
             database.execute(
                 """INSERT INTO recycling_points
                    (id, name, latitude, longitude, accepted_materials_json,
-                    description, active, data_origin, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 'production', ?, ?)""",
+                    description, address, address_source, access_notes, opening_hours,
+                    active, data_origin, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'production', ?, ?)""",
                 (point_id, point.name, point.latitude, point.longitude,
-                 json.dumps(point.accepted_materials), point.description, int(point.active), now, now),
+                 json.dumps(point.accepted_materials), point.description, point.address, point.address_source,
+                 point.access_notes, point.opening_hours, int(point.active), now, now),
             )
         else:
             cursor = database.execute(
                 """UPDATE recycling_points SET name = ?, latitude = ?, longitude = ?,
-                   accepted_materials_json = ?, description = ?, active = ?, updated_at = ?
+                   accepted_materials_json = ?, description = ?, address = ?, address_source = ?,
+                   access_notes = ?, opening_hours = ?, active = ?, updated_at = ?
                    WHERE id = ? AND data_origin = 'production'""",
                 (point.name, point.latitude, point.longitude, json.dumps(point.accepted_materials),
-                 point.description, int(point.active), now, point_id),
+                 point.description, point.address, point.address_source, point.access_notes,
+                 point.opening_hours, int(point.active), now, point_id),
             )
             if cursor.rowcount == 0:
                 database.rollback()

@@ -96,6 +96,7 @@ class ReportSubmission(BaseModel):
     latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
     location_address: str | None = Field(default=None, max_length=500)
+    location_address_source: Literal["google", "manual", "coordinates"] | None = None
     location_street: str | None = Field(default=None, max_length=200)
     location_city: str | None = Field(default=None, max_length=120)
     location_state: str | None = Field(default=None, max_length=120)
@@ -106,6 +107,8 @@ class ReportSubmission(BaseModel):
 
     @model_validator(mode="after")
     def validate_reporter(self) -> "ReportSubmission":
+        if self.location_address_source == "coordinates" and not self.site_notes.strip():
+            raise ValueError("Describe the incident location when no readable address is available.")
         if self.reporter_role == "guest":
             if not (self.guest_name or "").strip():
                 raise ValueError("A name is required for guest reports.")

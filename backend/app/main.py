@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.location import router as location_router
 from app.api.identity import router as identity_router
 from app.api.members import router as members_router
 from app.api.reports import router as reports_router
@@ -23,7 +22,6 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 app.include_router(api_router, prefix=settings.api_v1_prefix)
-app.include_router(location_router, prefix="/api/location", tags=["location"])
 app.include_router(identity_router, prefix="/api/identity", tags=["identity"])
 app.include_router(members_router, prefix="/api/members", tags=["members"])
 app.include_router(waste_analysis_router, prefix="/api/waste", tags=["waste-analysis"])

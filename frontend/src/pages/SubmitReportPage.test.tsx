@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { WasteAnalysisSuccess } from '../types'
+import type { ReportLocation, WasteAnalysisSuccess } from '../types'
 import { SubmitReportPage } from './SubmitReportPage'
 
 
@@ -36,16 +36,29 @@ vi.mock('../features/reporting/report-submission', () => ({
 }))
 
 vi.mock('../components/location/LocationPicker', () => ({
-  LocationPicker: ({ onChange, onConfirm }: {
-    onChange: (value: unknown) => void
+  LocationPicker: ({ value, onChange, onConfirm, onCancel, note, onNoteChange }: {
+    value: ReportLocation | null
+    onChange: (value: ReportLocation) => void
     onConfirm: () => void
+    onCancel: () => void
+    note: string
+    onNoteChange: (value: string) => void
   }) => <div>
+    <div data-testid="incident-map">Incident map</div>
     <button type="button" onClick={() => onChange({
       latitude: 6.4436, longitude: 100.27, address: 'Test campus location',
       street: null, city: 'Arau', state: 'Perlis', postcode: null,
       country: 'Malaysia', source: 'map',
     })}>Select test location</button>
+    <button type="button" onClick={() => onChange({
+      latitude: 7.1, longitude: 101.1, address: 'Changed location',
+      street: null, city: null, state: null, postcode: null,
+      country: null, source: 'map',
+    })}>Move test pin</button>
+    <span>Draft: {value?.address ?? 'none'}</span>
+    <input aria-label="Landmark" value={note} onChange={event => onNoteChange(event.target.value)} />
     <button type="button" onClick={onConfirm}>Confirm test location</button>
+    <button type="button" onClick={onCancel}>Cancel</button>
   </div>,
 }))
 
@@ -102,7 +115,71 @@ afterEach(() => {
 })
 
 describe('SubmitReportPage hybrid draft', () => {
+  it('opens one incident picker, commits a pin, and discards later edits on cancel', async () => {
+    render(<MemoryRouter><SubmitReportPage /></MemoryRouter>)
+    expect(screen.queryByTestId('incident-map')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Choose location' }))
+    expect(screen.getAllByTestId('incident-map')).toHaveLength(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Select test location' }))
+    await userEvent.type(screen.getByRole('textbox', { name: 'Landmark' }), 'By the bins')
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm test location' }))
+    expect(screen.queryByTestId('incident-map')).toBeNull()
+    await waitFor(() => expect(document.activeElement?.textContent).toContain('Edit location'))
+    expect(screen.getByText(/Test campus location/)).toBeTruthy()
+    expect(screen.getByText(/Landmark: By the bins/)).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Edit location' }))
+    expect(screen.getByText('Draft: Test campus location')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Move test pin' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByTestId('incident-map')).toBeNull()
+    await waitFor(() => expect(document.activeElement?.textContent).toContain('Edit location'))
+    expect(screen.getByText(/Test campus location/)).toBeTruthy()
+    expect(screen.queryByText(/Changed location/)).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Edit location' }))
+    expect(screen.getByText('Draft: Test campus location')).toBeTruthy()
+  })
+
+  it('opens the incident picker and announces an error when submitting without a location', async () => {
+    pageMocks.analyzeWasteImage.mockResolvedValue({ ...ANALYSIS_RESULT,
+      detections: [{ ...ANALYSIS_RESULT.detections[0], category: 'Non-Recyclable', material: 'Mixed Packaging Material', rule_known: true }] })
+    render(<MemoryRouter><SubmitReportPage /></MemoryRouter>)
+    await userEvent.upload(document.querySelector<HTMLInputElement>('input[type="file"]')!,
+      new File(['photo'], 'waste.jpg', { type: 'image/jpeg' }))
+    await userEvent.click(screen.getByRole('button', { name: /analyze waste/i }))
+    await screen.findByText('Analysis complete')
+    await userEvent.click(screen.getByRole('checkbox'))
+    await userEvent.click(screen.getByRole('button', { name: /submit report/i }))
+    expect(screen.getByRole('alert').textContent).toContain('Choose and confirm the waste location')
+    expect(screen.getAllByTestId('incident-map')).toHaveLength(1)
+    expect(pageMocks.submitWasteReport).not.toHaveBeenCalled()
+  })
+
+  it('submits the committed pin after a later draft move is cancelled', async () => {
+    pageMocks.analyzeWasteImage.mockResolvedValue({ ...ANALYSIS_RESULT,
+      detections: [{ ...ANALYSIS_RESULT.detections[0], category: 'Non-Recyclable', material: 'Mixed Packaging Material', rule_known: true }] })
+    pageMocks.submitWasteReport.mockResolvedValue({ reference: 'SCA-TEST', submitted_at: '2026-10-11T00:00:00Z' })
+    render(<MemoryRouter><SubmitReportPage /></MemoryRouter>)
+    await userEvent.upload(document.querySelector<HTMLInputElement>('input[type="file"]')!,
+      new File(['photo'], 'waste.jpg', { type: 'image/jpeg' }))
+    await userEvent.click(screen.getByRole('button', { name: /analyze waste/i }))
+    await screen.findByText('Analysis complete')
+    await userEvent.click(screen.getByRole('button', { name: 'Choose location' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Select test location' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm test location' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Edit location' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Move test pin' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await userEvent.click(screen.getByRole('checkbox'))
+    await userEvent.click(screen.getByRole('button', { name: /submit report/i }))
+    await waitFor(() => expect(pageMocks.submitWasteReport).toHaveBeenCalledOnce())
+    expect(pageMocks.submitWasteReport.mock.calls[0][0]).toMatchObject({
+      latitude: 6.4436, longitude: 100.27, location_address: 'Test campus location',
+    })
+  })
+
   it('analyzes a photo without a location, GPS permission, or map request', async () => {
+    pageMocks.analyzeWasteImage.mockResolvedValue({ ...ANALYSIS_RESULT,
+      detections: [{ ...ANALYSIS_RESULT.detections[0], material: 'Plastic', rule_known: true }] })
     render(<MemoryRouter><SubmitReportPage /></MemoryRouter>)
     await userEvent.upload(document.querySelector<HTMLInputElement>('input[type="file"]')!,
       new File(['photo'], 'waste.jpg', { type: 'image/jpeg' }))
@@ -111,6 +188,11 @@ describe('SubmitReportPage hybrid draft', () => {
     await userEvent.click(analyze)
     expect(await screen.findByText('Analysis complete')).toBeTruthy()
     expect(pageMocks.analyzeWasteImage).toHaveBeenCalledOnce()
+    expect(screen.queryByTestId('incident-map')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'View nearby recycling points' }))
+    expect(screen.queryByTestId('incident-map')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Choose location' }))
+    expect(screen.getAllByTestId('incident-map')).toHaveLength(1)
     expect((screen.getByRole('button', { name: /submit report/i }) as HTMLButtonElement).disabled).toBe(true)
   })
   it('submits mixed confirmed items as a campus report without recycling routing', async () => {
@@ -134,6 +216,7 @@ describe('SubmitReportPage hybrid draft', () => {
       document.querySelector<HTMLInputElement>('input[type="file"]')!,
       new File(['photo'], 'waste.jpg', { type: 'image/jpeg' }),
     )
+    await userEvent.click(screen.getByRole('button', { name: 'Choose location' }))
     await userEvent.click(screen.getByRole('button', { name: 'Select test location' }))
     await userEvent.click(screen.getByRole('button', { name: 'Confirm test location' }))
     await userEvent.click(screen.getByRole('button', { name: /analyze waste/i }))
@@ -164,6 +247,7 @@ describe('SubmitReportPage hybrid draft', () => {
         files: [new File(['first'], 'first.jpg', { type: 'image/jpeg' })],
       },
     })
+    await userEvent.click(screen.getByRole('button', { name: 'Choose location' }))
     await userEvent.click(screen.getByRole('button', { name: 'Select test location' }))
     await userEvent.click(screen.getByRole('button', { name: 'Confirm test location' }))
     await userEvent.click(screen.getByRole('button', { name: /analyze waste/i }))
@@ -201,6 +285,7 @@ describe('SubmitReportPage hybrid draft', () => {
         files: [new File(['first'], 'first.jpg', { type: 'image/jpeg' })],
       },
     })
+    await userEvent.click(screen.getByRole('button', { name: 'Choose location' }))
     await userEvent.click(screen.getByRole('button', { name: 'Select test location' }))
     await userEvent.click(screen.getByRole('button', { name: 'Confirm test location' }))
     await userEvent.click(screen.getByRole('button', { name: /analyze waste/i }))

@@ -1,25 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { ReportLocation } from '../../types'
 import type { ConfirmedItem } from '../../features/reporting/campus-workflow'
 import type { RecyclingPoint } from '../../features/reporting/recycling-points'
 import { recommendPoints, type Coordinates } from '../../features/reporting/recycling-recommendations'
 import { submitRecyclingAction } from '../../features/reporting/recycling-actions'
-import { TomTomMap } from './TomTomMap'
+import { GoogleMap } from './GoogleMap'
 import { LocationPicker } from './LocationPicker'
+import { googleMapsNavigationUrl } from '../../features/location/google-maps'
 
-const tomTomKey = (import.meta.env.VITE_TOMTOM_API_KEY as string | undefined)?.trim() ?? ''
-
-export function RecyclingRecommendations({ points, items, wasteLocation, loading, error, analysisId, onReport, onSubmitted }:
+export function RecyclingRecommendations({ points, items, wasteLocation, loading, error, analysisId, onReport, onSubmitted, compact = false }:
   { points: RecyclingPoint[]; items: ConfirmedItem[]; wasteLocation: ReportLocation | null;
-    loading: boolean; error: string; analysisId: string; onReport: () => void; onSubmitted: () => void }) {
-  const [currentLocation, setCurrentLocation] = useState<Coordinates | null>(null)
+    loading: boolean; error: string; analysisId: string; onReport: () => void; onSubmitted: () => void; compact?: boolean }) {
   const [searchArea, setSearchArea] = useState<ReportLocation | null>(null)
   const [searchAreaConfirmed, setSearchAreaConfirmed] = useState(false)
-  const [locationState, setLocationState] = useState<'checking' | 'current' | 'fallback'>('checking')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [route, setRoute] = useState<Coordinates[]>([])
-  const [routeState, setRouteState] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle')
-  const routeRequest = useRef<AbortController | null>(null)
   const [proof, setProof] = useState<File | null>(null)
   const [proofCoordinates, setProofCoordinates] = useState<Coordinates | null>(null)
   const [manualLocation, setManualLocation] = useState('')
@@ -28,65 +22,16 @@ export function RecyclingRecommendations({ points, items, wasteLocation, loading
   const [submitting, setSubmitting] = useState(false)
   const [capturing, setCapturing] = useState(false)
 
-  useEffect(() => {
-    if (!navigator.geolocation) {
-      setLocationState('fallback')
-      return
-    }
-    let active = true
-    navigator.geolocation.getCurrentPosition(
-      position => {
-        if (!active) return
-        setCurrentLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude })
-        setLocationState('current')
-      },
-      () => { if (active) setLocationState('fallback') },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
-    )
-    return () => { active = false }
-  }, [])
-
-  const origin = searchAreaConfirmed ? searchArea : currentLocation ?? wasteLocation
-  const recommendations = origin ? recommendPoints(points, items, origin) : []
+  const origin = searchAreaConfirmed ? searchArea : wasteLocation
+  const recommendations = origin ? recommendPoints(points, items, origin) : compact ? points.filter(point => point.active !== false)
+    .flatMap(point => {
+      const materials = [...new Set(items.filter(item => item.category === 'Recyclable Waste').map(item => item.material.trim()).filter(Boolean))]
+      const accepted = new Set(point.accepted_materials.map(value => value.trim().toLocaleLowerCase()))
+      const matchedMaterials = materials.filter(value => accepted.has(value.toLocaleLowerCase()))
+      return matchedMaterials.length ? [{ point, matchedMaterials,
+        unmatchedMaterials: materials.filter(value => !accepted.has(value.toLocaleLowerCase())), distanceKm: 0 }] : []
+    }).sort((a, b) => a.point.name.localeCompare(b.point.name)) : []
   const selected = recommendations.find(entry => entry.point.id === selectedId)?.point ?? recommendations[0]?.point
-
-  useEffect(() => {
-    routeRequest.current?.abort()
-    routeRequest.current = null
-    setRoute([])
-    setRouteState('idle')
-    return () => routeRequest.current?.abort()
-  }, [selected?.id, origin?.latitude, origin?.longitude])
-
-  async function showRoute() {
-    if (!selected || !origin || routeState === 'loading') return
-    if (!tomTomKey) {
-      setRouteState('error')
-      return
-    }
-    const controller = new AbortController()
-    routeRequest.current = controller
-    setRouteState('loading')
-    try {
-      const locations = `${origin.latitude},${origin.longitude}:${selected.latitude},${selected.longitude}`
-      const url = `https://api.tomtom.com/routing/1/calculateRoute/${locations}/json?key=${encodeURIComponent(tomTomKey)}&travelMode=pedestrian&routeRepresentation=polyline`
-      const response = await fetch(url, { signal: controller.signal })
-      if (!response.ok) throw new Error('Route unavailable')
-      const data: unknown = await response.json()
-      const rawPoints = (data as { routes?: { legs?: { points?: Coordinates[] }[] }[] })?.routes?.[0]?.legs?.[0]?.points
-      if (!Array.isArray(rawPoints) || rawPoints.length < 2 || rawPoints.some(point => !Number.isFinite(point.latitude) || !Number.isFinite(point.longitude))) {
-        throw new Error('Route unavailable')
-      }
-      if (!controller.signal.aborted) {
-        setRoute(rawPoints)
-        setRouteState('ready')
-      }
-    } catch {
-      if (!controller.signal.aborted) setRouteState('error')
-    } finally {
-      if (routeRequest.current === controller) routeRequest.current = null
-    }
-  }
 
   function captureProofLocation() {
     if (!navigator.geolocation) {
@@ -137,18 +82,14 @@ export function RecyclingRecommendations({ points, items, wasteLocation, loading
 
   return <div className="recycling-recommendations" role="region" aria-label="Recycling recommendations">
     <p>Recycling at a registered point requires a proof photo and administrator verification.</p>
-    {locationState === 'checking' && <p role="status">Checking your current location for nearby points...</p>}
-    {locationState === 'current'
-      ? <p>Sorted from your current location. Distances are approximate straight-line distances.</p>
-      : locationState === 'fallback'
-        ? <p>{origin ? 'Using your selected location as a fallback.' : 'Select a search area below.'} Distances are approximate straight-line distances.</p>
-        : <p>{origin ? 'Distances use the incident location until GPS responds.' : 'Waiting for your location. You can select a search area below.'}</p>}
-    <LocationPicker idPrefix="recycling-proof-area" mapLabel="Choose a recycling search area"
+    <p>{origin ? 'Sorted from the selected location. Distances are approximate straight-line distances.'
+      : compact ? 'Stations are listed by name because no origin was selected.' : 'Choose a search origin below. Distances are approximate straight-line distances.'}</p>
+    {!compact && <LocationPicker idPrefix="recycling-proof-area" mapLabel="Choose a recycling search area"
       value={searchArea} confirmed={searchAreaConfirmed}
-      onChange={value => { setSearchArea(value); setSearchAreaConfirmed(false) }} onConfirm={() => setSearchAreaConfirmed(true)} />
+      onChange={value => { setSearchArea(value); setSearchAreaConfirmed(false) }} onConfirm={() => setSearchAreaConfirmed(true)} />}
     {loading && <p role="status">Loading registered points...</p>}
     {error && <p role="alert">{error}</p>}
-    {!loading && !error && origin && recommendations.length === 0 && <div>
+    {!loading && !error && recommendations.length === 0 && <div>
       <p>No active registered point accepts the confirmed recyclable material.</p>
       <p>Keep recyclable items clean and separate where safe. Ask local staff for disposal guidance or report the waste for collection.</p>
       <button type="button" className="button button--secondary" onClick={onReport}>Report It Instead</button>
@@ -158,21 +99,19 @@ export function RecyclingRecommendations({ points, items, wasteLocation, loading
         {recommendations.map(({ point, matchedMaterials, unmatchedMaterials, distanceKm }) => <li key={point.id}>
           <button type="button" className={selected?.id === point.id ? 'recycling-point recycling-point--selected' : 'recycling-point'} onClick={() => setSelectedId(point.id)} aria-pressed={selected?.id === point.id}>
             <strong>{point.name}</strong>
-            <span>About {distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`} straight-line</span>
+            {point.address && <span>{point.address}</span>}
+            {origin && <span>About {distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`} straight-line</span>}
             <span>Accepts: {point.accepted_materials.join(', ')}</span>
             <span>Matches your items: {matchedMaterials.join(', ')}</span>
             {unmatchedMaterials.length > 0 && <span>Does not accept from your items: {unmatchedMaterials.join(', ')}</span>}
+            {point.access_notes && <span>Access: {point.access_notes}</span>}
             {point.description && <span>{point.description}</span>}
           </button>
         </li>)}
       </ul>
-      {selected && origin && <>
-        <TomTomMap location={origin} markers={[{ id: selected.id, name: selected.name, latitude: selected.latitude, longitude: selected.longitude }]} route={route} ariaLabel={`TomTom map showing ${selected.name}`} />
-        <button type="button" className="button button--secondary" disabled={routeState === 'loading'} onClick={() => void showRoute()}>
-          {routeState === 'loading' ? 'Loading pedestrian route...' : 'Show pedestrian route on map'}
-        </button>
-        {routeState === 'ready' && <p>TomTom pedestrian route shown on the map. Check access and signage before traveling.</p>}
-        {routeState === 'error' && <p role="alert">TomTom could not calculate a pedestrian route. Use the point marker and coordinates for guidance.</p>}
+      {selected && (origin || compact) && <>
+        {!compact && origin && <GoogleMap location={origin} markers={[{ id: selected.id, name: selected.name, latitude: selected.latitude, longitude: selected.longitude }]} ariaLabel={`Google map showing ${selected.name}`} />}
+        <a href={googleMapsNavigationUrl(selected.latitude, selected.longitude)} target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
         <p>Destination coordinates: {selected.latitude.toFixed(6)}, {selected.longitude.toFixed(6)}</p>
         {recommendations.find(entry => entry.point.id === selected.id)?.unmatchedMaterials.length ?
           <p role="alert">This point does not accept every confirmed material. Select a point that accepts all items before submitting one recycling action.</p> :

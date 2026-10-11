@@ -64,11 +64,6 @@ class Settings(BaseSettings):
     ai_rate_limit_requests: int = Field(default=5, gt=0)
     ai_rate_limit_window_seconds: int = Field(default=60, gt=0)
 
-    tomtom_api_key: SecretStr = SecretStr("")
-    tomtom_timeout_seconds: float = Field(default=8.0, gt=0.0, le=30.0)
-    tomtom_country_set: str = "MY"
-    location_rate_limit_requests: int = Field(default=30, gt=0)
-    location_rate_limit_window_seconds: int = Field(default=60, gt=0)
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",
@@ -120,19 +115,6 @@ class Settings(BaseSettings):
         if not value:
             raise ValueError("OLLAMA_REPORT_MODEL must not be empty.")
         return value
-
-    @field_validator("tomtom_country_set", mode="after")
-    @classmethod
-    def validate_tomtom_country_set(cls, value: str) -> str:
-        normalized = value.strip().upper()
-        if not normalized or not all(
-            part.isalpha() and len(part) in {2, 3}
-            for part in normalized.split(",")
-        ):
-            raise ValueError(
-                "TOMTOM_COUNTRY_SET must contain comma-separated ISO country codes."
-            )
-        return normalized
 
     @model_validator(mode="after")
     def validate_service_configuration(self) -> "Settings":

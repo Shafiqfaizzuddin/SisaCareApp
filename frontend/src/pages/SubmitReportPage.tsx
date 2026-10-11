@@ -13,7 +13,6 @@ import {
   ScanLine,
   ShieldCheck,
   Upload,
-  UserRound,
 } from 'lucide-react'
 import {
   useEffect,
@@ -90,7 +89,12 @@ export function SubmitReportPage() {
   const [reportDraft, setReportDraft] = useState<WasteAnalysisReport>(EMPTY_REPORT)
   const [siteNotes, setSiteNotes] = useState('')
   const [selectedLocation, setSelectedLocation] = useState<ReportLocation | null>(null)
-  const [isLocationConfirmed, setIsLocationConfirmed] = useState(false)
+  const [draftLocation, setDraftLocation] = useState<ReportLocation | null>(null)
+  const [draftNote, setDraftNote] = useState('')
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false)
+  const [locationError, setLocationError] = useState('')
+  const locationTrigger = useRef<HTMLButtonElement>(null)
+  const locationSearch = useRef<HTMLDivElement>(null)
   const [submissionError, setSubmissionError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const analysisRequest = useRef<AbortController | null>(null)
@@ -100,6 +104,18 @@ export function SubmitReportPage() {
     selectedFile !== null && analysis !== null && analyzedFile === selectedFile
   const category = categoryForItems(confirmedItems)
   const reportAction = category !== 'Recyclable Waste' || chosenAction === 'report'
+  function openLocationPicker(clearError = true) {
+    setDraftLocation(selectedLocation)
+    setDraftNote(siteNotes)
+    if (clearError) setLocationError('')
+    setLocationPickerOpen(true)
+    window.setTimeout(() => locationSearch.current?.querySelector<HTMLInputElement>('input[role="combobox"]')?.focus(), 0)
+  }
+
+  function closeLocationPicker() {
+    setLocationPickerOpen(false)
+    window.setTimeout(() => locationTrigger.current?.focus(), 0)
+  }
   useEffect(() => {
     if (chosenAction !== 'recycle' && chosenAction !== 'nearby') return
     const controller = new AbortController()
@@ -250,8 +266,9 @@ export function SubmitReportPage() {
       setAnalysisError('Analyze the selected image before submitting the report.')
       return
     }
-    if (!selectedLocation || !isLocationConfirmed) {
-      setSubmissionError('Select and confirm the waste location before submitting.')
+    if (!selectedLocation) {
+      openLocationPicker(false)
+      setLocationError('Choose and confirm the waste location before submitting.')
       return
     }
     if (!category || !reportAction) {
@@ -285,6 +302,7 @@ export function SubmitReportPage() {
           latitude: selectedLocation.latitude,
           longitude: selectedLocation.longitude,
           location_address: selectedLocation.address,
+          location_address_source: selectedLocation.addressSource,
           location_street: selectedLocation.street ?? undefined,
           location_city: selectedLocation.city ?? undefined,
           location_state: selectedLocation.state ?? undefined,
@@ -336,58 +354,6 @@ export function SubmitReportPage() {
 
         <div className="report-layout">
           <form className="report-form" onSubmit={handleSubmit}>
-            <section className="form-section reporter-section">
-              <div className="form-section__heading">
-                <span><UserRound size={16} /></span>
-                <div>
-                  <h2>Reporter information</h2>
-                  <p>
-                    {role === 'user'
-                      ? 'Your registered account details are included automatically.'
-                      : 'We need your name and email so the report can be followed up.'}
-                  </p>
-                </div>
-              </div>
-              {role === 'user' && user ? (
-                <div className="member-identity">
-                  <span className="member-identity__avatar">
-                    {user.name.split(' ').map((part) => part[0]).join('')}
-                  </span>
-                  <div>
-                    <strong>{user.name}</strong>
-                    <span>{user.email}</span>
-                  </div>
-                  <span className="member-identity__verified">
-                    <Check size={15} /> Registered member
-                  </span>
-                </div>
-              ) : (
-                <div className="guest-fields">
-                  <div className="field">
-                    <label htmlFor="reporter-name">Full name</label>
-                    <input
-                      id="reporter-name"
-                      name="reporterName"
-                      autoComplete="name"
-                      placeholder="Enter your full name"
-                      required
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="reporter-email">Email address</label>
-                    <input
-                      id="reporter-email"
-                      name="reporterEmail"
-                      type="email"
-                      autoComplete="email"
-                      placeholder="name@example.com"
-                      required
-                    />
-                  </div>
-                </div>
-              )}
-            </section>
-
             <section className="form-section">
               <div className="form-section__heading">
                 <span>1</span>
@@ -446,8 +412,8 @@ export function SubmitReportPage() {
               <div className="form-section__heading">
                 <span>2</span>
                 <div>
-                  <h2>Analyze the waste</h2>
-                  <p>Review detected items before completing the report.</p>
+                  <h2>Confirm analysis and report details</h2>
+                  <p>Confirm each waste category and edit the report description.</p>
                 </div>
               </div>
 
@@ -735,10 +701,11 @@ export function SubmitReportPage() {
                   )}
                   {chosenAction === 'nearby' && <>
                     {recyclingPointError && <p role="alert">{recyclingPointError}</p>}
-                    <NearbyRecyclingMap registeredPoints={recyclingPoints} />
+                    <NearbyRecyclingMap registeredPoints={recyclingPoints} items={confirmedItems} compact />
                   </>}
                   {chosenAction === 'recycle' && category === 'Recyclable Waste' && (
                     <RecyclingRecommendations points={recyclingPoints} items={confirmedItems}
+                      compact
                       wasteLocation={selectedLocation} loading={recyclingPointsLoading}
                       error={recyclingPointError} analysisId={analysis?.analysis_id ?? ''}
                       onReport={() => setChosenAction('report')}
@@ -754,36 +721,33 @@ export function SubmitReportPage() {
               </label>
             </section>
 
-            <section className="form-section">
+            <section className="form-section" aria-label="Waste location">
               <div className="form-section__heading">
                 <span>4</span>
                 <div>
-                  <h2>Waste incident location</h2>
-                  <p>Required when submitting a report. Use GPS, search, or the map to identify the incident location.</p>
+                  <h2>Waste location</h2>
+                  <p>Choose where the waste was found.</p>
                 </div>
               </div>
-              <LocationPicker
-                value={selectedLocation}
-                confirmed={isLocationConfirmed}
-                onChange={(location) => {
-                  setSelectedLocation(location)
-                  setIsLocationConfirmed(false)
-                  setSubmissionError('')
-                }}
-                onConfirm={() => {
-                  if (selectedLocation) {
-                    setIsLocationConfirmed(true)
+              {!locationPickerOpen && <div className="report-location-summary" role="status">
+                {selectedLocation && <p><strong>{selectedLocation.address}</strong>{siteNotes && <><br />Landmark: {siteNotes}</>}</p>}
+                <button ref={locationTrigger} type="button" className="button button--secondary" onClick={() => openLocationPicker()}>
+                  {selectedLocation ? 'Edit location' : 'Choose location'}
+                </button>
+              </div>}
+              {locationError && <p role="alert" className="field__error">{locationError}</p>}
+              {locationPickerOpen && <div ref={locationSearch} className="report-location-editor">
+                <LocationPicker value={draftLocation} confirmed={false} incidentHint showCoordinates={false}
+                  note={draftNote} onNoteChange={setDraftNote} confirmLabel="Confirm location" onCancel={closeLocationPicker}
+                  onChange={setDraftLocation} onConfirm={() => {
+                    if (!draftLocation) return
+                    setSelectedLocation(draftLocation)
+                    setSiteNotes(draftNote)
+                    setLocationError('')
                     setSubmissionError('')
-                  }
-                }}
-              />
-              <div className="field">
-                <label htmlFor="description">{canUseAi ? 'Additional site notes' : 'What can you see?'}</label>
-                <textarea id="description" name="description" rows={4} value={siteNotes}
-                  placeholder="Describe the amount of waste, nearby hazards, or anything blocking access."
-                  required={!canUseAi} onChange={(event) => setSiteNotes(event.target.value)} />
-                <span className="field__hint">Do not include sensitive personal information.</span>
-              </div>
+                    closeLocationPicker()
+                  }} />
+              </div>}
             </section>
 
             <div className="form-actions">
@@ -807,7 +771,6 @@ export function SubmitReportPage() {
                   isAnalyzing ||
                   isSubmitting ||
                   !selectedFile ||
-                  !isLocationConfirmed ||
                   !hasCurrentAnalysis ||
                   !category ||
                   !reportAction

@@ -97,6 +97,7 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
                 latitude REAL,
                 longitude REAL,
                 location_address TEXT,
+                location_address_source TEXT,
                 location_street TEXT,
                 location_city TEXT,
                 location_state TEXT,
@@ -149,6 +150,10 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
                     CHECK (json_valid(accepted_materials_json) AND json_type(accepted_materials_json) = 'array'),
                 active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
                 description TEXT NOT NULL DEFAULT '',
+                address TEXT,
+                address_source TEXT,
+                access_notes TEXT NOT NULL DEFAULT '',
+                opening_hours TEXT NOT NULL DEFAULT '',
                 data_origin TEXT NOT NULL DEFAULT 'production'
                     CHECK (data_origin IN ('production', 'demo')),
                 created_at TEXT NOT NULL,
@@ -289,6 +294,7 @@ def _ensure_report_location_columns(database: sqlite3.Connection) -> None:
         "latitude": "REAL",
         "longitude": "REAL",
         "location_address": "TEXT",
+        "location_address_source": "TEXT",
         "location_street": "TEXT",
         "location_city": "TEXT",
         "location_state": "TEXT",
@@ -331,6 +337,13 @@ def _ensure_campus_columns(database: sqlite3.Connection) -> None:
     for name, definition in report_additions.items():
         if name not in report_columns:
             database.execute(f"ALTER TABLE reports ADD COLUMN {name} {definition}")
+    point_columns = {row["name"] for row in database.execute("PRAGMA table_info(recycling_points)")}
+    for name, definition in {
+        "address": "TEXT", "address_source": "TEXT",
+        "access_notes": "TEXT NOT NULL DEFAULT ''", "opening_hours": "TEXT NOT NULL DEFAULT ''",
+    }.items():
+        if name not in point_columns:
+            database.execute(f"ALTER TABLE recycling_points ADD COLUMN {name} {definition}")
     if "user_id" in report_columns:
         database.execute(
             "CREATE INDEX IF NOT EXISTS idx_reports_participant ON reports(user_id, created_at)"
@@ -868,6 +881,10 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 now,
             ),
         )
+        database.execute(
+            "UPDATE reports SET location_address_source = ? WHERE id = ?",
+            (submission.get("location_address_source"), report_id),
+        )
         _insert_detection_rows(
             database,
             report_id=report_id,
@@ -1020,6 +1037,7 @@ def get_report(report_id: str) -> dict[str, Any] | None:
         "latitude": report["latitude"],
         "longitude": report["longitude"],
         "location_address": report["location_address"],
+        "location_address_source": report["location_address_source"],
         "location_street": report["location_street"],
         "location_city": report["location_city"],
         "location_state": report["location_state"],

@@ -13,7 +13,7 @@ import {
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ReportStatus } from '../components/reports/ReportStatus'
-import { TomTomMap } from '../components/location/TomTomMap'
+import { GoogleMap } from '../components/location/GoogleMap'
 import { reportSummaries } from '../features/admin-reports/report-data'
 import {
   fetchPersistedReport,
@@ -443,7 +443,7 @@ export function AdminReportDetailPage() {
 
           <section className="admin-panel map-panel">
             {persistedReport?.reportLocation ? (
-              <TomTomMap
+              <GoogleMap
                 location={persistedReport.reportLocation}
                 ariaLabel="Submitted waste report location"
               />

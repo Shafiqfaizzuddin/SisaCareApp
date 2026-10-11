@@ -17,9 +17,9 @@ vi.mock('../features/admin-reports/admin-reports-api', () => ({
   validatePersistedReport: pageMocks.validatePersistedReport,
 }))
 
-vi.mock('../components/location/TomTomMap', () => ({
-  TomTomMap: ({ ariaLabel }: { ariaLabel: string }) => (
-    <div aria-label={ariaLabel}>TomTom map</div>
+vi.mock('../components/location/GoogleMap', () => ({
+  GoogleMap: ({ ariaLabel }: { ariaLabel: string }) => (
+    <div aria-label={ariaLabel}>Google map</div>
   ),
 }))
 

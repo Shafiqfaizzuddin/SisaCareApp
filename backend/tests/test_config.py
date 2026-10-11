@@ -21,10 +21,6 @@ def test_ai_configuration_has_project_relative_development_defaults() -> None:
     assert settings.max_image_pixels == 40_000_000
     assert settings.ai_rate_limit_requests == 5
     assert settings.ai_rate_limit_window_seconds == 60
-    assert settings.tomtom_api_key.get_secret_value() == ""
-    assert settings.tomtom_timeout_seconds == 8.0
-    assert settings.tomtom_country_set == "MY"
-    assert settings.location_rate_limit_requests == 30
     assert settings.upload_dir == (
         PROJECT_ROOT / "backend" / "storage" / "tmp" / "uploads"
     )
@@ -77,8 +73,6 @@ def test_ai_configuration_can_be_overridden_with_environment(
     monkeypatch.setenv("ANNOTATED_OUTPUT_DIR", "runtime/results")
     monkeypatch.setenv("DATABASE_PATH", "runtime/database.db")
     monkeypatch.setenv("REPORT_ASSETS_DIR", "runtime/reports")
-    monkeypatch.setenv("TOMTOM_API_KEY", "test-tomtom-key")
-    monkeypatch.setenv("TOMTOM_COUNTRY_SET", "MY,SG")
 
     settings = Settings(_env_file=None)
 
@@ -95,8 +89,6 @@ def test_ai_configuration_can_be_overridden_with_environment(
     assert settings.annotated_output_dir == PROJECT_ROOT / "runtime" / "results"
     assert settings.database_path == PROJECT_ROOT / "runtime" / "database.db"
     assert settings.report_assets_dir == PROJECT_ROOT / "runtime" / "reports"
-    assert settings.tomtom_api_key.get_secret_value() == "test-tomtom-key"
-    assert settings.tomtom_country_set == "MY,SG"
 
 
 def test_legacy_ollama_model_remains_a_report_model_fallback(

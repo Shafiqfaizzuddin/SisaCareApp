@@ -47,15 +47,20 @@ Copy-Item backend\.env.example backend\.env
 
 The current examples contain no secrets. Do not commit populated `.env` files.
 
-For waste-location support, configure:
-
-- `TOMTOM_API_KEY` in `backend/.env` for Search and Reverse Geocoding.
-- `VITE_TOMTOM_API_KEY` in `frontend/.env.local` for browser Map Display tiles.
-
-The browser key is visible to map users by design. Create a separate TomTom key
-for Map Display and, if your TomTom plan supports it, restrict it to your
-local/production domains. Restrict the backend key to Search and Reverse
-Geocoding where key controls are available. Neither key is logged by the application.
+For location support, set `VITE_GOOGLE_MAPS_API_KEY` and `VITE_GOOGLE_MAP_ID`
+in `frontend/.env.local`. Enable billing and the **Maps JavaScript API**,
+**Places API (New)**, and **Geocoding API** in the same Google Cloud project.
+Create a browser key restricted to approved HTTP referrers and only those
+APIs, plus a production map ID for Advanced Markers. The browser key is
+necessarily visible to users. This implementation makes no server-side Google
+Maps calls, so no backend Maps key is needed. It uses a callback-free map
+configuration (there is no OAuth redirect URL). Set [API quotas and billing
+alerts](https://developers.google.com/maps/documentation/javascript/report-monitor)
+for map loads, Autocomplete, Place Details, and Geocoding. The app debounces
+Autocomplete, requests only location and formatted address
+when a suggestion is selected, and reverse geocodes only a deliberately placed
+pin. A selected suggestion's Place Details call ends its session; an abandoned
+search has no details call. No recycling station is fetched from Google Places.
 
 Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in
 `frontend/.env.local`. Create member accounts in Supabase Authentication. Admin
@@ -292,26 +297,31 @@ accepted material names, description, and active status in the existing
 retains its row and historical activity references. Demo rows remain excluded
 from production APIs.
 
-After analysis, **View nearby recycling points** asks for device location.
-If permission is denied, the participant can search an area or select it on
-the TomTom map. The backend calls [TomTom category search](https://docs.tomtom.com/search-api/documentation/search-service/category-search) for recycling POIs
-within 20 km of that area and combines them with nearby registered points.
-TomTom may have no listings in an area and does not supply confirmed accepted
-materials for these results; the UI labels acceptance unknown and keeps those
-listings visible. Registered points retain their admin supplied material list.
-Only registered points can be selected for proof submission and Eco Points.
-The app does not create a registered point from a TomTom listing.
+After analysis, **View nearby recycling points** loads active registered
+stations from the SisaCare database only. GPS permission is requested only
+when the participant clicks **Use my current location**. The participant can
+also search with Google Place Autocomplete, select the map, or enter known
+coordinates. Without a confirmed origin, stations appear alphabetically and
+are not labelled nearest. With an origin, approximate straight-line distances
+are calculated locally. Stations beyond 20 km remain listed, without zooming
+the map to imply they are nearby. Registered stations retain the admin supplied
+address, materials, hours, and access notes. Missing material acceptance is
+labelled unknown. **Open in Google Maps** uses saved station coordinates.
 
-When a participant chooses **Recycle It**, active registered points accepting at least
-one confirmed recyclable material are shown. Each result identifies matching
-and unmatched materials, and sorting uses current GPS when available or the
-confirmed waste location as a labelled fallback. Displayed distances are
-approximate straight-line distances. The existing TomTom map displays the
-selected point; the **Show pedestrian route** button requests a route from
-TomTom's [Routing API](https://docs.tomtom.com/routing-api/documentation/tomtom-maps/v1/calculate-route).
-Routes depend on TomTom coverage and may be unavailable for some paths.
-Set `VITE_TOMTOM_API_KEY` in `frontend/.env.local` to a browser-restricted
-TomTom key with Maps and Routing access. No journey times are inferred.
+When a participant chooses **Recycle It**, active registered points accepting
+the confirmed material are shown for proof submission. The Google map displays
+the selected point and an external Google Maps URL provides navigation. The
+app does not calculate routes, walking distances, or journey times.
+
+The shared location picker serves report incident pins and admin station pins.
+It uses Google Maps JavaScript, Place Autocomplete (New), and reverse geocoding.
+Coordinates remain authoritative; editing the address does not move the pin.
+A late geocoding response cannot overwrite a newer pin or manual correction.
+If Google Maps is unavailable, known coordinates and a description can be
+entered manually. The app does not persist autocomplete suggestions or place
+details caches; admins and reporters confirm the address text they submit.
+Review [Google's Places content and attribution rules](https://developers.google.com/maps/documentation/places/web-service/policies)
+when configuring deployment terms and privacy notices.
 
 ## Recycling actions and review
 

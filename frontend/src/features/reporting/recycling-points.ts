@@ -7,12 +7,19 @@ export interface RecyclingPoint {
   longitude: number
   accepted_materials: string[]
   description: string
+  address?: string | null
+  address_source?: 'google' | 'manual' | 'coordinates' | null
+  access_notes?: string
+  opening_hours?: string
   active?: boolean
   created_at?: string
   updated_at?: string
 }
 
-export type RecyclingPointInput = Pick<RecyclingPoint, 'name' | 'latitude' | 'longitude' | 'accepted_materials' | 'description'> & { active: boolean }
+export type RecyclingPointInput = Pick<RecyclingPoint, 'name' | 'latitude' | 'longitude' | 'accepted_materials' | 'description'> & {
+  active: boolean; address?: string | null; address_source?: RecyclingPoint['address_source'];
+  access_notes?: string; opening_hours?: string
+}
 
 async function readPointResponse(response: Response): Promise<RecyclingPoint> {
   if (!response.ok) {

@@ -51,6 +51,8 @@ def test_admin_can_create_edit_and_deactivate_without_deleting_history(
         "name": "  Campus collection point  ", "latitude": 6.4, "longitude": 100.2,
         "accepted_materials": [" Plastic ", "plastic", "Paper"],
         "description": "Near a campus facility", "active": True,
+        "address": "Example address", "address_source": "manual",
+        "access_notes": "Gate beside the hall", "opening_hours": "Weekdays",
     }
     try:
         created = client.post("/api/recycling/admin/points", json=payload)
@@ -58,6 +60,10 @@ def test_admin_can_create_edit_and_deactivate_without_deleting_history(
         point = created.json()
         assert point["name"] == "Campus collection point"
         assert point["accepted_materials"] == ["Plastic", "Paper"]
+        assert point["address"] == "Example address"
+        assert point["address_source"] == "manual"
+        assert point["access_notes"] == "Gate beside the hall"
+        assert point["opening_hours"] == "Weekdays"
         identifier = point["id"]
         listed = client.get("/api/recycling/admin/points")
         assert [item["id"] for item in listed.json()] == [identifier]
@@ -67,12 +73,40 @@ def test_admin_can_create_edit_and_deactivate_without_deleting_history(
         assert updated.status_code == 200
         assert updated.json()["active"] is False
         assert updated.json()["accepted_materials"] == ["Metal"]
+        assert updated.json()["address"] == "Example address"
         with reports._connect() as database:
             assert database.execute("SELECT id FROM recycling_points WHERE id = ?", (identifier,)).fetchone()
         assert client.put("/api/recycling/admin/points/missing", json=payload).status_code == 404
         assert client.post("/api/recycling/admin/points", json={**payload, "accepted_materials": []}).status_code == 422
     finally:
         app.dependency_overrides.clear()
+
+
+def test_existing_point_gains_optional_location_fields_without_losing_data(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(reports, "DATABASE_PATH", tmp_path / "points.db")
+    with reports._connect() as database:
+        database.execute("""CREATE TABLE recycling_points (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, latitude REAL NOT NULL,
+            longitude REAL NOT NULL, accepted_materials_json TEXT NOT NULL,
+            active INTEGER NOT NULL, description TEXT NOT NULL DEFAULT '',
+            data_origin TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        )""")
+        database.execute(
+            """INSERT INTO recycling_points
+               (id, name, latitude, longitude, accepted_materials_json,
+                active, data_origin, created_at, updated_at)
+               VALUES ('legacy', 'Existing station', 6.4, 100.2, '["Paper"]',
+                       1, 'production', 'now', 'now')"""
+        )
+    reports.initialize_database()
+    with reports._connect() as database:
+        row = database.execute("SELECT * FROM recycling_points WHERE id = 'legacy'").fetchone()
+    assert row["name"] == "Existing station"
+    assert row["accepted_materials_json"] == '["Paper"]'
+    assert row["address"] is None
+    assert row["access_notes"] == ""
 
 
 def test_participant_cannot_manage_points(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

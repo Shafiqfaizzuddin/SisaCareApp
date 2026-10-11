@@ -710,6 +710,7 @@ a:focus-visible {
 }
 
 .report-form {
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
@@ -1235,6 +1236,58 @@ a:focus-visible {
 .location-picker {
   display: grid;
   gap: 16px;
+  min-width: 0;
+}
+
+.report-location-editor,
+.report-location-summary {
+  min-width: 0;
+}
+
+.report-location-summary p {
+  overflow-wrap: anywhere;
+}
+
+.report-location-editor input,
+.location-picker input {
+  max-width: 100%;
+}
+
+.report-location-editor .location-map {
+  height: clamp(260px, 34vw, 360px);
+}
+
+.location-coordinate-fallback {
+  min-width: 0;
+}
+
+.location-coordinate-fallback summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.location-coordinate-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.location-coordinate-fields legend {
+  padding: 0 5px;
+  font-weight: 600;
+}
+
+.location-coordinate-fields > .button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+@media (max-width: 480px) {
+  .location-coordinate-fields { grid-template-columns: 1fr; }
 }
 
 .location-picker__actions {
@@ -1334,21 +1387,6 @@ a:focus-visible {
 .location-map__status--error {
   border-color: #e7b7ad;
   color: #843b32;
-}
-
-.tomtom-marker {
-  background: transparent;
-}
-
-.tomtom-marker span {
-  width: 28px;
-  height: 28px;
-  border: 3px solid #ffffff;
-  border-radius: 50% 50% 50% 4px;
-  display: block;
-  background: var(--coral);
-  box-shadow: var(--shadow-md);
-  transform: rotate(-45deg);
 }
 
 .location-picker__status,

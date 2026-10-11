@@ -299,6 +299,30 @@ def test_member_submission_persists_reviewed_report_and_images(
     assert len(list((tmp_path / "assets" / result["id"]).iterdir())) == 2
 
 
+def test_manual_report_location_persists_and_coordinate_fallback_requires_description(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    payload = submission_payload(create_draft(tmp_path))
+    payload.update(latitude=-6.2, longitude=106.8, location_address="Behind the library",
+                   location_address_source="manual", site_notes="Near the bins")
+    response = client.post("/api/reports", json=payload)
+    assert response.status_code == 201
+    stored = report_repository.get_report(response.json()["id"])
+    assert stored is not None
+    assert stored["latitude"] == -6.2
+    assert stored["longitude"] == 106.8
+    assert stored["location_address"] == "Behind the library"
+    assert stored["location_address_source"] == "manual"
+    assert stored["site_notes"] == "Near the bins"
+
+    fallback = submission_payload(create_draft(tmp_path))
+    fallback.update(location_address_source="coordinates", site_notes="")
+    assert client.post("/api/reports", json=fallback).status_code == 422
+    fallback["site_notes"] = "Beside the loading bay"
+    assert client.post("/api/reports", json=fallback).status_code == 201
+
+
 def test_mixed_items_route_to_non_recyclable_and_submission_awards_nothing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:

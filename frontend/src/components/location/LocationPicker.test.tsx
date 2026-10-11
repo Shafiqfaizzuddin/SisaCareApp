@@ -1,191 +1,92 @@
 // @vitest-environment happy-dom
-
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ReportLocation } from '../../types'
+
+const maps = vi.hoisted(() => ({ newPlaceSessionToken: vi.fn(), suggestPlaces: vi.fn(), resolvePlace: vi.fn(), reverseGeocode: vi.fn() }))
+vi.mock('../../features/location/google-maps', () => maps)
+vi.mock('./GoogleMap', () => ({ GoogleMap: ({ onSelect, location }: {
+  onSelect: (latitude: number, longitude: number) => void; location: ReportLocation | null
+}) => <div>
+  <button type="button" onClick={() => onSelect(6.8, 100.3)}>Click map</button>
+  <button type="button" onClick={() => onSelect(6.9, 100.4)}>Drag marker</button>
+  <span>Map pin: {location ? `${location.latitude}, ${location.longitude}` : 'none'}</span>
+</div> }))
+
 import { LocationPicker } from './LocationPicker'
 
-
-const apiMocks = vi.hoisted(() => ({
-  reverseGeocode: vi.fn(),
-  searchLocations: vi.fn(),
-}))
-
-vi.mock('../../features/location/tomtom-api', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../features/location/tomtom-api')
-  >('../../features/location/tomtom-api')
-  return { ...actual, ...apiMocks }
-})
-
-vi.mock('./TomTomMap', () => ({
-  TomTomMap: ({
-    onSelect,
-  }: {
-    onSelect?: (latitude: number, longitude: number) => void
-  }) => (
-    <button type="button" onClick={() => onSelect?.(6.447, 100.278)}>
-      Select map point
-    </button>
-  ),
-}))
-
-const RESOLVED_LOCATION = {
-  latitude: 6.447,
-  longitude: 100.278,
-  address: 'UiTM Arau, Perlis',
-  street: null,
-  city: 'Arau',
-  state: 'Perlis',
-  postcode: '02600',
-  country: 'Malaysia',
-}
-
-function Harness() {
-  const [location, setLocation] = useState<ReportLocation | null>(null)
+function Picker() {
+  const [value, setValue] = useState<ReportLocation | null>(null)
   const [confirmed, setConfirmed] = useState(false)
-  return (
-    <LocationPicker
-      value={location}
-      confirmed={confirmed}
-      onChange={(nextLocation) => {
-        setLocation(nextLocation)
-        setConfirmed(false)
-      }}
-      onConfirm={() => setConfirmed(true)}
-    />
-  )
-}
-
-function installGeolocation(
-  implementation: Geolocation['getCurrentPosition'],
-): void {
-  Object.defineProperty(navigator, 'geolocation', {
-    configurable: true,
-    value: { getCurrentPosition: implementation },
-  })
+  const [note, setNote] = useState('')
+  return <LocationPicker value={value} confirmed={confirmed} note={note} onNoteChange={setNote}
+    onChange={next => { setValue(next); setConfirmed(false) }} onConfirm={() => setConfirmed(true)} />
 }
 
 beforeEach(() => {
-  apiMocks.reverseGeocode.mockReset()
-  apiMocks.searchLocations.mockReset()
-  apiMocks.searchLocations.mockResolvedValue([])
+  vi.clearAllMocks()
+  maps.newPlaceSessionToken.mockResolvedValue({ token: 'session' })
+  maps.suggestPlaces.mockResolvedValue([])
+  maps.reverseGeocode.mockResolvedValue('Resolved Road')
+  maps.resolvePlace.mockResolvedValue({ latitude: 6.7, longitude: 100.2, address: 'Selected Building' })
+})
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+it('places and drags the selected pin, reverse geocodes, and requires reconfirmation', async () => {
+  render(<Picker />)
+  expect(screen.getByText('Map pin: none')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Click map' }))
+  expect(await screen.findByDisplayValue('Resolved Road')).toBeTruthy()
+  expect(screen.getByText('Map pin: 6.8, 100.3')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm selected location' }))
+  expect(screen.getByRole('button', { name: 'Location confirmed' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Drag marker' }))
+  expect(await screen.findByText('Map pin: 6.9, 100.4')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Confirm selected location' })).toBeTruthy()
+  expect(maps.reverseGeocode).toHaveBeenLastCalledWith(6.9, 100.4)
 })
 
-afterEach(() => {
-  cleanup()
-  vi.useRealTimers()
+it('discards late geocoding after a move or manual address correction', async () => {
+  let firstResolve: (value: string) => void = () => undefined
+  maps.reverseGeocode.mockReturnValueOnce(new Promise<string>(resolve => { firstResolve = resolve }))
+    .mockResolvedValueOnce('New Road')
+  render(<Picker />)
+  fireEvent.click(screen.getByRole('button', { name: 'Click map' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Drag marker' }))
+  expect(await screen.findByDisplayValue('New Road')).toBeTruthy()
+  firstResolve('Stale Road')
+  await waitFor(() => expect(screen.queryByDisplayValue('Stale Road')).toBeNull())
+  fireEvent.change(screen.getByLabelText('Readable address or location description'), { target: { value: 'My corrected address' } })
+  expect(screen.getByDisplayValue('My corrected address')).toBeTruthy()
+  expect(screen.getByText('Map pin: 6.9, 100.4')).toBeTruthy()
+  expect(screen.getByText(/Manually edited address/)).toBeTruthy()
 })
 
-describe('LocationPicker', () => {
-  it('requests GPS only after the user clicks and reverse geocodes the result', async () => {
-    const getCurrentPosition = vi.fn<Geolocation['getCurrentPosition']>(
-      (success) => {
-        success({
-          coords: {
-            latitude: 6.447,
-            longitude: 100.278,
-            accuracy: 20,
-          },
-        } as GeolocationPosition)
-      },
-    )
-    installGeolocation(getCurrentPosition)
-    apiMocks.reverseGeocode.mockResolvedValue(RESOLVED_LOCATION)
-    render(<Harness />)
+it('allows denied GPS and failed geocoding to use manual coordinates and a description', async () => {
+  vi.stubGlobal('navigator', { geolocation: { getCurrentPosition: (_ok: unknown, fail: (value: { code: number; PERMISSION_DENIED: number }) => void) =>
+    fail({ code: 1, PERMISSION_DENIED: 1 }) } })
+  maps.reverseGeocode.mockRejectedValue(new Error('unavailable'))
+  render(<Picker />)
+  fireEvent.click(screen.getByRole('button', { name: 'Use my current location' }))
+  expect(screen.getByText(/Location permission denied/)).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('Latitude'), { target: { value: '6.8' } })
+  fireEvent.change(screen.getByLabelText('Longitude'), { target: { value: '100.3' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Place pin at coordinates' }))
+  expect(await screen.findByText(/Address lookup failed/)).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('Landmark or location note (optional)'), { target: { value: 'Behind library bins' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm selected location' }))
+  expect(screen.getByRole('button', { name: 'Location confirmed' })).toBeTruthy()
+})
 
-    expect(getCurrentPosition).not.toHaveBeenCalled()
-    await userEvent.click(screen.getByRole('button', { name: /use my current location/i }))
-
-    expect(getCurrentPosition).toHaveBeenCalledOnce()
-    expect(await screen.findByText('UiTM Arau, Perlis')).toBeTruthy()
-  })
-
-  it('updates coordinates and address after a map selection', async () => {
-    apiMocks.reverseGeocode.mockResolvedValue(RESOLVED_LOCATION)
-    render(<Harness />)
-
-    await userEvent.click(screen.getByRole('button', { name: 'Select map point' }))
-
-    expect(apiMocks.reverseGeocode).toHaveBeenCalledWith(
-      6.447,
-      100.278,
-      expect.any(AbortSignal),
-    )
-    expect(await screen.findByText('UiTM Arau, Perlis')).toBeTruthy()
-  })
-
-  it('debounces search and applies the selected result', async () => {
-    apiMocks.searchLocations.mockResolvedValue([
-      { ...RESOLVED_LOCATION, id: 'uitm-arau', label: 'UiTM Arau, Perlis' },
-    ])
-    render(<Harness />)
-
-    fireEvent.change(screen.getByLabelText(/search address or place/i), {
-      target: { value: 'UiTM Arau' },
-    })
-    expect(apiMocks.searchLocations).not.toHaveBeenCalled()
-
-    await waitFor(() => expect(apiMocks.searchLocations).toHaveBeenCalledOnce())
-    fireEvent.click(
-      await screen.findByRole('button', { name: /uitm arau, perlis/i }),
-    )
-    expect(screen.getByText('UiTM Arau, Perlis')).toBeTruthy()
-  })
-
-  it('keeps manual selection available when GPS permission is denied', async () => {
-    installGeolocation(
-      vi.fn((_success, failure) => {
-        failure?.({
-          code: 1,
-          message: 'Denied',
-          PERMISSION_DENIED: 1,
-          POSITION_UNAVAILABLE: 2,
-          TIMEOUT: 3,
-        } as GeolocationPositionError)
-      }),
-    )
-    render(<Harness />)
-
-    await userEvent.click(screen.getByRole('button', { name: /use my current location/i }))
-
-    expect(await screen.findByText(/location permission was denied/i)).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Select map point' })).toBeTruthy()
-    expect(screen.getByLabelText(/search address or place/i)).toBeTruthy()
-  })
-
-  it('warns when the device location is inaccurate', async () => {
-    installGeolocation(
-      vi.fn((success) => {
-        success({
-          coords: {
-            latitude: 6.447,
-            longitude: 100.278,
-            accuracy: 275,
-          },
-        } as GeolocationPosition)
-      }),
-    )
-    apiMocks.reverseGeocode.mockResolvedValue(RESOLVED_LOCATION)
-    render(<Harness />)
-
-    await userEvent.click(screen.getByRole('button', { name: /use my current location/i }))
-
-    expect(await screen.findByText(/within about 275 metres/i)).toBeTruthy()
-  })
-
-  it('retains usable coordinates when reverse geocoding fails', async () => {
-    apiMocks.reverseGeocode.mockRejectedValue(new Error('Unavailable'))
-    render(<Harness />)
-
-    await userEvent.click(screen.getByRole('button', { name: 'Select map point' }))
-
-    expect(await screen.findByText(/coordinates were selected/i)).toBeTruthy()
-    expect(screen.getByText('6.447000, 100.278000')).toBeTruthy()
-    expect(
-      screen.getByRole('button', { name: /confirm location/i }).hasAttribute('disabled'),
-    ).toBe(false)
-  })
+it('selects an autocomplete suggestion using the same session token', async () => {
+  const prediction = { text: { toString: () => 'Building' } }
+  maps.suggestPlaces.mockResolvedValue([{ label: 'Building', prediction }])
+  render(<Picker />)
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Building' } })
+  const suggestion = await screen.findByRole('button', { name: 'Building' })
+  fireEvent.click(suggestion)
+  expect(await screen.findByText('Map pin: 6.7, 100.2')).toBeTruthy()
+  expect(screen.getByDisplayValue('Selected Building')).toBeTruthy()
+  expect(maps.resolvePlace).toHaveBeenCalledWith(prediction)
 })

@@ -7,14 +7,13 @@ from threading import Lock
 from time import monotonic
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, status
 
 from app.core.auth import AuthenticatedUser, require_authenticated_user
 from app.core.config import Settings, get_settings
 
 
 _attempts: defaultdict[str, deque[float]] = defaultdict(deque)
-_location_attempts: defaultdict[str, deque[float]] = defaultdict(deque)
 _lock = Lock()
 
 
@@ -23,13 +22,6 @@ def reset_ai_rate_limits() -> None:
 
     with _lock:
         _attempts.clear()
-
-
-def reset_location_rate_limits() -> None:
-    """Clear process-local location limiter state for isolated tests."""
-
-    with _lock:
-        _location_attempts.clear()
 
 
 def _enforce_limit(
@@ -72,23 +64,7 @@ async def enforce_ai_analysis_rate_limit(
     return user
 
 
-async def enforce_location_rate_limit(
-    request: Request,
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> None:
-    client_host = request.client.host if request.client else "unknown"
-    _enforce_limit(
-        _location_attempts,
-        client_host,
-        request_limit=settings.location_rate_limit_requests,
-        window=settings.location_rate_limit_window_seconds,
-        message="Too many location requests. Please try again later.",
-    )
-
-
 __all__ = [
     "enforce_ai_analysis_rate_limit",
-    "enforce_location_rate_limit",
     "reset_ai_rate_limits",
-    "reset_location_rate_limits",
 ]

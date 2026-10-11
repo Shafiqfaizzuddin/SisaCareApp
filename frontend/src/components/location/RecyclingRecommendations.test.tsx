@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RecyclingRecommendations } from './RecyclingRecommendations'
 
-vi.mock('./TomTomMap', () => ({ TomTomMap: () => <div>TomTom map</div> }))
+vi.mock('./GoogleMap', () => ({ GoogleMap: () => <div>Google map</div> }))
 const actionMocks = vi.hoisted(() => ({ submit: vi.fn() }))
 vi.mock('../../features/reporting/recycling-actions', () => ({ submitRecyclingAction: actionMocks.submit }))
 
@@ -26,9 +26,9 @@ describe('recycling recommendation location fallback', () => {
   it('identifies the waste-location fallback and displays approximate straight-line distance', async () => {
     render(<RecyclingRecommendations points={[point]} items={items} wasteLocation={wasteLocation}
       loading={false} error="" analysisId="draft" onReport={vi.fn()} onSubmitted={vi.fn()} />)
-    expect(await screen.findByText(/Using your selected location as a fallback/)).toBeTruthy()
+    expect(await screen.findByText(/Sorted from the selected location/)).toBeTruthy()
     expect(screen.getByText(/straight-line/, { selector: 'span' })).toBeTruthy()
-    expect(screen.getAllByText('TomTom map').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Google map').length).toBeGreaterThan(0)
   })
 
   it('offers guidance and reporting when there is no matching point', async () => {

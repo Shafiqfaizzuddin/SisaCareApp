@@ -27,6 +27,7 @@ export interface ReportLocation {
   postcode: string | null
   country: string | null
   source: LocationSource
+  addressSource?: 'google' | 'manual' | 'coordinates'
 }
 
 export interface LocationSearchResult extends Omit<ReportLocation, 'source'> {
@@ -177,6 +178,7 @@ export interface ReportSubmissionPayload {
   latitude: number
   longitude: number
   location_address?: string
+  location_address_source?: 'google' | 'manual' | 'coordinates'
   location_street?: string
   location_city?: string
   location_state?: string
