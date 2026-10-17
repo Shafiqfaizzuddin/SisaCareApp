@@ -15,6 +15,9 @@ dist/
 # Python
 .venv/
 **/.venv/
+florence_service/.bootstrap/
+florence_service/.python/
+florence_service/.cache/
 __pycache__/
 *.py[cod]
 .pytest_cache/

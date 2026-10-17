@@ -146,7 +146,7 @@ def test_analyze_endpoint_returns_browser_accessible_image_urls(
     )
 
     response = client.post(
-        "/api/waste/analyze",
+        "/api/waste/analyze-legacy",
         files={"image": ("waste.png", VALID_PNG, "image/png")},
     )
 
@@ -267,7 +267,7 @@ def test_report_generation_failure_does_not_create_a_draft(
     )
 
     response = client.post(
-        "/api/waste/analyze",
+        "/api/waste/analyze-legacy",
         files={"image": ("waste.png", VALID_PNG, "image/png")},
     )
 
@@ -300,7 +300,7 @@ def test_no_detection_is_returned_without_report(
     )
 
     response = client.post(
-        "/api/waste/analyze",
+        "/api/waste/analyze-legacy",
         files={"image": ("empty.png", VALID_PNG, "image/png")},
     )
 
@@ -335,7 +335,7 @@ def test_analysis_failure_does_not_expose_temporary_file_paths(
     monkeypatch.setattr(waste_analysis, "analyze_waste_image", failed_analysis)
 
     response = client.post(
-        "/api/waste/analyze",
+        "/api/waste/analyze-legacy",
         files={"image": ("waste.png", VALID_PNG, "image/png")},
     )
 
@@ -360,7 +360,7 @@ def test_unsupported_file_type_is_rejected_before_analysis(
     )
 
     response = client.post(
-        "/api/waste/analyze",
+        "/api/waste/analyze-legacy",
         files={"image": ("waste.gif", b"image data", "image/gif")},
     )
 
@@ -381,7 +381,7 @@ def test_oversized_upload_is_rejected(
     )
 
     response = client.post(
-        "/api/waste/analyze",
+        "/api/waste/analyze-legacy",
         files={"image": ("large.webp", b"12345", "image/webp")},
     )
 
@@ -395,7 +395,7 @@ def test_analyze_requires_authentication() -> None:
     app.dependency_overrides.pop(require_authenticated_user, None)
 
     response = client.post(
-        "/api/waste/analyze",
+        "/api/waste/analyze-legacy",
         files={"image": ("waste.png", VALID_PNG, "image/png")},
     )
 
@@ -417,7 +417,7 @@ def test_unsafe_upload_metadata_is_rejected(
     content_type: str,
 ) -> None:
     response = client.post(
-        "/api/waste/analyze",
+        "/api/waste/analyze-legacy",
         files={"image": (filename, VALID_PNG, content_type)},
     )
 
@@ -436,7 +436,7 @@ def test_executable_content_spoofed_as_jpeg_is_rejected_and_deleted(
     )
 
     response = client.post(
-        "/api/waste/analyze",
+        "/api/waste/analyze-legacy",
         files={"image": ("waste.jpg", b"MZ executable bytes", "image/jpeg")},
     )
 

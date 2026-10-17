@@ -25,4 +25,14 @@ describe('recycling recommendations', () => {
     expect(recommendPoints(points, [{ name: 'Can', material: 'Aluminium', category: 'Recyclable Waste' }],
       { latitude: 6.4, longitude: 100.2 })).toEqual([])
   })
+
+  it('requires answered condition questions before recommending an accepted point', () => {
+    const item = { name: 'Plastic Bottle', material: 'Plastic', category: 'Recyclable Waste' as const,
+      questions: [{ key: 'hazardous_contents', prompt: 'Hazardous contents?' }, { key: 'empty_and_clean', prompt: 'Empty and clean?' }],
+      condition_answers: { empty_and_clean: true } }
+    const origin = { latitude: 6.4, longitude: 100.2 }
+    expect(recommendPoints(points, [item], origin)).toEqual([])
+    expect(recommendPoints(points, [{ ...item, condition_answers: { empty_and_clean: true, hazardous_contents: false } }], origin)
+      .map(entry => entry.point.id)).toEqual(['near', 'far'])
+  })
 })

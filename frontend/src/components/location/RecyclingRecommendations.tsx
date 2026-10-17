@@ -2,15 +2,15 @@ import { useState } from 'react'
 import type { ReportLocation } from '../../types'
 import type { ConfirmedItem } from '../../features/reporting/campus-workflow'
 import type { RecyclingPoint } from '../../features/reporting/recycling-points'
-import { recommendPoints, type Coordinates } from '../../features/reporting/recycling-recommendations'
+import { conditionConfirmedForRecycling, recommendPoints, type Coordinates } from '../../features/reporting/recycling-recommendations'
 import { submitRecyclingAction } from '../../features/reporting/recycling-actions'
 import { GoogleMap } from './GoogleMap'
 import { LocationPicker } from './LocationPicker'
 import { googleMapsNavigationUrl } from '../../features/location/google-maps'
 
-export function RecyclingRecommendations({ points, items, wasteLocation, loading, error, analysisId, onReport, onSubmitted, compact = false }:
+export function RecyclingRecommendations({ points, items, wasteLocation, loading, error, analysisId, onReport, onSubmitted, compact = false, allowProof = true, proofUnavailableReason }:
   { points: RecyclingPoint[]; items: ConfirmedItem[]; wasteLocation: ReportLocation | null;
-    loading: boolean; error: string; analysisId: string; onReport: () => void; onSubmitted: () => void; compact?: boolean }) {
+    loading: boolean; error: string; analysisId: string; onReport: () => void; onSubmitted: () => void; compact?: boolean; allowProof?: boolean; proofUnavailableReason?: string }) {
   const [searchArea, setSearchArea] = useState<ReportLocation | null>(null)
   const [searchAreaConfirmed, setSearchAreaConfirmed] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -25,7 +25,7 @@ export function RecyclingRecommendations({ points, items, wasteLocation, loading
   const origin = searchAreaConfirmed ? searchArea : wasteLocation
   const recommendations = origin ? recommendPoints(points, items, origin) : compact ? points.filter(point => point.active !== false)
     .flatMap(point => {
-      const materials = [...new Set(items.filter(item => item.category === 'Recyclable Waste').map(item => item.material.trim()).filter(Boolean))]
+      const materials = [...new Set(items.filter(conditionConfirmedForRecycling).map(item => item.material.trim()).filter(Boolean))]
       const accepted = new Set(point.accepted_materials.map(value => value.trim().toLocaleLowerCase()))
       const matchedMaterials = materials.filter(value => accepted.has(value.toLocaleLowerCase()))
       return matchedMaterials.length ? [{ point, matchedMaterials,
@@ -66,7 +66,7 @@ export function RecyclingRecommendations({ points, items, wasteLocation, loading
     try {
       await submitRecyclingAction({
         analysis_id: analysisId, recycling_point_id: selected.id,
-        confirmed_items: items.filter(item => item.category === 'Recyclable Waste' && item.name.trim()),
+        confirmed_items: items.filter(item => conditionConfirmedForRecycling(item) && item.name.trim()),
         proof_location_source: proofSource,
         ...(proofSource === 'gps' && proofCoordinates
           ? { proof_latitude: proofCoordinates.latitude, proof_longitude: proofCoordinates.longitude }
@@ -113,7 +113,8 @@ export function RecyclingRecommendations({ points, items, wasteLocation, loading
         {!compact && origin && <GoogleMap location={origin} markers={[{ id: selected.id, name: selected.name, latitude: selected.latitude, longitude: selected.longitude }]} ariaLabel={`Google map showing ${selected.name}`} />}
         <a href={googleMapsNavigationUrl(selected.latitude, selected.longitude)} target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
         <p>Destination coordinates: {selected.latitude.toFixed(6)}, {selected.longitude.toFixed(6)}</p>
-        {recommendations.find(entry => entry.point.id === selected.id)?.unmatchedMaterials.length ?
+        {!allowProof ? <p role="status">{proofUnavailableReason || 'Apply waste rules to every recyclable item before submitting proof.'}</p> :
+        recommendations.find(entry => entry.point.id === selected.id)?.unmatchedMaterials.length ?
           <p role="alert">This point does not accept every confirmed material. Select a point that accepts all items before submitting one recycling action.</p> :
           <div className="recycling-proof">
             <h3>Submit recycling proof</h3>

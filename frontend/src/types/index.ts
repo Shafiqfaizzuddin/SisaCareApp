@@ -6,8 +6,9 @@ export type WasteCategory =
   | 'Recyclable Waste'
   | 'Non-Recyclable Waste'
   | 'Bulky Waste'
+  | 'Hazardous Waste'
 
-export type CampusWasteCategory = 'Recyclable Waste' | 'Non-Recyclable Waste' | 'Bulky Waste'
+export type CampusWasteCategory = 'Recyclable Waste' | 'Non-Recyclable Waste' | 'Bulky Waste' | 'Hazardous Waste'
 
 export type ReportStatus = 'submitted' | 'processing' | 'in_progress' | 'completed'
 
@@ -70,7 +71,7 @@ export interface ReportSummary {
   location: string
   submittedAt: string
   status: ReportStatus
-  confidence: number
+  confidence: number | null
   description: string
   reporter: string
   reporterRole: 'guest' | 'user'
@@ -82,6 +83,41 @@ export interface WasteBoundingBox {
   y1: number
   x2: number
   y2: number
+}
+
+export type DetectionReviewStatus = 'likely_waste' | 'background' | 'needs_confirmation'
+
+export interface FlorenceDetection {
+  id: string
+  label: string
+  name: string
+  display_name: string
+  bounding_box: WasteBoundingBox
+  confidence: null
+  review_status: DetectionReviewStatus
+  suggested_category: CampusWasteCategory | null
+  material: string
+  recommended_handling: string
+  confirmation_reason?: string | null
+  questions?: Array<{ key: string; prompt: string }>
+  station_material_key?: string | null
+  rule_id?: string
+  bulky?: boolean
+}
+
+export interface FlorenceAnalysisSuccess {
+  success: true
+  analysis_id: string
+  original_image: string
+  display_image: string | null
+  image_width: number
+  image_height: number
+  provider: 'florence2'
+  model_id: string
+  model_revision: string
+  detections: FlorenceDetection[]
+  processing_time_ms: number
+  warnings: string[]
 }
 
 export interface WasteDetection {
@@ -97,6 +133,7 @@ export type FinalWasteCategory =
   | 'Non-Recyclable Waste'
   | 'Recyclable Waste'
   | 'Bulky Waste'
+  | 'Hazardous Waste'
   | 'Unknown'
 
 export interface VlmWasteObject {
@@ -112,7 +149,7 @@ export interface FusedWasteObject {
   display_name: string
   category: FinalWasteCategory
   category_source: 'mapping' | 'vlm' | 'unknown'
-  source: 'yolo' | 'vlm' | 'yolo+vlm'
+  source: 'yolo' | 'vlm' | 'yolo+vlm' | 'florence2'
   confidence: number | null
   confidence_level: 'high' | 'medium' | 'low' | null
   supported_by_vlm: boolean
@@ -163,6 +200,7 @@ export type WasteAnalysisResponse = WasteAnalysisSuccess | WasteAnalysisFailure
 
 export interface ReportSubmissionPayload {
   analysis_id?: string
+  rule_version?: '1.0.0'
   reporter_role: 'guest' | 'user'
   user_id?: string
   guest_name?: string
@@ -173,7 +211,8 @@ export interface ReportSubmissionPayload {
   recommended_action: string
   environmental_concern: string
   category: CampusWasteCategory
-  confirmed_items: Array<{ name: string; category: CampusWasteCategory; material: string }>
+  confirmed_items: Array<{ review_id?: string; name: string; category: CampusWasteCategory; material: string; quantity?: number; condition_answers?: Record<string, boolean> }>
+  reviewed_detections?: Array<{ id: string; source_detection_id: string | null; disposition: 'waste' | 'background' | 'removed' | 'attached_component' | 'needs_confirmation'; corrected_label: string; material: string; category: CampusWasteCategory | null; quantity?: number; condition_answers: Record<string, boolean>; component_relation: 'attached' | 'detached' | 'unclear' | null }>
   location: string
   latitude: number
   longitude: number
@@ -205,7 +244,7 @@ export interface AdminWasteDetection {
   material: string
   confidence: number | null
   boundingBox: WasteBoundingBox | null
-  source: 'yolo' | 'vlm' | 'yolo+vlm'
+  source: 'yolo' | 'vlm' | 'yolo+vlm' | 'florence2'
   createdAt: string
 }
 

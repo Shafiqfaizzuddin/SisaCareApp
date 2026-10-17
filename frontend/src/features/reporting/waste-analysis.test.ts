@@ -1,97 +1,40 @@
 // @vitest-environment happy-dom
-
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { analyzeWasteImage } from './waste-analysis'
+import { analyzeWasteImage, WASTE_ANALYSIS_URL } from './waste-analysis'
 
-
-const authMocks = vi.hoisted(() => ({
-  authenticatedFetch: vi.fn(),
-}))
-
+const authMocks = vi.hoisted(() => ({ authenticatedFetch: vi.fn() }))
 vi.mock('../authentication/authenticated-fetch', () => ({
   authenticatedFetch: authMocks.authenticatedFetch,
   AuthenticatedRequestError: class AuthenticatedRequestError extends Error {},
 }))
 
-const ANALYSIS_RESPONSE = {
-  success: true,
-  analysis_id: 'draft-123',
-  original_image: '/api/waste/uploads/upload.jpg',
-  annotated_image: '/api/waste/annotated/annotated.jpg',
-  detections: [
-    {
-      name: 'plastic_bottle',
-      display_name: 'Plastic Bottle',
-      category: 'Recyclable Waste',
-      category_source: 'mapping',
-      source: 'yolo+vlm',
-      confidence: 0.91,
-      confidence_level: null,
-      supported_by_vlm: true,
-      bounding_box: { x1: 1, y1: 2, x2: 3, y2: 4 },
-    },
-  ],
-  grouped_objects: [
-    {
-      name: 'plastic_bottle',
-      label: 'Plastic Bottle',
-      count: 1,
-      category: 'Recyclable Waste',
-      sources: ['yolo', 'vlm'],
-      average_yolo_confidence: 0.91,
-    },
-  ],
-  categories_detected: ['Recyclable Waste'],
-  scene_description: 'A plastic bottle is visible.',
-  report: {
-    title: 'Recyclable Waste Observation',
-    summary: 'The analysis identifies recyclable waste.',
-    waste_identified: 'Plastic Bottle (count: 1)',
-    recommended_action: 'Recycling is recommended.',
-    environmental_concern: 'Improper handling may contribute to litter.',
-  },
+const result = {
+  success: true, analysis_id: 'draft-123', original_image: '/api/waste/uploads/upload.jpg',
+  display_image: '/api/waste/annotated/oriented.jpg', image_width: 400, image_height: 300,
+  provider: 'florence2', model_id: 'microsoft/Florence-2-base', model_revision: 'pinned',
+  processing_time_ms: 500, warnings: [],
+  detections: [{ id: 'det-0', label: 'bottle', name: 'bottle', display_name: 'Bottle',
+    bounding_box: { x1: 10, y1: 20, x2: 100, y2: 200 }, confidence: null,
+    review_status: 'needs_confirmation', suggested_category: null, material: 'Unknown', recommended_handling: 'Confirm disposal.' }],
 }
 
-beforeEach(() => {
-  authMocks.authenticatedFetch.mockReset()
-})
+beforeEach(() => authMocks.authenticatedFetch.mockReset())
 
 describe('analyzeWasteImage', () => {
-  it('keeps a successful analysis visible when its annotated image cannot load', async () => {
-    authMocks.authenticatedFetch
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(ANALYSIS_RESPONSE), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      )
+  it('calls the application backend and hides boxes if the aligned preview fails', async () => {
+    authMocks.authenticatedFetch.mockResolvedValueOnce(new Response(JSON.stringify(result), { status: 200 }))
       .mockResolvedValueOnce(new Response(null, { status: 403 }))
-
-    const result = await analyzeWasteImage(
-      new File(['image'], 'waste.jpg', { type: 'image/jpeg' }),
-    )
-
-    expect(result).toEqual({ ...ANALYSIS_RESPONSE, annotated_image: null })
-    expect(authMocks.authenticatedFetch).toHaveBeenCalledTimes(2)
+    const received = await analyzeWasteImage(new File(['image'], 'waste.jpg', { type: 'image/jpeg' }))
+    expect(WASTE_ANALYSIS_URL).toBe('/api/waste/analyze')
+    expect(authMocks.authenticatedFetch.mock.calls[0][0]).toBe('/api/waste/analyze')
+    expect(received.display_image).toBeNull()
+    expect(received.detections[0].confidence).toBeNull()
   })
 
-  it('returns grouped results and the editable report when no annotation exists', async () => {
-    authMocks.authenticatedFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ ...ANALYSIS_RESPONSE, annotated_image: null }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        },
-      ),
-    )
-
-    const result = await analyzeWasteImage(
-      new File(['image'], 'waste.jpg', { type: 'image/jpeg' }),
-    )
-
-    expect(result.report).toEqual(ANALYSIS_RESPONSE.report)
-    expect(result.grouped_objects).toEqual(ANALYSIS_RESPONSE.grouped_objects)
-    expect(authMocks.authenticatedFetch).toHaveBeenCalledOnce()
+  it('rejects out of bounds detections instead of drawing incorrect boxes', async () => {
+    const invalid = { ...result, display_image: null, detections: [{ ...result.detections[0], bounding_box: { x1: 10, y1: 20, x2: 401, y2: 200 } }] }
+    authMocks.authenticatedFetch.mockResolvedValueOnce(new Response(JSON.stringify(invalid), { status: 200 }))
+    await expect(analyzeWasteImage(new File(['image'], 'waste.jpg', { type: 'image/jpeg' })))
+      .rejects.toMatchObject({ code: 'INVALID_API_RESPONSE' })
   })
 })

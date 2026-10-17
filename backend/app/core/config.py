@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     ollama_keep_alive: str = "10m"
     ollama_allow_remote: bool = False
 
+    florence_service_url: str = "http://127.0.0.1:8765"
+    florence_service_timeout_seconds: float = Field(default=120.0, gt=0.0, le=300.0)
+
     max_upload_size: int = Field(default=10 * 1024 * 1024, gt=0)
     max_image_pixels: int = Field(default=40_000_000, gt=0)
     upload_dir: Path = Path("backend/storage/tmp/uploads")
@@ -118,6 +121,22 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_service_configuration(self) -> "Settings":
+        parsed_florence_url = urlparse(self.florence_service_url)
+        if parsed_florence_url.scheme != "http" or not parsed_florence_url.hostname:
+            raise ValueError("FLORENCE_SERVICE_URL must be a loopback HTTP URL.")
+        try:
+            florence_is_loopback = ip_address(parsed_florence_url.hostname).is_loopback
+        except ValueError:
+            florence_is_loopback = parsed_florence_url.hostname == "localhost"
+        if (
+            not florence_is_loopback
+            or parsed_florence_url.path not in {"", "/"}
+            or parsed_florence_url.username is not None
+            or parsed_florence_url.password is not None
+            or parsed_florence_url.query
+            or parsed_florence_url.fragment
+        ):
+            raise ValueError("FLORENCE_SERVICE_URL must point to the local service root.")
         parsed_ollama_url = urlparse(self.ollama_base_url)
         if (
             parsed_ollama_url.scheme not in {"http", "https"}

@@ -24,6 +24,7 @@ from app.repositories import reports as report_repository
 from app.repositories.identities import activity_affiliation
 from app.repositories.reports import (
     DraftAccessDeniedError,
+    ReviewValidationError,
     DraftAlreadySubmittedError,
     DraftAssetError,
     DraftNotFoundError,
@@ -36,6 +37,8 @@ from app.repositories.reports import (
 )
 from app.services.ai.image_validation import ImageValidationError, validate_image
 from app.services.ai.category_mapping import get_category_metadata
+from app.services.ai.waste_rules import classify_item
+from app.services.ai.confirmed_report_draft import draft_confirmed_report
 from app.services.image_uploads import (
     MAX_UPLOAD_SIZE,
     UploadMetadataError,
@@ -62,16 +65,69 @@ REPORT_MEDIA_TYPES = {
 }
 
 
-CampusCategory = Literal["Recyclable Waste", "Non-Recyclable Waste", "Bulky Waste"]
+CampusCategory = Literal["Recyclable Waste", "Non-Recyclable Waste", "Bulky Waste", "Hazardous Waste"]
 
 
 class ConfirmedWasteItem(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     category: CampusCategory
     material: str = Field(default="Unknown", max_length=150)
+    condition_answers: dict[str, bool] = Field(default_factory=dict)
+    review_id: str | None = Field(default=None, min_length=1, max_length=100)
+    quantity: int | None = Field(default=None, ge=1, le=1000)
+
+
+class ReviewedDetection(BaseModel):
+    id: str = Field(min_length=1, max_length=100)
+    source_detection_id: str | None = Field(default=None, min_length=1, max_length=100)
+    disposition: Literal["waste", "background", "removed", "attached_component", "needs_confirmation"]
+    corrected_label: str = Field(default="", max_length=150)
+    material: str = Field(default="Unknown", max_length=150)
+    category: CampusCategory | None = None
+    condition_answers: dict[str, bool] = Field(default_factory=dict)
+    component_relation: Literal["attached", "detached", "unclear"] | None = None
+    quantity: int | None = Field(default=None, ge=1, le=1000)
+
+
+class ReportDraftRequest(BaseModel):
+    analysis_id: str | None = Field(default=None, min_length=1, max_length=64)
+    confirmed_items: list[ConfirmedWasteItem] = Field(min_length=1, max_length=100)
+    reviewed_detections: list[ReviewedDetection] = Field(min_length=1, max_length=200)
+    user_description: str = Field(default="", max_length=1000)
+    confirmed_address: str = Field(default="", max_length=500)
+
+
+@router.post("/draft")
+async def generate_report_draft(
+    request: ReportDraftRequest,
+    user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
+) -> dict[str, str]:
+    if user["role"] != "user":
+        raise HTTPException(status_code=403, detail="Participant access is required.")
+    facts = request.model_dump()
+    try:
+        await run_in_threadpool(
+            report_repository.validate_review_for_drafting,
+            request.analysis_id, user["id"], facts,
+        )
+        return await run_in_threadpool(
+            draft_confirmed_report, facts["confirmed_items"],
+            user_description=request.user_description,
+            confirmed_address=request.confirmed_address,
+        )
+    except DraftNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DraftAccessDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except DraftAlreadySubmittedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ReviewValidationError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def category_for_items(items: list[ConfirmedWasteItem]) -> CampusCategory:
+    if any(item.category == "Hazardous Waste" for item in items):
+        return "Hazardous Waste"
     if any(item.category == "Bulky Waste" for item in items):
         return "Bulky Waste"
     if all(item.category == "Recyclable Waste" for item in items):
@@ -81,6 +137,7 @@ def category_for_items(items: list[ConfirmedWasteItem]) -> CampusCategory:
 
 class ReportSubmission(BaseModel):
     analysis_id: str | None = Field(default=None, min_length=1, max_length=64)
+    rule_version: Literal["1.0.0"] | None = None
     reporter_role: Literal["guest", "user"]
     user_id: str | None = Field(default=None, max_length=100)
     guest_name: str | None = Field(default=None, max_length=120)
@@ -92,6 +149,7 @@ class ReportSubmission(BaseModel):
     environmental_concern: str = Field(default="", max_length=2000)
     category: CampusCategory
     confirmed_items: list[ConfirmedWasteItem] = Field(min_length=1, max_length=100)
+    reviewed_detections: list[ReviewedDetection] | None = Field(default=None, max_length=200)
     location: str = Field(min_length=1, max_length=500)
     latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
@@ -116,6 +174,17 @@ class ReportSubmission(BaseModel):
             if "@" not in email or email.startswith("@") or email.endswith("@"):
                 raise ValueError("A valid email is required for guest reports.")
         for item in self.confirmed_items:
+            if self.rule_version is not None:
+                verdict = classify_item(
+                    item.name,
+                    confirmed_material=item.material if item.material != "Unknown" else None,
+                    answers=item.condition_answers,
+                )
+                if verdict["category"] is not None and item.category != verdict["category"]:
+                    raise ValueError(
+                        f"{item.name} follows rule {verdict['rule_id']} for {verdict['category']}."
+                    )
+                continue
             rule = get_category_metadata(item.name)
             if rule["waste_category"] != "Unknown":
                 expected = (
@@ -158,7 +227,19 @@ def _authorize_submission(
     if user["role"] != "user":
         raise HTTPException(status_code=403, detail="Participant access is required.")
 
+    if (submission.analysis_id is not None
+            and report_repository.analysis_draft_provider(submission.analysis_id) == "florence2"
+            and submission.rule_version != "1.0.0"):
+        raise HTTPException(status_code=422, detail="This Florence analysis requires the current waste rule version.")
+
     submission_data = submission.model_dump()
+    for item in submission_data["confirmed_items"]:
+        if not item["condition_answers"]:
+            item.pop("condition_answers")
+        if item["review_id"] is None:
+            item.pop("review_id")
+        if item["quantity"] is None:
+            item.pop("quantity")
     submission_data["user_id"] = user["id"]
     submission_data["guest_name"] = None
     submission_data["guest_email"] = None
@@ -178,6 +259,8 @@ async def _create_report(submission: dict[str, object]) -> dict[str, str]:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except DraftAccessDeniedError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ReviewValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except DraftAssetError as exc:
         raise HTTPException(status_code=410, detail=str(exc)) from exc
     except (OSError, TypeError, ValueError, sqlite3.Error) as exc:

@@ -16,6 +16,7 @@ const categoryIcons: Record<WasteCategory, LucideIcon> = {
   'Recyclable Waste': Recycle,
   'Non-Recyclable Waste': House,
   'Bulky Waste': Hammer,
+  'Hazardous Waste': CircleHelp,
 }
 
 export function WasteGuideCard({ topic }: { topic: EducationTopic }) {

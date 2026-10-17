@@ -231,7 +231,7 @@ async def _save_upload(image: UploadFile, destination: Path) -> None:
     )
 
 
-@router.post("/analyze", response_model=None)
+@router.post("/analyze-legacy", response_model=None)
 async def analyze_uploaded_waste(
     user: Annotated[AuthenticatedUser, Depends(enforce_ai_analysis_rate_limit)],
     image: UploadFile = File(...),

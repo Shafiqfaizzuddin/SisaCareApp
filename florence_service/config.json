@@ -1,0 +1,13 @@
+{
+  "model_id": "microsoft/Florence-2-base",
+  "model_revision": "5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac",
+  "device_preference": "auto",
+  "host": "127.0.0.1",
+  "port": 8765,
+  "max_upload_bytes": 10485760,
+  "max_image_pixels": 40000000,
+  "max_image_side": 10000,
+  "max_new_tokens": 256,
+  "num_beams": 3,
+  "queue_timeout_seconds": 0.1
+}

@@ -34,7 +34,7 @@ function mapSummary(value: unknown): ReportSummary | null {
     typeof value.location !== 'string' ||
     typeof value.submitted_at !== 'string' ||
     typeof value.status !== 'string' ||
-    typeof value.confidence !== 'number' ||
+    (typeof value.confidence !== 'number' && value.confidence !== null) ||
     typeof value.description !== 'string' ||
     typeof value.reporter !== 'string' ||
     typeof value.reporter_role !== 'string'
@@ -74,7 +74,7 @@ function mapDetection(value: unknown): AdminWasteDetection | null {
     !requiredStrings.every((item) => typeof item === 'string') ||
     (typeof value.confidence !== 'number' && value.confidence !== null) ||
     (!hasBoundingBox && !hasNoBoundingBox) ||
-    !['yolo', 'vlm', 'yolo+vlm'].includes(source as string)
+    !['yolo', 'vlm', 'yolo+vlm', 'florence2'].includes(source as string)
   ) {
     return null
   }
@@ -206,6 +206,7 @@ export async function fetchPersistedReport(
               'Non-Recyclable Waste',
               'Recyclable Waste',
               'Bulky Waste',
+              'Hazardous Waste',
               'Unknown',
             ].includes(category),
         )
@@ -215,7 +216,7 @@ export async function fetchPersistedReport(
       ? value.confirmed_results.items.filter((item: unknown) =>
           isObject(item) && typeof item.name === 'string' &&
           typeof item.material === 'string' &&
-          ['Recyclable Waste', 'Non-Recyclable Waste', 'Bulky Waste'].includes(item.category as string),
+          ['Recyclable Waste', 'Non-Recyclable Waste', 'Bulky Waste', 'Hazardous Waste'].includes(item.category as string),
         ) as AdminReportDetail['confirmedItems']
       : [],
     originalImage:

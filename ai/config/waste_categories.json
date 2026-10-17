@@ -161,7 +161,7 @@
 
   "electronic_waste": {
     "display_name": "Electronic Waste",
-    "waste_category": "Non-Recyclable",
+    "waste_category": "Hazardous Waste",
     "material": "Electronic Components",
     "recyclable": false,
     "recommended_handling": "Do not place electronic waste in normal recycling bins. Keep it dry and intact and deliver it to an authorised electronic-waste collection or recovery facility."
@@ -169,7 +169,7 @@
 
   "battery": {
     "display_name": "Battery",
-    "waste_category": "Non-Recyclable",
+    "waste_category": "Hazardous Waste",
     "material": "Battery / Hazardous Electronic Material",
     "recyclable": false,
     "recommended_handling": "Do not place batteries in household recycling or general-waste bins. Keep terminals protected where appropriate and deliver them to an authorised battery or electronic-waste collection point."

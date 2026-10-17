@@ -12,6 +12,7 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 from app.core.config import get_settings
+from app.services.ai.waste_rules import classify_item
 
 
 _settings = get_settings()
@@ -35,6 +36,10 @@ class DraftAssetError(RuntimeError):
 
 class DraftAccessDeniedError(PermissionError):
     """Raised when a user attempts to consume another user's AI draft."""
+
+
+class ReviewValidationError(ValueError):
+    """Raised when submitted confirmation does not match the saved detections."""
 
 
 class ReportNotFoundError(LookupError):
@@ -558,6 +563,46 @@ def analysis_draft_asset_belongs_to_user(
     return row is not None
 
 
+def analysis_draft_provider(draft_id: str) -> str | None:
+    """Read provider metadata without modifying a historical or active draft."""
+    with _connect() as database:
+        initialize_database(database)
+        row = database.execute(
+            "SELECT detection_json FROM analysis_drafts WHERE id = ?", (draft_id,)
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        payload = json.loads(row["detection_json"])
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return payload.get("provider") if isinstance(payload, dict) else None
+
+
+def validate_review_for_drafting(
+    analysis_id: str | None, user_id: str, submission: Mapping[str, Any],
+) -> None:
+    """Authorize a draft and ensure only fully reviewed items reach the writer."""
+    if analysis_id is None:
+        _build_review_confirmation(None, submission)
+        return
+    with _connect() as database:
+        initialize_database(database)
+        draft = database.execute(
+            "SELECT user_id, consumed_at, detection_json FROM analysis_drafts WHERE id = ?",
+            (analysis_id,),
+        ).fetchone()
+    if draft is None:
+        raise DraftNotFoundError("The analysis draft does not exist.")
+    if draft["user_id"] != user_id:
+        raise DraftAccessDeniedError("This analysis draft does not belong to the authenticated user.")
+    if draft["consumed_at"] is not None:
+        raise DraftAlreadySubmittedError("This analysis draft has already been submitted.")
+    if json.loads(draft["detection_json"]).get("provider") != "florence2":
+        raise ReviewValidationError("Report drafting requires confirmed Florence or manual items.")
+    _build_review_confirmation(draft["detection_json"], submission)
+
+
 def _asset_suffix(path: Path) -> str:
     suffix = path.suffix.lower()
     return suffix if suffix in {".jpg", ".jpeg", ".png", ".webp"} else ".jpg"
@@ -569,6 +614,121 @@ def _deserialize_detections(detection_json: str) -> list[dict[str, Any]]:
     if not isinstance(detections, list):
         raise ValueError("Detection data does not contain a detections list.")
     return detections
+
+
+def _build_review_confirmation(
+    detection_json: str | None,
+    submission: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Join user review to immutable detector IDs and derive rule provenance.
+
+    Every raw detection must receive one review decision. Only reviewed waste
+    entries become final disposal items; background, removed, and attached cap
+    detections remain in the correction audit without inflating item counts.
+    """
+    payload = json.loads(detection_json) if detection_json is not None else {"provider": "manual", "raw_detections": []}
+    if not isinstance(payload, dict) or payload.get("provider") not in {"florence2", "manual"}:
+        return None
+    raw = payload.get("raw_detections")
+    reviews = submission.get("reviewed_detections")
+    confirmed = submission.get("confirmed_items")
+    if payload.get("provider") == "manual" and reviews is None:
+        return None
+    if not isinstance(raw, list) or not isinstance(reviews, list) or not isinstance(confirmed, list):
+        raise ReviewValidationError("Reports with item review require a complete detection review.")
+    raw_by_id = {item.get("id"): item for item in raw if isinstance(item, dict)}
+    if len(raw_by_id) != len(raw) or not all(isinstance(key, str) for key in raw_by_id):
+        raise ReviewValidationError("The saved model detections are invalid.")
+    review_ids: set[str] = set()
+    seen_detection_ids: set[str] = set()
+    corrections: list[dict[str, Any]] = []
+    waste_reviews: dict[str, dict[str, Any]] = {}
+    for review in reviews:
+        if not isinstance(review, dict) or not isinstance(review.get("id"), str):
+            raise ReviewValidationError("A reviewed item is invalid.")
+        review_id = review["id"]
+        if review_id in review_ids:
+            raise ReviewValidationError("A reviewed item was repeated.")
+        review_ids.add(review_id)
+        source_id = review.get("source_detection_id")
+        if source_id is not None:
+            if source_id not in raw_by_id or source_id in seen_detection_ids:
+                raise ReviewValidationError("A reviewed detection is missing or repeated.")
+            seen_detection_ids.add(source_id)
+        elif review.get("disposition") != "waste":
+            raise ReviewValidationError("A manually added item must be confirmed waste.")
+        disposition = review.get("disposition")
+        if disposition not in {"waste", "background", "removed", "attached_component"}:
+            raise ReviewValidationError("Resolve every detection before submitting.")
+        corrected_label = str(review.get("corrected_label") or "").strip()
+        raw_label = raw_by_id[source_id]["label"] if source_id is not None else None
+        effective_label = corrected_label or raw_label or ""
+        is_cap = effective_label.casefold().replace("_", " ").strip() in {"cap", "bottle cap", "plastic bottle cap"}
+        relation = review.get("component_relation")
+        if disposition == "attached_component":
+            if not is_cap or relation != "attached":
+                raise ReviewValidationError("Only a confirmed attached cap can be excluded as a component.")
+        if disposition == "waste":
+            if not corrected_label or review.get("category") is None:
+                raise ReviewValidationError("Each waste item needs a corrected label and category.")
+            if is_cap and relation != "detached":
+                raise ReviewValidationError("Confirm whether a cap is detached before counting it separately.")
+            waste_reviews[review_id] = review
+        corrections.append({
+            "review_id": review_id,
+            "source_detection_id": source_id,
+            "original_label": raw_label,
+            "corrected_label": corrected_label or None,
+            "disposition": disposition,
+            "component_relation": relation,
+            "material": review.get("material"),
+            "category": review.get("category"),
+            "quantity": review.get("quantity"),
+            "condition_answers": review.get("condition_answers") or {},
+        })
+    if seen_detection_ids != set(raw_by_id):
+        raise ReviewValidationError("Every model detection must be reviewed exactly once.")
+    confirmed_by_review = {item.get("review_id"): item for item in confirmed if isinstance(item, dict)}
+    if len(confirmed_by_review) != len(confirmed) or set(confirmed_by_review) != set(waste_reviews):
+        raise ReviewValidationError("Confirmed items do not match the detection review.")
+    final_items: list[dict[str, Any]] = []
+    applied_rules: list[dict[str, Any]] = []
+    for item in confirmed:
+        review = waste_reviews[item["review_id"]]
+        if (item["name"].strip() != review["corrected_label"].strip()
+                or item["category"] != review["category"]
+                or item.get("material") != review.get("material")
+                or item.get("quantity") != review.get("quantity")
+                or (item.get("condition_answers") or {}) != (review.get("condition_answers") or {})):
+            raise ReviewValidationError("Confirmed item details do not match the reviewed correction.")
+        confirmed_material = item.get("material")
+        verdict = classify_item(
+            item["name"],
+            confirmed_material=confirmed_material if confirmed_material != "Unknown" else None,
+            answers=item.get("condition_answers") or {},
+        )
+        if verdict["category"] is not None and verdict["category"] != item["category"]:
+            raise ReviewValidationError("A confirmed category conflicts with its applied waste rule.")
+        final_items.append({
+            **item,
+            "source_detection_ids": [review["source_detection_id"]] if review.get("source_detection_id") else [],
+            "rule_id": verdict["rule_id"],
+            "rule_category": verdict["category"],
+            "bulky": verdict["bulky"],
+            "quantity": item.get("quantity"),
+        })
+        applied_rules.append({
+            "review_id": item["review_id"],
+            "rule_id": verdict["rule_id"],
+            "rule_category": verdict["category"],
+            "confirmed_category": item["category"],
+            "needs_confirmation_at_detection": verdict["needs_confirmation"],
+        })
+    return {
+        "user_corrections": corrections,
+        "final_confirmed_items": final_items,
+        "applied_classification_rules": applied_rules,
+    }
 
 
 def _deserialize_ai_analysis(
@@ -593,6 +753,12 @@ def _deserialize_ai_analysis(
     raw_vlm = payload.get("raw_vlm")
     metadata = {
         "mode": analysis.get("mode"),
+        "provider": analysis.get("provider"),
+        "model_id": analysis.get("model_id"),
+        "model_revision": analysis.get("model_revision"),
+        "service_analysis_id": payload.get("service_analysis_id"),
+        "raw_detections": payload.get("raw_detections") if analysis.get("provider") == "florence2" else None,
+        "model_detections": payload.get("model_detections") if analysis.get("provider") == "florence2" else None,
         "scene_description": (
             raw_vlm.get("scene_description")
             if isinstance(raw_vlm, dict)
@@ -639,7 +805,7 @@ def _insert_detection_rows(
             )
         confidence = detection.get("confidence")
         source = detection.get("source", "yolo")
-        if source not in {"yolo", "vlm", "yolo+vlm"}:
+        if source not in {"yolo", "vlm", "yolo+vlm", "florence2"}:
             raise ValueError("Detection source is not supported.")
         rows.append(
             (
@@ -763,6 +929,7 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
         detections: list[dict[str, Any]] = []
         final_categories: list[str] = []
         ai_analysis: dict[str, Any] | None = None
+        confirmation: dict[str, Any] | None = None
         source_photo: Path | None = None
         if analysis_id:
             draft = database.execute(
@@ -783,6 +950,9 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 raise DraftAccessDeniedError(
                     "This analysis draft does not belong to the authenticated user."
                 )
+            confirmation = _build_review_confirmation(
+                draft["detection_json"], submission,
+            )
             draft_sources = (
                 Path(draft["original_image_path"]),
                 Path(draft["annotated_image_path"]),
@@ -802,6 +972,7 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 Path(uploaded_image_path),
                 report_id,
             )
+            confirmation = _build_review_confirmation(None, submission)
 
         confirmed_items = submission.get("confirmed_items")
         if confirmed_items:
@@ -870,11 +1041,13 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 activity_key,
                 json.dumps({
                     "analysis": ai_analysis,
+                    "rule_version": submission.get("rule_version"),
                     "final_categories": final_categories,
                     "category": submission["category"],
                     "waste_identified": submission.get("waste_identified", ""),
                     "recommended_action": submission.get("recommended_action", ""),
                     "items": confirmed_items or [],
+                    **(confirmation or {}),
                 }, ensure_ascii=True),
                 "production",
                 now,
@@ -947,7 +1120,10 @@ def list_reports() -> list[dict[str, Any]]:
             "location": row["location"],
             "submitted_at": row["created_at"],
             "status": row["status"],
-            "confidence": round(float(row["max_confidence"] or 0) * 100),
+            "confidence": (
+                round(float(row["max_confidence"]) * 100)
+                if row["max_confidence"] is not None else None
+            ),
             "description": row["summary"],
             "reporter": (
                 row["user_id"]

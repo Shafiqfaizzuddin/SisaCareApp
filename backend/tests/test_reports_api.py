@@ -167,6 +167,178 @@ def submission_payload(draft_id: str | None) -> dict[str, Any]:
     }
 
 
+def create_florence_draft(tmp_path: Path) -> str:
+    original = tmp_path / "florence-original.jpg"
+    preview = tmp_path / "florence-preview.jpg"
+    original.write_bytes(b"florence original")
+    preview.write_bytes(b"florence preview")
+    detections = [
+        {"id": "det-0", "label": "plastic bottle", "name": "plastic_bottle",
+         "display_name": "Plastic Bottle", "suggested_category": "Recyclable Waste",
+         "material": "Plastic", "review_status": "likely_waste",
+         "bounding_box": {"x1": 1, "y1": 2, "x2": 50, "y2": 80}},
+        {"id": "det-1", "label": "tree", "name": "tree", "display_name": "Tree",
+         "suggested_category": None, "material": "Unknown", "review_status": "background",
+         "bounding_box": {"x1": 60, "y1": 2, "x2": 100, "y2": 100}},
+        {"id": "det-2", "label": "bottle cap", "name": "bottle_cap",
+         "display_name": "Bottle Cap", "suggested_category": None,
+         "material": "Unknown", "review_status": "needs_confirmation",
+         "bounding_box": {"x1": 2, "y1": 3, "x2": 10, "y2": 12}},
+    ]
+    return report_repository.create_analysis_draft(
+        original_image_path=original, annotated_image_path=preview,
+        detection={"provider": "florence2", "model_id": "microsoft/Florence-2-base",
+                   "model_revision": "pinned", "model_detections": detections,
+                   "raw_detections": detections, "detections": [],
+                   "analysis": {"mode": "florence2", "provider": "florence2",
+                                "model_id": "microsoft/Florence-2-base",
+                                "model_revision": "pinned", "categories_detected": []}},
+        report=None, user_id=MEMBER_USER["id"],
+    )
+
+
+def test_florence_review_persists_raw_corrections_and_mixed_final_items(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    draft_id = create_florence_draft(tmp_path)
+    payload = submission_payload(draft_id)
+    payload.update(rule_version="1.0.0", category="Hazardous Waste",
+                   confirmed_items=[
+                       {"review_id": "det-0", "name": "Plastic Bottle", "material": "Plastic",
+                        "category": "Recyclable Waste"},
+                       {"review_id": "manual-battery", "name": "Battery", "material": "Unknown",
+                        "category": "Hazardous Waste"},
+                   ],
+                   reviewed_detections=[
+                       {"id": "det-0", "source_detection_id": "det-0", "disposition": "waste",
+                        "corrected_label": "Plastic Bottle", "material": "Plastic",
+                        "category": "Recyclable Waste"},
+                       {"id": "det-1", "source_detection_id": "det-1", "disposition": "removed",
+                        "corrected_label": "tree", "material": "Unknown"},
+                       {"id": "det-2", "source_detection_id": "det-2",
+                        "disposition": "attached_component", "corrected_label": "Bottle Cap",
+                        "material": "Unknown", "component_relation": "attached"},
+                       {"id": "manual-battery", "source_detection_id": None,
+                        "disposition": "waste", "corrected_label": "Battery",
+                        "material": "Unknown", "category": "Hazardous Waste"},
+                   ])
+    response = client.post("/api/reports", json=payload)
+    assert response.status_code == 201, response.text
+    with sqlite3.connect(tmp_path / "reports.db") as database:
+        database.row_factory = sqlite3.Row
+        saved = database.execute("SELECT * FROM reports WHERE analysis_id = ?", (draft_id,)).fetchone()
+        draft = database.execute("SELECT detection_json FROM analysis_drafts WHERE id = ?", (draft_id,)).fetchone()
+    assert json.loads(draft["detection_json"])["model_detections"] == json.loads(draft["detection_json"])["raw_detections"]
+    assert saved["category"] == "Hazardous Waste"
+    assert json.loads(saved["final_categories_json"]) == ["Recyclable Waste", "Hazardous Waste"]
+    confirmation = json.loads(saved["confirmed_ai_result_json"])
+    assert [entry["disposition"] for entry in confirmation["user_corrections"]] == ["waste", "removed", "attached_component", "waste"]
+    assert [entry["review_id"] for entry in confirmation["final_confirmed_items"]] == ["det-0", "manual-battery"]
+    assert len(confirmation["applied_classification_rules"]) == 2
+
+
+def test_florence_review_rejects_unresolved_or_unmatched_detections(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    draft_id = create_florence_draft(tmp_path)
+    payload = submission_payload(draft_id)
+    payload["rule_version"] = "1.0.0"
+    payload["confirmed_items"][0]["review_id"] = "det-0"
+    payload["reviewed_detections"] = [
+        {"id": "det-0", "source_detection_id": "det-0", "disposition": "waste",
+         "corrected_label": "Plastic Bottle", "material": "Plastic", "category": "Recyclable Waste"},
+        {"id": "det-1", "source_detection_id": "det-1", "disposition": "background",
+         "corrected_label": "tree", "material": "Unknown"},
+    ]
+    response = client.post("/api/reports", json=payload)
+    assert response.status_code == 422
+    assert "Every model detection" in response.json()["detail"]
+
+
+def test_manual_review_keeps_added_item_and_rule_provenance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    monkeypatch.setattr(reports_api, "UPLOAD_DIR", tmp_path / "uploads")
+    payload = submission_payload(None)
+    payload.update(rule_version="1.0.0",
+                   confirmed_items=[{"review_id": "manual-1", "name": "Plastic Bottle",
+                                     "category": "Recyclable Waste", "material": "Plastic"}],
+                   reviewed_detections=[{"id": "manual-1", "source_detection_id": None,
+                                         "disposition": "waste", "corrected_label": "Plastic Bottle",
+                                         "category": "Recyclable Waste", "material": "Plastic"}])
+    response = client.post("/api/reports/with-image", data={"payload": json.dumps(payload)},
+                           files={"image": ("photo.png", VALID_PNG, "image/png")})
+    assert response.status_code == 201, response.text
+    with sqlite3.connect(tmp_path / "reports.db") as database:
+        saved = database.execute("SELECT confirmed_ai_result_json FROM reports").fetchone()
+    result = json.loads(saved[0])
+    assert result["user_corrections"][0]["source_detection_id"] is None
+    assert result["final_confirmed_items"][0]["source_detection_ids"] == []
+    assert result["applied_classification_rules"][0]["rule_id"]
+
+
+def test_detached_cap_is_a_separate_item_only_after_explicit_confirmation() -> None:
+    draft = json.dumps({"provider": "florence2", "raw_detections": [
+        {"id": "cap-1", "label": "bottle cap"},
+    ]})
+    confirmed = {"review_id": "cap-1", "name": "Bottle Cap",
+                 "category": "Recyclable Waste", "material": "Plastic", "quantity": 1}
+    review = {"id": "cap-1", "source_detection_id": "cap-1",
+              "disposition": "waste", "corrected_label": "Bottle Cap",
+              "category": "Recyclable Waste", "material": "Plastic", "quantity": 1}
+    with pytest.raises(report_repository.ReviewValidationError, match="detached"):
+        report_repository._build_review_confirmation(draft, {
+            "confirmed_items": [confirmed], "reviewed_detections": [review],
+        })
+    review["component_relation"] = "detached"
+    result = report_repository._build_review_confirmation(draft, {
+        "confirmed_items": [confirmed], "reviewed_detections": [review],
+    })
+    assert result is not None
+    assert result["final_confirmed_items"][0]["quantity"] == 1
+    assert result["final_confirmed_items"][0]["source_detection_ids"] == ["cap-1"]
+
+
+def test_report_draft_requires_complete_owned_review_and_never_submits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    draft_id = create_florence_draft(tmp_path)
+    payload = {
+        "analysis_id": draft_id,
+        "confirmed_items": [{"review_id": "det-0", "name": "Plastic Bottle",
+                             "material": "Plastic", "category": "Recyclable Waste"}],
+        "reviewed_detections": [
+            {"id": "det-0", "source_detection_id": "det-0", "disposition": "waste",
+             "corrected_label": "Plastic Bottle", "material": "Plastic", "category": "Recyclable Waste"},
+            {"id": "det-1", "source_detection_id": "det-1", "disposition": "background",
+             "corrected_label": "tree", "material": "Unknown"},
+            {"id": "det-2", "source_detection_id": "det-2", "disposition": "attached_component",
+             "corrected_label": "Bottle Cap", "material": "Unknown", "component_relation": "attached"},
+        ],
+        "user_description": "Near a bench.",
+        "confirmed_address": "Campus Gate",
+    }
+    observed = []
+    monkeypatch.setattr(reports_api, "draft_confirmed_report", lambda items, **kwargs: (
+        observed.append((items, kwargs)) or {"title": "Draft", "summary": "Description",
+                                      "waste_identified": "Plastic Bottle", "recommended_action": "Review.",
+                                      "environmental_concern": "May affect area.",
+                                      "source": "template", "model_id": ""}))
+    response = client.post("/api/reports/draft", json=payload)
+    assert response.status_code == 200, response.text
+    assert len(observed) == 1
+    assert observed[0][1]["confirmed_address"] == "Campus Gate"
+    with sqlite3.connect(tmp_path / "reports.db") as database:
+        assert database.execute("SELECT COUNT(*) FROM reports").fetchone()[0] == 0
+    payload["reviewed_detections"].pop()
+    assert client.post("/api/reports/draft", json=payload).status_code == 422
+    assert len(observed) == 1
+
+
 def test_repeated_ai_analysis_drafts_never_create_reward_events(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

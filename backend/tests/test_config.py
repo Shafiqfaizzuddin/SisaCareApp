@@ -104,6 +104,11 @@ def test_legacy_ollama_model_remains_a_report_model_fallback(
     assert Settings(_env_file=None).ollama_report_model == "current-report-model"
 
 
+def test_florence_service_url_must_stay_on_loopback() -> None:
+    with pytest.raises(ValidationError, match="FLORENCE_SERVICE_URL"):
+        Settings(_env_file=None, florence_service_url="http://example.com:8765")
+
+
 def test_legacy_ollama_timeout_configures_both_generation_stages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

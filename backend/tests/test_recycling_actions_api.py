@@ -47,13 +47,13 @@ def setup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     app.dependency_overrides.clear()
 
 
-def draft(root: Path, owner: str = "student-1") -> str:
+def draft(root: Path, owner: str = "student-1", provider: str | None = None) -> str:
     original = root / f"original-{len(list(root.glob('original-*')))}.png"
     annotated = root / f"annotated-{original.stem}.png"
     original.write_bytes(photo_bytes())
     annotated.write_bytes(photo_bytes())
     return reports.create_analysis_draft(original_image_path=original, annotated_image_path=annotated,
-        detection={"detections": []}, report=None, user_id=owner)
+        detection={"detections": [], "provider": provider}, report=None, user_id=owner)
 
 
 def payload(analysis_id: str, **changes: object) -> str:
@@ -101,6 +101,21 @@ def test_upload_validation_and_point_match(setup: Path) -> None:
     with reports._connect() as database:
         database.execute("UPDATE recycling_points SET active = 0 WHERE id = 'point-1'")
     assert submit(analysis_id).status_code == 404
+
+
+def test_florence_recycling_requires_conditions_and_matching_station(setup: Path) -> None:
+    analysis_id = draft(setup, provider="florence2")
+    assert submit(analysis_id).status_code == 409
+    safe_item = {"name": "Plastic Bottle", "category": "Recyclable Waste", "material": "Plastic",
+                 "condition_answers": {"hazardous_contents": False, "empty_and_clean": True}}
+    assert submit(analysis_id, confirmed_items=[safe_item]).status_code == 201
+
+
+def test_florence_hazardous_item_cannot_use_ordinary_recycling_point(setup: Path) -> None:
+    analysis_id = draft(setup, provider="florence2")
+    unsafe_item = {"name": "Plastic Bottle", "category": "Recyclable Waste", "material": "Plastic",
+                   "condition_answers": {"hazardous_contents": True, "empty_and_clean": True}}
+    assert submit(analysis_id, confirmed_items=[unsafe_item]).status_code == 409
 
 
 def test_recycling_proof_accepts_valid_gps_outside_former_campus_boundary(setup: Path) -> None:

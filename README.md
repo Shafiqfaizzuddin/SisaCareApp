@@ -73,6 +73,15 @@ URLs so email confirmation returns to the local app.
 
 ## Run locally
 
+For isolated local Florence-2 object detection, see
+[florence_service/README.md](florence_service/README.md). The active reporting
+UI uploads to authenticated `POST /api/waste/analyze`, which calls the local
+Florence service from the backend. The former hybrid endpoint remains at
+`POST /api/waste/analyze-legacy` for baseline comparison. Its weights and
+historical records are retained.
+Install `backend[legacy-ai]` only when running the legacy endpoint; the active
+Florence path does not import Ultralytics during inference.
+
 Start the frontend:
 
 ```powershell
@@ -279,13 +288,55 @@ The participant chooses an incident location only when submitting a report.
 The backend validates latitude and longitude ranges but imposes no campus
 boundary. Existing report locations and submissions are unchanged.
 
-The participant reviews each YOLO/VLM detection independently. The existing
-material mapping determines known items' disposal categories; unknown items
-require manual classification. A mixed image is not classified as wholly
-recyclable. The original draft and detections remain separate from the saved
-confirmed items and edited report text. New reports begin in `submitted`
+The participant reviews each Florence-2 object independently. Known mapped
+objects are suggested as likely waste, obvious scene objects as background,
+and unknown objects as needing confirmation. Every raw detection is retained.
+The user may add a missed item or report manually when inference is unavailable.
+Repeated labels appear in one review card, while every detection keeps its own
+decision and source ID. Users can correct labels and materials, mark background,
+remove an incorrect detection, and confirm a category for each waste item.
+Bottle caps require an explicit attached or detached decision; attached caps
+remain in the review record without becoming another disposal item. The report
+stores a primary category for existing workflows and every confirmed item
+category in `final_categories_json`. Its confirmed snapshot keeps
+`user_corrections`, `final_confirmed_items`, and
+`applied_classification_rules` separately; the model output stays in the
+analysis draft and `ai_analysis_json`.
+Active item mapping and reviewed disposal guidance are maintained in
+[ai/config/waste_rules.json](ai/config/waste_rules.json); see
+[ai/config/README.md](ai/config/README.md) for rule semantics and sources.
+Bounding boxes use pixel coordinates on the EXIF-oriented image and have no
+calibrated confidence score. The original draft and detections remain separate
+from the saved confirmed items and user-edited report text. New reports begin in `submitted`
 status and earn no points until admin validation. Recyclable reports can use
 the registered production recycling points for guidance.
+
+The active flow is upload → local Florence-2 candidates → per-item confirmation
+→ maintained waste rules → report or registered-station guidance → incident
+location for reports → local Ollama or factual-template draft → editable review
+→ submission → administrator verification. Editing an item label, material, or
+condition clears its old classification; **Apply waste rules** refreshes the
+category and reviewed handling guidance before the item is confirmed again.
+Hazardous waste is a final category in new reports, appears in admin category
+filters, and takes primary-category priority in a mixed report. Historical
+report categories are left unchanged. A hazardous item is never offered the
+ordinary recycling-proof route. In a mixed photo, registered stations can
+still be shown for the confirmed recyclable items, but recycling proof requires
+a separate recyclable-only photo because one analysis draft can be submitted
+once; the mixed photo can be reported to staff with every item preserved.
+
+After every item has been confirmed, the participant can request an editable
+report draft. `POST /api/reports/draft` sends only confirmed item facts, optional
+user description, and a confirmed address to the locally configured Ollama text
+model (`OLLAMA_BASE_URL`, `OLLAMA_REPORT_MODEL`). The model returns a short title
+and description through Ollama's JSON-schema output mode; the backend validates
+the prose and builds disposal guidance from the maintained waste rules. If the
+model is unavailable, times out, or returns unsupported claims, the same action
+returns a factual template. Regenerating after location selection preserves
+manual edits in the form. Draft generation never submits a report.
+For local drafting, keep Ollama running on the configured loopback URL and
+install the configured text model (the default is `llama3.2`). The drafting
+endpoint never sends report facts to a remote Ollama host.
 
 ## Nearby and registered recycling points
 

@@ -20,10 +20,12 @@ const categoryLabels = Object.fromEntries(
 ) as Record<WasteCategory, string>
 
 type StatusFilter = 'all' | ReportStatusValue
+type CategoryFilter = 'all' | WasteCategory
 
 export function AdminDashboardPage() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
+  const [category, setCategory] = useState<CategoryFilter>('all')
   const [persistedReports, setPersistedReports] = useState<typeof reportSummaries>([])
 
   useEffect(() => {
@@ -51,16 +53,17 @@ export function AdminDashboardPage() {
         report.reference.toLowerCase().includes(query) ||
         report.location.toLowerCase().includes(query)
       const matchesStatus = status === 'all' || report.status === status
+      const matchesCategory = category === 'all' || report.category === category
 
-      return matchesSearch && matchesStatus
+      return matchesSearch && matchesStatus && matchesCategory
     })
-  }, [availableReports, search, status])
+  }, [availableReports, search, status, category])
 
   function downloadCsv() {
     const header = ['Reference', 'Category', 'Location', 'Submitted', 'Status']
     const rows = filteredReports.map((report) => [
       report.reference,
-      categoryLabels[report.category],
+      categoryLabels[report.category] ?? report.category,
       report.location,
       report.submittedAt,
       report.status,
@@ -138,6 +141,14 @@ export function AdminDashboardPage() {
               />
             </label>
             <select
+              aria-label="Filter by category"
+              value={category}
+              onChange={(event) => setCategory(event.target.value as CategoryFilter)}
+            >
+              <option value="all">All categories</option>
+              {wasteCategoryOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+            <select
               aria-label="Filter by status"
               value={status}
               onChange={(event) => setStatus(event.target.value as StatusFilter)}
@@ -174,7 +185,7 @@ export function AdminDashboardPage() {
                       </small>
                     </span>
                   </td>
-                  <td>{categoryLabels[report.category]}</td>
+                  <td>{categoryLabels[report.category] ?? report.category}</td>
                   <td className="report-table__location">{report.location}</td>
                   <td>{report.submittedAt}</td>
                   <td><ReportStatus status={report.status} /></td>

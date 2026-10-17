@@ -119,7 +119,7 @@ describe('AdminReportDetailPage', () => {
       expect(screen.getByText('SCA-26001')).toBeTruthy()
     })
     expect(screen.getByAltText('Original uploaded waste evidence')).toBeTruthy()
-    expect(screen.getByAltText('YOLO annotated waste evidence')).toBeTruthy()
+    expect(screen.getByAltText('Analysis evidence preview')).toBeTruthy()
     expect(screen.getByText('Participant confirmed waste')).toBeTruthy()
     expect(screen.getByText('Original AI detections')).toBeTruthy()
     expect(screen.getAllByText('Plastic Bottle').length).toBeGreaterThan(0)

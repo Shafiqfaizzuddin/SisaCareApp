@@ -59,6 +59,7 @@ const sourceLabels: Record<AdminWasteDetection['source'], string> = {
   yolo: 'YOLO',
   vlm: 'VLM',
   'yolo+vlm': 'YOLO + VLM',
+  florence2: 'Florence-2',
 }
 
 function finalReportContent(report: AdminReportDetail): WasteAnalysisReport {
@@ -265,9 +266,9 @@ export function AdminReportDetailPage() {
                 <p>Image received with the public report</p>
               </div>
               <span className="confidence">
-                {report.confidence > 0
+                {report.confidence !== null && report.confidence > 0
                   ? `${report.confidence}% classification confidence`
-                  : 'No AI classification'}
+                  : 'No calibrated confidence available'}
               </span>
             </header>
             {persistedReport ? (
@@ -290,7 +291,7 @@ export function AdminReportDetailPage() {
                   {persistedReport.annotatedImage ? (
                     <img
                       src={persistedReport.annotatedImage}
-                      alt="YOLO annotated waste evidence"
+                      alt="Analysis evidence preview"
                     />
                   ) : (
                     <div className="evidence-placeholder evidence-placeholder--compact">
@@ -298,7 +299,7 @@ export function AdminReportDetailPage() {
                       <strong>No annotated image</strong>
                     </div>
                   )}
-                  <figcaption>YOLO annotation</figcaption>
+                  <figcaption>Analysis preview</figcaption>
                 </figure>
               </div>
             ) : (
@@ -321,6 +322,8 @@ export function AdminReportDetailPage() {
             <section className="admin-panel ai-detection-detail">
               <h2>Participant confirmed waste</h2>
               <p>Overall category: {persistedReport.category}</p>
+              {persistedReport.confirmedItems.some((item) => item.category === 'Hazardous Waste') &&
+                <p className="review-hazard" role="status">Hazardous item confirmed. Review handling and arrange appropriate staff response.</p>}
               <ul>
                 {persistedReport.confirmedItems.map((item, index) => (
                   <li key={`${item.name}-${index}`}>
@@ -336,6 +339,9 @@ export function AdminReportDetailPage() {
               <header className="admin-panel__heading">
                 <div>
                   <h2>Original AI detections</h2>
+                  {typeof persistedReport.aiAnalysis?.model_id === 'string' && (
+                    <p>Inference: {String(persistedReport.aiAnalysis.provider)} · {persistedReport.aiAnalysis.model_id}</p>
+                  )}
                   <p>
                     {persistedReport.detections.length} detected objects
                     {persistedReport.finalCategories.length > 0 &&

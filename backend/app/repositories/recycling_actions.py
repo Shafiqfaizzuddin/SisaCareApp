@@ -11,6 +11,7 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 from app.repositories import reports
+from app.services.ai.waste_rules import classify_item
 
 
 class ActionNotFound(LookupError):
@@ -74,6 +75,21 @@ def create_action(submission: Mapping[str, Any], proof_source: Path) -> dict[str
         accepted = {material.strip().casefold() for material in json.loads(point["accepted_materials_json"])}
         if any(item["material"].strip().casefold() not in accepted for item in submission["confirmed_items"]):
             raise ActionConflict("The selected point does not accept every confirmed material.")
+        try:
+            draft_payload = json.loads(draft["detection_json"])
+        except (TypeError, json.JSONDecodeError):
+            draft_payload = {}
+        if isinstance(draft_payload, dict) and draft_payload.get("provider") == "florence2":
+            for item in submission["confirmed_items"]:
+                verdict = classify_item(
+                    item["name"], confirmed_material=item.get("material"),
+                    answers=item.get("condition_answers") or {},
+                    station_accepted_materials=accepted,
+                )
+                if verdict["category"] != "Recyclable Waste" or verdict["needs_confirmation"]:
+                    raise ActionConflict(
+                        f"{item['name']} needs confirmed condition and station acceptance before recycling."
+                    )
         original_source = Path(draft["original_image_path"])
         annotated_source = Path(draft["annotated_image_path"])
         draft_paths = (original_source, annotated_source)

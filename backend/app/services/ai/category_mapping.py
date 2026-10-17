@@ -22,12 +22,13 @@ WasteCategory = Literal[
     "Non-Recyclable",
     "Recyclable Waste",
     "Bulky Waste",
+    "Hazardous Waste",
     "Unknown",
 ]
 CategorySource = Literal["mapping", "vlm", "unknown"]
 
 MAPPED_WASTE_CATEGORIES = frozenset(
-    {"Non-Recyclable", "Recyclable Waste", "Bulky Waste"}
+    {"Non-Recyclable", "Recyclable Waste", "Bulky Waste", "Hazardous Waste"}
 )
 VLM_WASTE_CATEGORIES = MAPPED_WASTE_CATEGORIES | {"Unknown"}
 

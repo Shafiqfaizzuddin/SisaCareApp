@@ -14,6 +14,15 @@ function key(value: string): string {
   return value.trim().toLocaleLowerCase()
 }
 
+export function conditionConfirmedForRecycling(item: ConfirmedItem): boolean {
+  if (item.category !== 'Recyclable Waste') return false
+  return (item.questions ?? []).every((question) => {
+    if (question.key === 'material') return item.material.trim() !== '' && key(item.material) !== 'unknown'
+    if (question.key === 'hazardous_contents') return item.condition_answers?.hazardous_contents === false
+    return item.condition_answers?.[question.key] === true
+  })
+}
+
 export function straightLineDistanceKm(first: Coordinates, second: Coordinates): number {
   const radians = Math.PI / 180
   const latitudeDifference = (second.latitude - first.latitude) * radians
@@ -28,7 +37,7 @@ export function recommendPoints(
   points: RecyclingPoint[], items: ConfirmedItem[], origin: Coordinates,
 ): PointRecommendation[] {
   const materials = [...new Map(items
-    .filter(item => item.category === 'Recyclable Waste' && key(item.material) !== 'unknown')
+    .filter(item => conditionConfirmedForRecycling(item) && key(item.material) !== 'unknown')
     .map(item => [key(item.material), item.material.trim()])).values()]
   return points.filter(point => point.active !== false).flatMap(point => {
     const accepted = new Set(point.accepted_materials.map(key))
