@@ -1,19 +1,11 @@
-import {
-  ArrowUpRight,
-  CheckCircle2,
-  Clock3,
-  Download,
-  Search,
-  TriangleAlert,
-} from 'lucide-react'
+import { ArrowUpRight, CheckCircle2, Clock3, Download, Search, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MetricCard } from '../components/admin/MetricCard'
 import { ReportStatus } from '../components/reports/ReportStatus'
-import { reportSummaries } from '../features/admin-reports/report-data'
 import { fetchPersistedReports } from '../features/admin-reports/admin-reports-api'
 import { wasteCategoryOptions } from '../features/reporting/categories'
-import type { ReportStatus as ReportStatusValue, WasteCategory } from '../types'
+import type { ReportStatus as ReportStatusValue, ReportSummary, WasteCategory } from '../types'
 
 const categoryLabels = Object.fromEntries(
   wasteCategoryOptions.map((category) => [category.value, category.label]),
@@ -26,22 +18,23 @@ export function AdminDashboardPage() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [category, setCategory] = useState<CategoryFilter>('all')
-  const [persistedReports, setPersistedReports] = useState<typeof reportSummaries>([])
+  const [persistedReports, setPersistedReports] = useState<ReportSummary[]>([])
+  const [loadError, setLoadError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [refreshVersion, setRefreshVersion] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
+    setLoading(true)
     fetchPersistedReports(controller.signal)
-      .then(setPersistedReports)
-      .catch(() => undefined)
+      .then(reports => { setPersistedReports(reports); setLoadError('') })
+      .catch(error => { if (!controller.signal.aborted) setLoadError(error instanceof Error ? error.message : 'Reports could not be loaded.') })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [])
+  }, [refreshVersion])
 
   const availableReports = useMemo(() => {
-    const persistedIds = new Set(persistedReports.map((report) => report.id))
-    return [
-      ...persistedReports,
-      ...reportSummaries.filter((report) => !persistedIds.has(report.id)),
-    ]
+    return persistedReports
   }, [persistedReports])
 
   const filteredReports = useMemo(() => {
@@ -83,7 +76,7 @@ export function AdminDashboardPage() {
     <>
       <header className="admin-page-heading">
         <div>
-          <p className="eyebrow">Saturday, 8 August</p>
+          <p className="eyebrow">Municipal review queue</p>
           <h1>Operations overview</h1>
           <p>Review new reports and monitor active response work.</p>
         </div>
@@ -96,29 +89,29 @@ export function AdminDashboardPage() {
       <section className="metric-grid" aria-label="Report metrics">
         <MetricCard
           label="New reports"
-          value="18"
-          detail="+4 since yesterday"
+          value={String(availableReports.filter(report => report.status === 'submitted').length)}
+          detail="Awaiting verification"
           icon={TriangleAlert}
           tone="coral"
         />
         <MetricCard
           label="In progress"
-          value="42"
-          detail="7 due for review"
+          value={String(availableReports.filter(report => report.status === 'in_progress').length)}
+          detail="Assigned reports"
           icon={Clock3}
           tone="amber"
         />
         <MetricCard
-          label="Resolved this week"
-          value="67"
-          detail="12% above average"
+          label="Resolved reports"
+          value={String(availableReports.filter(report => report.status === 'resolved').length)}
+          detail="All time"
           icon={CheckCircle2}
           tone="green"
         />
         <MetricCard
-          label="Median response"
-          value="19h"
-          detail="3h faster this month"
+          label="Verified reports"
+          value={String(availableReports.filter(report => report.status === 'verified').length)}
+          detail="Ready for assignment"
           icon={ArrowUpRight}
           tone="blue"
         />
@@ -155,8 +148,11 @@ export function AdminDashboardPage() {
             >
               <option value="all">All statuses</option>
               <option value="submitted">Submitted</option>
+              <option value="verified">Verified</option>
               <option value="processing">Processing</option>
               <option value="in_progress">In progress</option>
+              <option value="resolved">Resolved</option>
+              <option value="rejected">Rejected</option>
               <option value="completed">Completed</option>
             </select>
           </div>
@@ -181,7 +177,7 @@ export function AdminDashboardPage() {
                     <span className="report-identity">
                       <strong>{report.reference}</strong>
                       <small>
-                        {report.reporterRole === 'user' ? 'Member' : 'Guest'}
+                        {report.reporterRole === 'user' ? 'Community User' : 'Legacy guest'}
                       </small>
                     </span>
                   </td>
@@ -203,7 +199,9 @@ export function AdminDashboardPage() {
               ))}
             </tbody>
           </table>
-          {filteredReports.length === 0 && (
+          {loading && <p className="empty-state">Loading reports...</p>}
+          {loadError && <div className="empty-state" role="alert">{loadError} <button type="button" onClick={() => setRefreshVersion(value => value + 1)}>Try again</button></div>}
+          {!loading && !loadError && filteredReports.length === 0 && (
             <p className="empty-state">No reports match the current filters.</p>
           )}
         </div>

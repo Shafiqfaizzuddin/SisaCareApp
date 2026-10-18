@@ -4,12 +4,12 @@ import { LocationPicker } from '../components/location/LocationPicker'
 import { GoogleMap } from '../components/location/GoogleMap'
 import type { ReportLocation } from '../types'
 
-type FormState = { name: string; materials: string; description: string; accessNotes: string; openingHours: string; active: boolean }
-const emptyForm: FormState = { name: '', materials: '', description: '', accessNotes: '', openingHours: '', active: true }
+type FormState = { name: string; materials: string; description: string; accessNotes: string; openingHours: string; active: boolean; publicVerified: boolean }
+const emptyForm: FormState = { name: '', materials: '', description: '', accessNotes: '', openingHours: '', active: true, publicVerified: false }
 
 function fromPoint(point: RecyclingPoint): FormState {
   return { name: point.name, materials: point.accepted_materials.join(', '), description: point.description,
-    accessNotes: point.access_notes ?? '', openingHours: point.opening_hours ?? '', active: point.active !== false }
+    accessNotes: point.access_notes ?? '', openingHours: point.opening_hours ?? '', active: point.active !== false, publicVerified: point.public_verified === true }
 }
 
 export function AdminRecyclingPointsPage() {
@@ -60,6 +60,7 @@ export function AdminRecyclingPointsPage() {
         address: pin.address, address_source: pin.addressSource ?? null,
         accepted_materials: acceptedMaterials, description: form.description.trim(),
         access_notes: form.accessNotes.trim(), opening_hours: form.openingHours.trim(), active: form.active,
+        public_verified: form.publicVerified,
       }, editingId ?? undefined)
       setPoints(current => [...current.filter(point => point.id !== saved.id), saved]
         .sort((a, b) => a.name.localeCompare(b.name)))
@@ -93,7 +94,7 @@ export function AdminRecyclingPointsPage() {
   }
 
   return <section className="admin-recycling-page">
-    <header className="admin-page-heading"><div><p className="eyebrow">Registered locations</p><h1>Recycling points</h1><p>Register confirmed recycling locations. Only active production points are recommended for proof submissions.</p></div></header>
+    <header className="admin-page-heading"><div><p className="eyebrow">Registered locations</p><h1>Recycling points</h1><p>Review each location before approving it for public display. Historical campus stations remain private by default.</p></div></header>
     {loading && <p role="status">Loading recycling points...</p>}
     {error && <p role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
@@ -107,7 +108,8 @@ export function AdminRecyclingPointsPage() {
         <div className="field"><label htmlFor="point-materials">Accepted materials</label><input id="point-materials" value={form.materials} onChange={event => setForm(current => ({ ...current, materials: event.target.value }))} placeholder="Plastic, Paper, Metal" required disabled={busy} /><span className="field__hint">Separate materials with commas. Use the same names shown in confirmed waste results.</span></div>
         <div className="field"><label htmlFor="point-description">Description</label><textarea id="point-description" value={form.description} onChange={event => setForm(current => ({ ...current, description: event.target.value }))} maxLength={2000} rows={3} disabled={busy} /></div>
         <div className="field"><label htmlFor="point-hours">Opening hours (optional)</label><input id="point-hours" value={form.openingHours} onChange={event => setForm(current => ({ ...current, openingHours: event.target.value }))} maxLength={500} disabled={busy} /></div>
-        <label className="checkbox-field"><input type="checkbox" checked={form.active} onChange={event => setForm(current => ({ ...current, active: event.target.checked }))} disabled={busy} /> Active and visible to participants</label>
+        <label className="checkbox-field"><input type="checkbox" checked={form.active} onChange={event => setForm(current => ({ ...current, active: event.target.checked }))} disabled={busy} /> Active</label>
+        <label className="checkbox-field"><input type="checkbox" checked={form.publicVerified} onChange={event => setForm(current => ({ ...current, publicVerified: event.target.checked }))} disabled={busy} /> I reviewed this location, public access, and accepted materials for community use</label>
         <div className="recycling-point-form__actions"><button className="button button--primary" disabled={busy || !pinConfirmed}>{busy ? 'Saving...' : editingId ? 'Save changes' : 'Register point'}</button>{editingId && <button type="button" className="button button--secondary" disabled={busy} onClick={() => { setEditingId(null); setForm(emptyForm); setPin(null); setPinConfirmed(false) }}>Cancel edit</button>}</div>
       </form>
     </div>
@@ -116,7 +118,7 @@ export function AdminRecyclingPointsPage() {
         selectedMarkerId={editingId} onMarkerSelect={id => { const point = points.find(entry => entry.id === id); if (point) edit(point) }} ariaLabel="Map of registered recycling stations" />
       {!loading && points.length === 0 && <p>No registered recycling points have been added yet.</p>}
       <ul className="admin-recycling-list">{points.map(point => <li key={point.id}>
-        <div><strong>{point.name}</strong> <span>{point.active ? 'Active' : 'Inactive'}</span><p>{point.accepted_materials.join(', ')}</p><p>{point.address || 'Address not recorded'}</p><p>{point.latitude.toFixed(6)}, {point.longitude.toFixed(6)}</p>{point.description && <p>{point.description}</p>}{point.access_notes && <p>Access: {point.access_notes}</p>}{point.opening_hours && <p>Hours: {point.opening_hours}</p>}</div>
+        <div><strong>{point.name}</strong> <span>{point.active ? 'Active' : 'Inactive'} · {point.public_verified ? 'Public reviewed' : 'Private'}</span><p>{point.accepted_materials.join(', ')}</p><p>{point.address || 'Address not recorded'}</p><p>{point.latitude.toFixed(6)}, {point.longitude.toFixed(6)}</p>{point.description && <p>{point.description}</p>}{point.access_notes && <p>Access: {point.access_notes}</p>}{point.opening_hours && <p>Hours: {point.opening_hours}</p>}</div>
         <div className="admin-recycling-list__actions"><button type="button" className="button button--secondary" disabled={busy} onClick={() => edit(point)}>Edit</button>{point.active && <button type="button" className="button button--secondary" disabled={busy} onClick={() => void deactivate(point)}>Deactivate</button>}</div>
       </li>)}</ul>
     </div>

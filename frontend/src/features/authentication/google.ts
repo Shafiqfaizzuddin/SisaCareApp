@@ -1,12 +1,14 @@
 import { supabaseClient } from '../../lib/supabase'
 import { authenticatedFetch } from './authenticated-fetch'
+import { createBrowserSession, revokeBrowserSession } from './browser-session'
 
 declare global {
   interface Window {
     google?: {
       accounts: {
         id: {
-          initialize: (options: { client_id: string; callback: (response: { credential: string }) => void }) => void
+          initialize: (options: { client_id: string; callback: (response: { credential: string }) => void; auto_select?: boolean }) => void
+          disableAutoSelect?: () => void
           renderButton: (element: HTMLElement, options: { theme: string; size: string; text: string; width?: number }) => void
         }
       }
@@ -52,13 +54,16 @@ export async function signInWithGoogle(credential: string): Promise<void> {
   const { error } = await supabaseClient.auth.signInWithIdToken({ provider: 'google', token: credential })
   if (error) throw new Error(error.message)
   try {
+    await createBrowserSession(false)
     const response = await authenticatedFetch('/api/identity/google/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id_token: credential }),
     })
     if (!response.ok) throw new Error('Google session verification failed.')
+    window.dispatchEvent(new Event('sisacare:session-created'))
   } catch (error) {
+    await revokeBrowserSession().catch(() => undefined)
     await supabaseClient.auth.signOut()
     throw error
   }
@@ -71,9 +76,11 @@ export async function linkGoogleIdentity(credential: string): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id_token: credential }),
   })
-  if (!verified.ok) throw new Error('Use a verified UiTM Google account.')
+  if (!verified.ok) throw new Error('Use a verified Google account.')
   const { error } = await supabaseClient.auth.linkIdentity({ provider: 'google', token: credential })
   if (error) throw new Error(error.message)
+  await supabaseClient.auth.refreshSession()
+  await createBrowserSession()
   const response = await authenticatedFetch('/api/identity/google/complete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

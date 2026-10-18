@@ -10,6 +10,14 @@ from uuid import uuid4
 
 from app.core.config import get_settings
 from app.core.google_identity import suggested_matric
+from app.core.reward_policy import SPLIT_OFFSET_REASON
+
+
+_ELIGIBLE_REWARD_FILTER = (
+    "(e_merit_classification = 'eligible_student' OR "
+    f"(reason = '{SPLIT_OFFSET_REASON}' AND activity_affiliation = 'student')) "
+    "AND data_origin = 'production'"
+)
 
 
 def _connect() -> sqlite3.Connection:
@@ -121,7 +129,8 @@ def _initialize(database: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_matric_review_participant ON matric_reviews(user_id, reviewed_at)"
     )
     database.executescript(
-        """CREATE TRIGGER IF NOT EXISTS trg_merit_reservation_insert
+        f"""DROP TRIGGER IF EXISTS trg_merit_reservation_insert;
+           CREATE TRIGGER trg_merit_reservation_insert
            BEFORE INSERT ON e_merit_eligibility WHEN NEW.data_origin = 'production'
            BEGIN
              SELECT CASE WHEN NEW.points_reserved != 50 OR NEW.required_points != 50
@@ -137,8 +146,7 @@ def _initialize(database: sqlite3.Connection) -> None:
                THEN RAISE(ABORT, 'verified student review required') END;
              SELECT CASE WHEN (
                SELECT COALESCE(SUM(signed_amount), 0) FROM reward_events
-               WHERE user_id = NEW.user_id AND e_merit_classification = 'eligible_student'
-                 AND data_origin = 'production'
+               WHERE user_id = NEW.user_id AND {_ELIGIBLE_REWARD_FILTER}
              ) - (
                SELECT COALESCE(SUM(points_reserved), 0) FROM e_merit_eligibility
                WHERE user_id = NEW.user_id AND status IN ('pending_approval', 'approved', 'converted')
@@ -205,13 +213,6 @@ def read_identity(user_id: str, email: str, *, email_verified: bool) -> dict[str
         _initialize(database)
         database.execute("INSERT OR IGNORE INTO member_identities (user_id) VALUES (?)", (user_id,))
         row = database.execute("SELECT * FROM member_identities WHERE user_id = ?", (user_id,)).fetchone()
-        suggestion = suggested_matric(email) if email_verified else None
-        if suggestion and row["claimed_affiliation"] != "staff" and not row["matric_verified"] and not row["matric_number"]:
-            database.execute(
-                "UPDATE member_identities SET matric_number = ?, matric_source = 'verified_email' WHERE user_id = ?",
-                (suggestion, user_id),
-            )
-            row = database.execute("SELECT * FROM member_identities WHERE user_id = ?", (user_id,)).fetchone()
         result = dict(row)
         result["e_merit_identity_eligible"] = (
             row["claimed_affiliation"] == "student"
@@ -226,9 +227,8 @@ def read_identity(user_id: str, email: str, *, email_verified: bool) -> dict[str
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'reward_events'"
         ).fetchone()
         earned = database.execute(
-            """SELECT COALESCE(SUM(signed_amount), 0) FROM reward_events
-               WHERE user_id = ? AND e_merit_classification = 'eligible_student'
-                 AND data_origin = 'production'""",
+            f"""SELECT COALESCE(SUM(signed_amount), 0) FROM reward_events
+               WHERE user_id = ? AND {_ELIGIBLE_REWARD_FILTER}""",
             (user_id,),
         ).fetchone()[0] if reward_table and "e_merit_classification" in {
             column["name"] for column in database.execute("PRAGMA table_info(reward_events)")
@@ -416,9 +416,8 @@ def create_e_merit_eligibility(user_id: str) -> dict[str, object]:
             raise ValueError("An admin matric review is required for E-Merit eligibility.")
         # Older reward rows have the safe default 'unknown' and cannot be reclassified.
         earned = database.execute(
-            """SELECT COALESCE(SUM(signed_amount), 0) FROM reward_events
-               WHERE user_id = ? AND e_merit_classification = 'eligible_student'
-                 AND data_origin = 'production'""",
+            f"""SELECT COALESCE(SUM(signed_amount), 0) FROM reward_events
+               WHERE user_id = ? AND {_ELIGIBLE_REWARD_FILTER}""",
             (user_id,),
         ).fetchone()[0]
         reserved = database.execute(

@@ -7,7 +7,7 @@ export interface ReportDraftResult extends WasteAnalysisReport {
 }
 
 export async function generateReportDraft(
-  payload: Pick<ReportSubmissionPayload, 'analysis_id' | 'confirmed_items' | 'reviewed_detections'> & {
+  payload: Pick<ReportSubmissionPayload, 'analysis_id' | 'confirmed_items' | 'reviewed_detections' | 'split_recycling_review_ids'> & {
     user_description: string
     confirmed_address: string
   },

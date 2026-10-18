@@ -21,7 +21,6 @@ from app.core.auth import (
     require_authenticated_user,
 )
 from app.repositories import reports as report_repository
-from app.repositories.identities import activity_affiliation
 from app.repositories.reports import (
     DraftAccessDeniedError,
     ReviewValidationError,
@@ -33,6 +32,7 @@ from app.repositories.reports import (
     create_report,
     get_report,
     list_reports,
+    transition_report,
     validate_report,
 )
 from app.services.ai.image_validation import ImageValidationError, validate_image
@@ -52,7 +52,7 @@ from app.services.image_uploads import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 REPORT_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
-REPORT_IMAGE_PATTERN = re.compile(r"^(?:original|annotated)\.(?:jpg|jpeg|png|webp)$")
+REPORT_IMAGE_PATTERN = re.compile(r"^(?:original|annotated|after)\.(?:jpg|jpeg|png|webp)$")
 REPORT_MEDIA_HEADERS = {
     "Cache-Control": "private, no-store",
     "X-Content-Type-Options": "nosniff",
@@ -65,12 +65,13 @@ REPORT_MEDIA_TYPES = {
 }
 
 
-CampusCategory = Literal["Recyclable Waste", "Non-Recyclable Waste", "Bulky Waste", "Hazardous Waste"]
+WasteCategory = Literal["Recyclable Waste", "Non-Recyclable Waste", "Bulky Waste", "Hazardous Waste"]
+ReportCategory = WasteCategory | Literal["Needs Confirmation"]
 
 
 class ConfirmedWasteItem(BaseModel):
     name: str = Field(min_length=1, max_length=150)
-    category: CampusCategory
+    category: WasteCategory | None = None
     material: str = Field(default="Unknown", max_length=150)
     condition_answers: dict[str, bool] = Field(default_factory=dict)
     review_id: str | None = Field(default=None, min_length=1, max_length=100)
@@ -83,7 +84,7 @@ class ReviewedDetection(BaseModel):
     disposition: Literal["waste", "background", "removed", "attached_component", "needs_confirmation"]
     corrected_label: str = Field(default="", max_length=150)
     material: str = Field(default="Unknown", max_length=150)
-    category: CampusCategory | None = None
+    category: WasteCategory | None = None
     condition_answers: dict[str, bool] = Field(default_factory=dict)
     component_relation: Literal["attached", "detached", "unclear"] | None = None
     quantity: int | None = Field(default=None, ge=1, le=1000)
@@ -91,8 +92,9 @@ class ReviewedDetection(BaseModel):
 
 class ReportDraftRequest(BaseModel):
     analysis_id: str | None = Field(default=None, min_length=1, max_length=64)
-    confirmed_items: list[ConfirmedWasteItem] = Field(min_length=1, max_length=100)
-    reviewed_detections: list[ReviewedDetection] = Field(min_length=1, max_length=200)
+    confirmed_items: list[ConfirmedWasteItem] = Field(max_length=100)
+    reviewed_detections: list[ReviewedDetection] = Field(max_length=200)
+    split_recycling_review_ids: list[str] = Field(default_factory=list, max_length=100)
     user_description: str = Field(default="", max_length=1000)
     confirmed_address: str = Field(default="", max_length=500)
 
@@ -125,19 +127,23 @@ async def generate_report_draft(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-def category_for_items(items: list[ConfirmedWasteItem]) -> CampusCategory:
+def category_for_items(items: list[ConfirmedWasteItem]) -> ReportCategory:
+    if not items:
+        return "Needs Confirmation"
     if any(item.category == "Hazardous Waste" for item in items):
         return "Hazardous Waste"
     if any(item.category == "Bulky Waste" for item in items):
         return "Bulky Waste"
-    if all(item.category == "Recyclable Waste" for item in items):
+    if any(item.category == "Non-Recyclable Waste" for item in items):
+        return "Non-Recyclable Waste"
+    if any(item.category == "Recyclable Waste" for item in items):
         return "Recyclable Waste"
-    return "Non-Recyclable Waste"
+    return "Needs Confirmation"
 
 
 class ReportSubmission(BaseModel):
     analysis_id: str | None = Field(default=None, min_length=1, max_length=64)
-    rule_version: Literal["1.0.0"] | None = None
+    rule_version: Literal["1.0.0", "1.1.0", "1.2.0"] | None = None
     reporter_role: Literal["guest", "user"]
     user_id: str | None = Field(default=None, max_length=100)
     guest_name: str | None = Field(default=None, max_length=120)
@@ -147,9 +153,13 @@ class ReportSubmission(BaseModel):
     waste_identified: str = Field(default="", max_length=2000)
     recommended_action: str = Field(default="", max_length=2000)
     environmental_concern: str = Field(default="", max_length=2000)
-    category: CampusCategory
-    confirmed_items: list[ConfirmedWasteItem] = Field(min_length=1, max_length=100)
+    draft_source: Literal["ollama", "template", "user"] = "user"
+    draft_model_id: str | None = Field(default=None, max_length=200)
+    user_edited_fields: list[Literal["title", "summary", "waste_identified", "recommended_action", "environmental_concern"]] = Field(default_factory=list, max_length=5)
+    category: ReportCategory
+    confirmed_items: list[ConfirmedWasteItem] = Field(max_length=100)
     reviewed_detections: list[ReviewedDetection] | None = Field(default=None, max_length=200)
+    split_recycling_review_ids: list[str] = Field(default_factory=list, max_length=100)
     location: str = Field(min_length=1, max_length=500)
     latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
@@ -180,7 +190,9 @@ class ReportSubmission(BaseModel):
                     confirmed_material=item.material if item.material != "Unknown" else None,
                     answers=item.condition_answers,
                 )
-                if verdict["category"] is not None and item.category != verdict["category"]:
+                if item.category == "Bulky Waste" and verdict["category"] != "Bulky Waste":
+                    raise ValueError(f"Confirm that {item.name} is discarded waste before reporting it.")
+                if item.category is not None and verdict["category"] is not None and item.category != verdict["category"]:
                     raise ValueError(
                         f"{item.name} follows rule {verdict['rule_id']} for {verdict['category']}."
                     )
@@ -206,6 +218,10 @@ class ReportValidation(BaseModel):
     rejection_reason: str | None = Field(default=None, max_length=2000)
 
 
+class ReportAssignment(BaseModel):
+    team: str = Field(min_length=1, max_length=120)
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def submit_report(
     submission: ReportSubmission,
@@ -222,14 +238,14 @@ def _authorize_submission(
     user: AuthenticatedUser,
 ) -> dict[str, object]:
     if submission.reporter_role == "guest":
-        raise HTTPException(status_code=403, detail="Student sign-in is required for reports.")
+        raise HTTPException(status_code=403, detail="Community sign-in is required for reports.")
 
     if user["role"] != "user":
         raise HTTPException(status_code=403, detail="Participant access is required.")
 
     if (submission.analysis_id is not None
             and report_repository.analysis_draft_provider(submission.analysis_id) == "florence2"
-            and submission.rule_version != "1.0.0"):
+            and submission.rule_version not in {"1.0.0", "1.1.0", "1.2.0"}):
         raise HTTPException(status_code=422, detail="This Florence analysis requires the current waste rule version.")
 
     submission_data = submission.model_dump()
@@ -243,7 +259,7 @@ def _authorize_submission(
     submission_data["user_id"] = user["id"]
     submission_data["guest_name"] = None
     submission_data["guest_email"] = None
-    submission_data["activity_affiliation"] = activity_affiliation(user["id"], user.get("claimed_affiliation"))
+    submission_data["activity_affiliation"] = "unknown"
     return submission_data
 
 
@@ -366,11 +382,69 @@ async def validate_submitted_report(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValidationAlreadyDecidedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except sqlite3.Error as exc:
         raise HTTPException(
             status_code=500,
             detail="The validation decision could not be stored. Please try again.",
         ) from exc
+
+
+@router.post("/{report_id}/assignment")
+async def assign_report(
+    report_id: str,
+    assignment: ReportAssignment,
+    admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
+) -> dict[str, object]:
+    try:
+        return await run_in_threadpool(
+            transition_report, report_id, "assign", admin["id"], assigned_team=assignment.team,
+        )
+    except ReportNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationAlreadyDecidedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/{report_id}/resolution")
+async def resolve_report(
+    report_id: str,
+    admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
+    details: str = Form(..., min_length=1, max_length=2000),
+    image: UploadFile | None = File(default=None),
+) -> dict[str, object]:
+    destination: Path | None = None
+    try:
+        if image is not None:
+            try:
+                extension = validate_image_upload_metadata(image.filename, image.content_type)
+            except UploadMetadataError as exc:
+                raise HTTPException(status_code=415, detail="Use a JPG, PNG, or WEBP after-photo.") from exc
+            destination = create_unique_upload_path(UPLOAD_DIR, prefix="after", extension=extension)
+            await save_image_upload(image, destination)
+            await run_in_threadpool(validate_image, destination)
+        return await run_in_threadpool(
+            transition_report, report_id, "resolve", admin["id"],
+            resolution_details=details, after_photo_source=destination,
+        )
+    except ImageValidationError as exc:
+        raise HTTPException(status_code=400, detail=exc.public_message) from exc
+    except ValueError as exc:
+        if str(exc) == "IMAGE_TOO_LARGE":
+            raise HTTPException(status_code=413, detail=upload_size_limit_message(MAX_UPLOAD_SIZE)) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ReportNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValidationAlreadyDecidedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    finally:
+        if image is not None:
+            await image.close()
+        if destination is not None:
+            destination.unlink(missing_ok=True)
 
 
 @router.get("/files/{report_id}/{filename}", response_class=FileResponse)

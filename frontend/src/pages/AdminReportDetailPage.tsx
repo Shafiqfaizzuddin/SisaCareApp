@@ -5,7 +5,6 @@ import {
   CalendarClock,
   CheckCircle2,
   CircleX,
-  Coins,
   FileImage,
   MapPin,
   UserRound,
@@ -14,9 +13,10 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ReportStatus } from '../components/reports/ReportStatus'
 import { GoogleMap } from '../components/location/GoogleMap'
-import { reportSummaries } from '../features/admin-reports/report-data'
 import {
+  assignPersistedReport,
   fetchPersistedReport,
+  resolvePersistedReport,
   validatePersistedReport,
 } from '../features/admin-reports/admin-reports-api'
 import { wasteCategoryOptions } from '../features/reporting/categories'
@@ -109,12 +109,6 @@ function ReportContent({ report }: { report: WasteAnalysisReport }) {
 }
 
 function reportSummaryFromDetail(report: AdminReportDetail): ReportSummary {
-  const maximumConfidence = Math.max(
-    0,
-    ...report.detections.flatMap((detection) =>
-      detection.confidence === null ? [] : [detection.confidence],
-    ),
-  )
   return {
     id: report.id,
     reference: report.reference,
@@ -125,7 +119,7 @@ function reportSummaryFromDetail(report: AdminReportDetail): ReportSummary {
       timeStyle: 'short',
     }).format(new Date(report.createdAt)),
     status: report.status,
-    confidence: Math.round(maximumConfidence * 100),
+    confidence: null,
     description: report.summary,
     reporter: report.reporter,
     reporterRole: report.reporterRole,
@@ -135,26 +129,25 @@ function reportSummaryFromDetail(report: AdminReportDetail): ReportSummary {
 
 export function AdminReportDetailPage() {
   const { reportId } = useParams()
-  const sampleReport = reportSummaries.find((item) => item.id === reportId)
   const [persistedReport, setPersistedReport] = useState<AdminReportDetail | null>(null)
-  const [isLoading, setIsLoading] = useState(!sampleReport)
-  const report = sampleReport ?? (
-    persistedReport ? reportSummaryFromDetail(persistedReport) : undefined
+  const [isLoading, setIsLoading] = useState(true)
+  const report = persistedReport ? reportSummaryFromDetail(persistedReport) : undefined
+  const [currentStatus, setStatus] = useState<ReportStatusValue>(
+    report?.status ?? 'submitted',
   )
-  const [status, setStatus] = useState<ReportStatusValue>(
-    report?.status ?? 'processing',
-  )
+  const status = persistedReport?.status ?? currentStatus
   const [validationStatus, setValidationStatus] = useState(
     report?.validationStatus ?? 'pending',
   )
-  const [rewardPoints, setRewardPoints] = useState(
-    persistedReport?.rewardPoints ?? 0,
-  )
   const [isValidating, setIsValidating] = useState(false)
   const [validationError, setValidationError] = useState('')
+  const [rejectionReason, setRejectionReason] = useState('')
+  const [assignedTeam, setAssignedTeam] = useState('')
+  const [resolutionDetails, setResolutionDetails] = useState('')
+  const [afterPhoto, setAfterPhoto] = useState<File | null>(null)
 
   useEffect(() => {
-    if (sampleReport || !reportId) return
+    if (!reportId) return
     const controller = new AbortController()
     setIsLoading(true)
     fetchPersistedReport(reportId, controller.signal)
@@ -162,13 +155,12 @@ export function AdminReportDetailPage() {
       .catch(() => setPersistedReport(null))
       .finally(() => setIsLoading(false))
     return () => controller.abort()
-  }, [reportId, sampleReport])
+  }, [reportId])
 
   useEffect(() => {
     if (!persistedReport) return
     setStatus(persistedReport.status)
     setValidationStatus(persistedReport.validationStatus)
-    setRewardPoints(persistedReport.rewardPoints)
   }, [persistedReport])
 
   useEffect(
@@ -187,24 +179,33 @@ export function AdminReportDetailPage() {
     if (!report || isValidating || validationStatus !== 'pending') return
     setValidationError('')
 
-    if (!persistedReport) {
-      setValidationStatus(result)
-      setStatus(result === 'valid' ? 'in_progress' : 'completed')
-      return
-    }
-
     setIsValidating(true)
     try {
-      const saved = await validatePersistedReport(report.id, result)
+      const saved = await validatePersistedReport(report.id, result, rejectionReason)
       setValidationStatus(saved.validationStatus)
       setStatus(saved.status)
-      setRewardPoints((current) => current + saved.rewardPoints)
+      setPersistedReport(await fetchPersistedReport(report.id))
     } catch (error) {
       setValidationError(
         error instanceof Error
           ? error.message
           : 'The validation decision could not be saved.',
       )
+    } finally {
+      setIsValidating(false)
+    }
+  }
+
+  async function handleWorkflow(action: 'assign' | 'resolve') {
+    if (!report || isValidating) return
+    setIsValidating(true)
+    setValidationError('')
+    try {
+      if (action === 'assign') await assignPersistedReport(report.id, assignedTeam)
+      else await resolvePersistedReport(report.id, resolutionDetails, afterPhoto)
+      setPersistedReport(await fetchPersistedReport(report.id))
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : 'The status update failed.')
     } finally {
       setIsValidating(false)
     }
@@ -265,11 +266,7 @@ export function AdminReportDetailPage() {
                 <h2>Submitted evidence</h2>
                 <p>Image received with the public report</p>
               </div>
-              <span className="confidence">
-                {report.confidence !== null && report.confidence > 0
-                  ? `${report.confidence}% classification confidence`
-                  : 'No calibrated confidence available'}
-              </span>
+              <span className="confidence">Model detections require human review</span>
             </header>
             {persistedReport ? (
               <div className="evidence-comparison">
@@ -302,13 +299,7 @@ export function AdminReportDetailPage() {
                   <figcaption>Analysis preview</figcaption>
                 </figure>
               </div>
-            ) : (
-              <div className="evidence-placeholder">
-                <FileImage size={34} />
-                <strong>Image preview unavailable</strong>
-                <span>Evidence remains attached to this sample report.</span>
-              </div>
-            )}
+            ) : null}
           </section>
 
           {(!persistedReport || !persistedReport.generatedReport) && (
@@ -320,14 +311,15 @@ export function AdminReportDetailPage() {
 
           {persistedReport && persistedReport.confirmedItems.length > 0 && (
             <section className="admin-panel ai-detection-detail">
-              <h2>Participant confirmed waste</h2>
+              <h2>Reported analysis items</h2>
+              <p>AI suggestions and user edits are shown separately from municipal verification.</p>
               <p>Overall category: {persistedReport.category}</p>
               {persistedReport.confirmedItems.some((item) => item.category === 'Hazardous Waste') &&
-                <p className="review-hazard" role="status">Hazardous item confirmed. Review handling and arrange appropriate staff response.</p>}
+                <p className="review-hazard" role="status">Hazardous item confirmed. Review handling and arrange an appropriate response team.</p>}
               <ul>
                 {persistedReport.confirmedItems.map((item, index) => (
                   <li key={`${item.name}-${index}`}>
-                    {item.name} — {item.category} ({item.material})
+                    {item.name} — {item.category ?? 'Needs Confirmation'} ({item.material}) · {item.classification_source === 'user_confirmed' ? 'User edited' : 'AI/rule suggestion'}
                   </li>
                 ))}
               </ul>
@@ -490,20 +482,14 @@ export function AdminReportDetailPage() {
               <span><BadgeCheck size={20} /></span>
               <div>
                 <h2>Report validation</h2>
-                <p>Confirm whether this report is valid before assigning rewards.</p>
+                <p>Verify the evidence, or reject the report with a reason.</p>
               </div>
             </div>
             {validationStatus === 'pending' ? (
               <>
-                {report.reporterRole === 'user' && (
-                  <div className="reward-award-preview">
-                    <Coins size={18} />
-                    <span>
-                      <strong>40 bonus points</strong>
-                      Awarded to {report.reporter} after validation
-                    </span>
-                  </div>
-                )}
+                <label className="field">Reason for rejection
+                  <textarea value={rejectionReason} maxLength={2000} onChange={event => setRejectionReason(event.target.value)} placeholder="Required when rejecting a report" />
+                </label>
                 <div className="validation-actions">
                   <button
                     className="button button--primary"
@@ -545,15 +531,28 @@ export function AdminReportDetailPage() {
                       ? 'Validated report'
                       : 'Invalid report'}
                   </strong>
-                  {validationStatus === 'valid' && rewardPoints > 0
-                    ? `${rewardPoints} bonus points awarded to ${report.reporter}.`
-                    : validationStatus === 'valid'
-                      ? 'The report is valid. No reward points were awarded.'
-                      : 'No reward points were awarded.'}
+                  {validationStatus === 'valid' ? 'Ready for municipal assignment.' : 'Rejected with a recorded reason.'}
                 </span>
               </div>
             )}
           </section>
+
+          {validationStatus === 'valid' && status !== 'resolved' && <section className="admin-panel validation-panel">
+            <h2>Municipal response</h2>
+            {status === 'verified' && <div className="field"><label htmlFor="assigned-team">Assign to team</label>
+              <input id="assigned-team" value={assignedTeam} maxLength={120} onChange={event => setAssignedTeam(event.target.value)} />
+              <button className="button button--primary" type="button" disabled={isValidating || !assignedTeam.trim()} onClick={() => void handleWorkflow('assign')}>Assign report</button></div>}
+            {status === 'in_progress' && <div className="field"><p>Assigned team: {persistedReport?.assignedTeam}</p>
+              <label htmlFor="resolution-details">Resolution details</label>
+              <textarea id="resolution-details" value={resolutionDetails} maxLength={2000} onChange={event => setResolutionDetails(event.target.value)} />
+              <label htmlFor="after-photo">After-photo (optional)</label>
+              <input id="after-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={event => setAfterPhoto(event.target.files?.[0] ?? null)} />
+              <button className="button button--primary" type="button" disabled={isValidating || !resolutionDetails.trim()} onClick={() => void handleWorkflow('resolve')}>Mark resolved</button></div>}
+            {validationError && <p role="alert">{validationError}</p>}
+          </section>}
+          {persistedReport?.resolutionDetails && <section className="admin-panel"><h2>Resolution</h2><p>{persistedReport.resolutionDetails}</p>
+            {persistedReport.afterPhoto && <img src={persistedReport.afterPhoto} alt="After-photo supplied by the municipal administrator" />}
+          </section>}
 
           <section className="admin-panel detail-list">
             <h2>Report details</h2>
@@ -567,7 +566,7 @@ export function AdminReportDetailPage() {
                 <dd>
                   {report.reporter}
                   <span className="role-label">
-                    {report.reporterRole === 'user' ? 'Registered user' : 'Guest'}
+                    {report.reporterRole === 'user' ? 'Community User' : 'Legacy guest'}
                   </span>
                 </dd>
               </div>
@@ -594,20 +593,10 @@ export function AdminReportDetailPage() {
                   <small>{report.submittedAt}</small>
                 </div>
               </li>
-              <li>
-                <span><CheckCircle2 size={15} /></span>
-                <div>
-                  <strong>Evidence classified</strong>
-                  <small>{report.submittedAt}</small>
-                </div>
-              </li>
-              <li className="activity-panel__pending">
-                <span />
-                <div>
-                  <strong>Awaiting assignment</strong>
-                  <small>Municipal review queue</small>
-                </div>
-              </li>
+              {persistedReport?.statusEvents?.map((event, index) => <li key={`${event.createdAt}-${index}`}>
+                <span><CheckCircle2 size={15} /></span><div><strong>{event.newStatus.replace('_', ' ')}</strong>
+                <small>{event.createdAt}{event.reason ? ` · ${event.reason}` : ''}{event.assignedTeam ? ` · ${event.assignedTeam}` : ''}</small></div>
+              </li>)}
             </ol>
           </section>
         </aside>

@@ -14,6 +14,7 @@ import {
 import { memberTitleForPoints } from './member-data'
 import { RoleContext, type RoleContextValue } from './role-context'
 import { AuthenticationError, profileFromAuthUser } from './session'
+import { loadBrowserSession, createBrowserSession, revokeBrowserSession } from './browser-session'
 
 export function RoleProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null)
@@ -28,37 +29,40 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       setIsAuthLoading(false)
       return
     }
+    const client = supabaseClient
 
     let active = true
-    void supabaseClient.auth.getSession().then(({ data }) => {
+    void loadBrowserSession().then((profile) => {
       if (!active) return
-      const profile = data.session?.user
-        && data.session.user.email_confirmed_at
-        ? profileFromAuthUser(data.session.user)
-        : null
-      setUser(profile)
+      setUser(current => profile ?? current)
       setIsAuthLoading(false)
-    })
-    const { data } = supabaseClient.auth.onAuthStateChange((_event, session) => {
+    }).catch(() => { if (active) setIsAuthLoading(false) })
+    const { data } = client.auth.onAuthStateChange((event) => {
       if (!active) return
-      const profile = session?.user?.email_confirmed_at ? profileFromAuthUser(session.user) : null
-      setUser((current) =>
-        profile && current?.id === profile.id && current.role === 'user'
-          ? {
-              ...profile,
-              points: current.points,
-              title: current.title,
-              rank: current.rank,
-              validReports: current.validReports,
-            }
-          : profile,
-      )
-      setIsAuthLoading(false)
+      if (event === 'SIGNED_OUT') { setUser(null); setMemberReports([]); setIsAuthLoading(false) }
     })
+    const recheck = () => { void loadBrowserSession().then((profile) => {
+      if (!active) return
+      setUser(current => profile && current?.id === profile.id ? { ...profile, points: current.points,
+        title: current.title, rank: current.rank, validReports: current.validReports } : profile)
+      setIsAuthLoading(false)
+    }).catch(() => { if (active) setUser(null) }) }
+    window.addEventListener('focus', recheck)
+    window.addEventListener('sisacare:session-created', recheck)
+    const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('sisacare-auth')
+    if (channel) channel.onmessage = (message: MessageEvent<string>) => {
+      if (message.data === 'signed-out') { setUser(null); setMemberReports([]) }
+    }
+    const onVisible = () => { if (document.visibilityState === 'visible') recheck() }
+    document.addEventListener('visibilitychange', onVisible)
 
     return () => {
       active = false
       data.subscription.unsubscribe()
+      window.removeEventListener('focus', recheck)
+      window.removeEventListener('sisacare:session-created', recheck)
+      document.removeEventListener('visibilitychange', onVisible)
+      channel?.close()
     }
   }, [])
 
@@ -93,6 +97,11 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
+        if (error instanceof MemberDashboardRequestError && error.message.includes('session has expired')) {
+          setUser(null)
+          setMemberReports([])
+          return
+        }
         setMemberDataError(
           error instanceof MemberDashboardRequestError
             ? error.message
@@ -141,16 +150,29 @@ export function RoleProvider({ children }: { children: ReactNode }) {
             : 'Administrator accounts must use the administrator sign-in page.',
         )
       }
+      try { await createBrowserSession() } catch (error) {
+        await supabaseClient.auth.signOut()
+        throw new AuthenticationError(error instanceof Error ? error.message : 'Browser session could not be started.')
+      }
       setUser(profile)
     },
     [],
   )
 
   const signOut = useCallback(async () => {
-    if (supabaseClient) {
-      await supabaseClient.auth.signOut()
+    await revokeBrowserSession()
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel('sisacare-auth')
+      channel.postMessage('signed-out')
+      channel.close()
     }
-    setUser(null)
+    window.google?.accounts.id.disableAutoSelect?.()
+    try {
+      if (supabaseClient) await supabaseClient.auth.signOut()
+    } finally {
+      setUser(null)
+      setMemberReports([])
+    }
   }, [])
 
   const refreshMemberData = useCallback(() => {
@@ -158,7 +180,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signUp = useCallback(
-    async (fullName: string, email: string, password: string, claimedAffiliation: 'student' | 'staff') => {
+    async (fullName: string, email: string, password: string) => {
       if (!supabaseClient) {
         throw new AuthenticationError(
           'Authentication is not configured. Add the Supabase URL and publishable key.',
@@ -169,7 +191,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         email: email.trim(),
         password,
         options: {
-          data: { full_name: fullName.trim(), claimed_affiliation: claimedAffiliation },
+          data: { full_name: fullName.trim() },
           emailRedirectTo: `${window.location.origin}/login`,
         },
       })
@@ -179,6 +201,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         )
       }
       if (data.session && data.user.email_confirmed_at) {
+        await createBrowserSession()
         setUser(profileFromAuthUser(data.user))
       } else if (data.session) {
         await supabaseClient.auth.signOut()

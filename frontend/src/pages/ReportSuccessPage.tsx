@@ -1,11 +1,9 @@
 import {
   ArrowRight,
-  Award,
   Check,
   Clock3,
   FileCheck2,
   Home,
-  Trophy,
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
@@ -31,7 +29,7 @@ export function ReportSuccessPage() {
           <Check size={31} />
         </div>
         <p className="eyebrow">Report received</p>
-        <h1>Your UiTM Arau waste report was submitted.</h1>
+        <h1>Your community waste report was submitted.</h1>
         <p className="success-page__lead">
           Your report has been recorded for review. Keep the reference number
           below to identify it in future updates.
@@ -43,28 +41,7 @@ export function ReportSuccessPage() {
           <small>Submitted {submittedAt}</small>
         </div>
 
-        {state?.isMember ? (
-          <div className="reward-confirmation">
-            <span><Award size={21} /></span>
-            <div>
-              <strong>Reward pending verification</strong>
-              <p>
-                No points have been awarded yet. A reward is issued only if an
-                administrator validates this report.
-              </p>
-            </div>
-            <Trophy size={20} />
-          </div>
-        ) : (
-          <div className="guest-reward-prompt">
-            <Trophy size={20} />
-            <div>
-              <strong>Earn rewards on future reports</strong>
-              <p>Registered members collect points, achievements, and community titles.</p>
-            </div>
-            <Link to="/signup">Create an account</Link>
-          </div>
-        )}
+        <p>Sign in to follow the report through verification and resolution.</p>
 
         <div className="next-steps">
           <div>
@@ -78,7 +55,7 @@ export function ReportSuccessPage() {
             <span><Clock3 size={19} /></span>
             <div>
               <strong>Response planning</strong>
-              <p>Campus staff assess priority and access.</p>
+              <p>Municipal administrators assess the report and assign a response team.</p>
             </div>
           </div>
         </div>

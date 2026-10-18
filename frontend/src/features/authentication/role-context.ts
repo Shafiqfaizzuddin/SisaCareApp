@@ -18,7 +18,6 @@ export interface RoleContextValue {
     fullName: string,
     email: string,
     password: string,
-    claimedAffiliation: 'student' | 'staff',
   ) => Promise<SignUpResult>
   signOut: () => Promise<void>
   memberReports: MemberReportSummary[]

@@ -11,6 +11,7 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 from app.repositories import reports
+from app.core.reward_policy import RECYCLING_POINTS, SPLIT_INCIDENT_CAP, SPLIT_OFFSET_REASON
 from app.services.ai.waste_rules import classify_item
 
 
@@ -64,8 +65,30 @@ def create_action(submission: Mapping[str, Any], proof_source: Path) -> dict[str
             raise reports.DraftNotFoundError("The analysis draft does not exist.")
         if draft["user_id"] != submission["user_id"]:
             raise ActionForbidden("This analysis draft does not belong to your account.")
+        if database.execute("SELECT 1 FROM recycling_actions WHERE analysis_id = ?", (draft["id"],)).fetchone():
+            raise ActionConflict("A recycling action already uses this analysis.")
+        split_ids = json.loads(draft["split_recycling_ids_json"]) if draft["split_recycling_ids_json"] else []
         if draft["consumed_at"] is not None:
-            raise ActionConflict("This analysis has already been submitted.")
+            submitted_ids = [item.get("review_id") for item in submission["confirmed_items"]]
+            if not split_ids or len(submitted_ids) != len(set(submitted_ids)) or set(submitted_ids) != set(split_ids):
+                raise ActionConflict("Only the items reserved for recycling in the linked report can use this analysis.")
+            linked_report = database.execute("SELECT user_id, confirmed_ai_result_json FROM reports WHERE analysis_id = ?", (draft["id"],)).fetchone()
+            if linked_report is None or linked_report["user_id"] != submission["user_id"]:
+                raise ActionConflict("The linked report is unavailable.")
+            try:
+                confirmation = json.loads(linked_report["confirmed_ai_result_json"])
+                reviewed = {item["review_id"]: item for item in confirmation["user_corrections"]
+                            if item.get("disposition") == "waste"}
+            except (TypeError, KeyError, json.JSONDecodeError):
+                raise ActionConflict("The linked item confirmation is unavailable.") from None
+            for item in submission["confirmed_items"]:
+                source = reviewed.get(item["review_id"])
+                if (source is None or item["name"].strip() != source["corrected_label"].strip()
+                        or item["category"] != source["category"]
+                        or item.get("material") != source.get("material")
+                        or item.get("quantity") != source.get("quantity")
+                        or (item.get("condition_answers") or {}) != (source.get("condition_answers") or {})):
+                    raise ActionConflict("Recycling item details differ from the linked confirmation.")
         point = database.execute(
             "SELECT * FROM recycling_points WHERE id = ? AND active = 1 AND data_origin = 'production'",
             (submission["recycling_point_id"],),
@@ -73,8 +96,6 @@ def create_action(submission: Mapping[str, Any], proof_source: Path) -> dict[str
         if point is None:
             raise ActionNotFound("The selected recycling point is unavailable.")
         accepted = {material.strip().casefold() for material in json.loads(point["accepted_materials_json"])}
-        if any(item["material"].strip().casefold() not in accepted for item in submission["confirmed_items"]):
-            raise ActionConflict("The selected point does not accept every confirmed material.")
         try:
             draft_payload = json.loads(draft["detection_json"])
         except (TypeError, json.JSONDecodeError):
@@ -90,6 +111,10 @@ def create_action(submission: Mapping[str, Any], proof_source: Path) -> dict[str
                     raise ActionConflict(
                         f"{item['name']} needs confirmed condition and station acceptance before recycling."
                     )
+                if verdict["station_material_key"] is None or verdict["station_material_key"].strip().casefold() not in accepted:
+                    raise ActionConflict("The selected point does not accept every confirmed material.")
+        elif any(item["material"].strip().casefold() not in accepted for item in submission["confirmed_items"]):
+            raise ActionConflict("The selected point does not accept every confirmed material.")
         original_source = Path(draft["original_image_path"])
         annotated_source = Path(draft["annotated_image_path"])
         draft_paths = (original_source, annotated_source)
@@ -102,6 +127,8 @@ def create_action(submission: Mapping[str, Any], proof_source: Path) -> dict[str
         shutil.copy2(original_source, directory / original_name)
         shutil.copy2(proof_source, directory / proof_name)
         activity_key = "sha256:" + hashlib.sha256(original_source.read_bytes()).hexdigest()
+        if split_ids:
+            activity_key += ":recycling"
         base = f"/api/recycling/files/{action_id}"
         database.execute(
             """INSERT INTO recycling_actions
@@ -182,6 +209,8 @@ def review_action(action_id: str, decision: str, reviewer_id: str, reason: str |
             raise ActionNotFound("Recycling action not found.")
         if row["verification_status"] != "pending":
             raise ActionConflict("This recycling action has already been reviewed.")
+        if decision == "verified" and reports.other_incident_has_award(database, row["activity_key"], row["analysis_id"]):
+            raise ActionConflict("Another incident using this photo has already earned points.")
         if decision == "verified" and database.execute(
             "SELECT 1 FROM reward_events WHERE activity_key = ? AND transaction_type IN ('report_award', 'recycling_award')",
             (row["activity_key"],),
@@ -192,22 +221,7 @@ def review_action(action_id: str, decision: str, reviewer_id: str, reason: str |
                reviewed_at = ?, rejection_reason = ?, updated_at = ? WHERE id = ?""",
             (decision, reviewer_id, now, reason if decision == "rejected" else None, now, action_id),
         )
-        if decision == "verified":
-            affiliation = row["activity_affiliation"]
-            database.execute(
-                """INSERT INTO reward_events
-                   (id, recycling_action_id, user_id, signed_amount, points, transaction_type,
-                    source_activity_type, source_activity_id, activity_key, reason,
-                    activity_affiliation, e_merit_classification, audit_reference,
-                    reviewer_id, data_origin, created_at)
-                   VALUES (?, ?, ?, 5, 5, 'recycling_award', 'recycling_action', ?, ?,
-                     'verified_recycling', ?, ?, ?, ?, 'production', ?)""",
-                (uuid4().hex, action_id, row["user_id"], action_id, row["activity_key"],
-                 affiliation, "eligible_student" if affiliation == "student" else
-                 "ineligible_staff" if affiliation == "staff" else "ineligible_unknown",
-                 f"recycling-review:{action_id}", reviewer_id, now),
-            )
-        result = _action(_select_action(database, action_id)) | {"reward_points": 5 if decision == "verified" else 0}
+        result = _action(_select_action(database, action_id)) | {"reward_points": 0}
         database.commit()
         return result
     except Exception:

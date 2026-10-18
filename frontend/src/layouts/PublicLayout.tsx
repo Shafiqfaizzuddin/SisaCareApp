@@ -5,7 +5,6 @@ import {
   LogOut,
   Menu,
   ShieldCheck,
-  Trophy,
   X,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -17,12 +16,18 @@ const navigation = [
   { label: 'Home', to: '/' },
   { label: 'Report waste', to: '/report' },
   { label: 'Learn', to: '/education' },
-  { label: 'Leaderboard', to: '/leaderboard' },
 ]
 
 export function PublicLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [logoutError, setLogoutError] = useState('')
   const { role, user, signOut } = useRole()
+
+  const logOut = () => {
+    setLogoutError('')
+    void signOut().then(() => setMenuOpen(false)).catch((error: unknown) =>
+      setLogoutError(error instanceof Error ? error.message : 'Sign out failed. Please try again.'))
+  }
 
   return (
     <div className="site-shell">
@@ -46,14 +51,6 @@ export function PublicLayout() {
             {role === 'user' && user ? (
               <>
                 <Link
-                  className="member-points"
-                  to="/account"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  <Trophy size={16} />
-                  {user.points} pts
-                </Link>
-                <Link
                   className="member-profile-link"
                   to="/account"
                   onClick={() => setMenuOpen(false)}
@@ -66,10 +63,7 @@ export function PublicLayout() {
                   type="button"
                   aria-label="Sign out"
                   title="Sign out"
-                  onClick={() => {
-                    signOut()
-                    setMenuOpen(false)
-                  }}
+                  onClick={logOut}
                 >
                   <LogOut size={17} />
                 </button>
@@ -89,7 +83,7 @@ export function PublicLayout() {
                   type="button"
                   aria-label="Sign out"
                   title="Sign out"
-                  onClick={signOut}
+                  onClick={logOut}
                 >
                   <LogOut size={17} />
                 </button>
@@ -128,6 +122,8 @@ export function PublicLayout() {
         </div>
       </header>
 
+      {logoutError && <div className="container" role="alert">{logoutError}</div>}
+
       <main>
         <Outlet />
       </main>
@@ -143,7 +139,6 @@ export function PublicLayout() {
               Make a report <ArrowRight size={15} />
             </Link>
             <Link to="/education">Waste guide</Link>
-            <Link to="/leaderboard">Community leaderboard</Link>
             <Link to="/admin/login">Administrator access</Link>
           </div>
           <p className="public-footer__meta">

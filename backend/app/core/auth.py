@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 import httpx
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import Settings, get_settings
@@ -21,6 +21,7 @@ class AuthenticatedUser(TypedDict):
     has_email_identity: bool
     has_google_provider: bool
     claimed_affiliation: NotRequired[Literal["student", "staff"] | None]
+    display_name: NotRequired[str]
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -131,18 +132,36 @@ async def authenticate_access_token(
         "has_email_identity": has_email_identity,
         "has_google_provider": has_google_provider,
     }
+    if isinstance(user_metadata, dict):
+        name = user_metadata.get("full_name") or user_metadata.get("name")
+        if isinstance(name, str) and name.strip():
+            authenticated_user["display_name"] = name.strip()[:120]
     if claim in {"student", "staff"}:
         authenticated_user["claimed_affiliation"] = claim
     return authenticated_user
 
 
 async def get_optional_authenticated_user(
+    request: Request,
     credentials: Annotated[
         HTTPAuthorizationCredentials | None,
         Depends(bearer_scheme),
     ],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> AuthenticatedUser | None:
+    cookie = request.cookies.get("sisacare_session")
+    if cookie:
+        from app.repositories.browser_sessions import read
+
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            origin = request.headers.get("origin")
+            allowed = set(settings.allowed_cors_origins) | {str(request.base_url).rstrip("/")}
+            if origin is not None and origin not in allowed:
+                raise HTTPException(status_code=403, detail="Invalid session request origin.")
+        user = read(cookie)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Your session has expired. Sign in again.")
+        return user
     if credentials is None:
         return None
     return await authenticate_access_token(credentials.credentials, settings)
@@ -166,11 +185,6 @@ async def require_authenticated_user(
         raise HTTPException(status_code=403, detail="Google identity details are unavailable.")
     if user["google_sub"] is not None:
         from app.repositories.identities import has_google_sub
-        from app.core.google_identity import ALLOWED_GOOGLE_DOMAINS, normalized_email_domain
-
-        google_email = user["google_email"] or (user["email"] if not user["has_email_identity"] else "")
-        if normalized_email_domain(google_email) not in ALLOWED_GOOGLE_DOMAINS:
-            raise HTTPException(status_code=403, detail="Use a verified UiTM Google account.")
         if not has_google_sub(user["id"], user["google_sub"]):
             raise HTTPException(status_code=403, detail="Complete Google sign-in verification.")
     return user

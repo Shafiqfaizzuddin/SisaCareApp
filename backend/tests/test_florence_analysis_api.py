@@ -178,7 +178,17 @@ def test_active_detection_review_uses_versioned_rules():
     assert bottle["review_status"] == "needs_confirmation"
     assert bottle["rule_id"] == "WASTE-BOTTLE-v1"
     assert battery["suggested_category"] == "Hazardous Waste"
-    assert battery["review_status"] == "needs_confirmation"
+    assert battery["review_status"] == "likely_waste"
     assert battery["station_material_key"] is None
     assert food["suggested_category"] == "Non-Recyclable Waste"
     assert food["review_status"] == "likely_waste"
+    tin = florence_analysis._review_detection({"label": "tin can", "bounding_box": box}, 3)
+    aerosol = florence_analysis._review_detection({"label": "aerosol can", "bounding_box": box}, 4)
+    sofa = florence_analysis._review_detection({"label": "sofa", "bounding_box": box}, 5)
+    assert tin["canonical_name"] == "metal_can"
+    assert tin["waste_category"] == "Recyclable Waste"
+    assert tin["bounding_box"] == box
+    assert tin["classification_source"] == "rule"
+    assert aerosol["waste_category"] == "Hazardous Waste"
+    assert sofa["waste_category"] is None
+    assert sofa["confirmation_question"]

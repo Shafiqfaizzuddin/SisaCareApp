@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from typing import Any
 
 import httpx
@@ -13,7 +15,22 @@ from google.oauth2 import id_token
 from app.core.config import Settings
 
 
-ALLOWED_GOOGLE_DOMAINS = frozenset({"uitm.edu.my", "student.uitm.edu.my"})
+log = logging.getLogger(__name__)
+GOOGLE_TOKEN_CLOCK_SKEW_SECONDS = 30
+
+
+def _token_failure(exc: ValueError | TypeError) -> tuple[str, str]:
+    """Keep verifier details and credential contents out of responses and logs."""
+    message = str(exc).casefold()
+    if "audience" in message or "wrong recipient" in message:
+        return "audience_mismatch", "Google sign-in configuration does not match this app. Refresh the page and contact the site administrator if it continues."
+    if "expired" in message or "expiry" in message:
+        return "expired", "Google sign-in expired. Please try again."
+    if "too early" in message or "issued in the future" in message:
+        return "clock_skew", "Google token time is ahead of the server clock. Please retry; if it continues, check the server time."
+    if "signature" in message:
+        return "invalid_signature", "Google sign-in could not verify this credential. Please try again."
+    return "invalid", "Google sign-in could not verify this credential. Please try again."
 
 
 def normalized_email_domain(email: str) -> str:
@@ -34,10 +51,20 @@ def verify_google_token(token: str, settings: Settings) -> dict[str, str]:
         raise HTTPException(status_code=503, detail="Google sign-in is not configured.")
     try:
         claims: dict[str, Any] = id_token.verify_oauth2_token(
-            token, Request(), settings.google_client_id.strip()
+            token, Request(), settings.google_client_id.strip(),
+            clock_skew_in_seconds=GOOGLE_TOKEN_CLOCK_SKEW_SECONDS,
         )
     except (ValueError, TypeError) as exc:
-        raise HTTPException(status_code=401, detail="Invalid Google identity token.") from exc
+        reason, detail = _token_failure(exc)
+        if reason == "clock_skew":
+            # google-auth includes only epoch seconds in this error. Log the
+            # difference, never the token or its claims.
+            match = re.search(r"Token used too early, (\d+) < (\d+)", str(exc))
+            ahead = max(0, int(match.group(2)) - int(match.group(1))) if match else None
+            log.warning("google_id_token_rejected reason=%s ahead_seconds=%s", reason, ahead)
+        else:
+            log.warning("google_id_token_rejected reason=%s", reason)
+        raise HTTPException(status_code=401, detail=detail) from exc
     except GoogleAuthError as exc:
         raise HTTPException(status_code=503, detail="Google verification is unavailable.") from exc
     email = claims.get("email")
@@ -46,8 +73,8 @@ def verify_google_token(token: str, settings: Settings) -> dict[str, str]:
         raise HTTPException(status_code=401, detail="Google identity is incomplete.")
     if claims.get("email_verified") is not True:
         raise HTTPException(status_code=403, detail="Google email is not verified.")
-    if normalized_email_domain(email) not in ALLOWED_GOOGLE_DOMAINS:
-        raise HTTPException(status_code=403, detail="Use a verified UiTM Google account.")
+    if not normalized_email_domain(email):
+        raise HTTPException(status_code=401, detail="Google identity is incomplete.")
     return {"email": email.strip().casefold(), "sub": sub}
 
 

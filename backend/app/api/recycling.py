@@ -51,6 +51,7 @@ class RecyclingPointInput(BaseModel):
     access_notes: str = Field(default="", max_length=1000)
     opening_hours: str = Field(default="", max_length=500)
     active: bool = True
+    public_verified: bool = False
 
     @field_validator("name", "description", "access_notes", "opening_hours")
     @classmethod
@@ -131,6 +132,7 @@ def _serialize(row: sqlite3.Row) -> dict[str, object]:
         "address": row["address"], "address_source": row["address_source"],
         "access_notes": row["access_notes"], "opening_hours": row["opening_hours"],
         "created_at": row["created_at"], "updated_at": row["updated_at"],
+        "public_verified": bool(row["public_verified"]),
     }
 
 
@@ -139,7 +141,7 @@ def _list_points(*, active_only: bool) -> list[dict[str, object]]:
         initialize_database(database)
         rows = database.execute(
             """SELECT * FROM recycling_points WHERE data_origin = 'production'
-               AND (? = 0 OR active = 1) ORDER BY name COLLATE NOCASE, id""",
+               AND (? = 0 OR (active = 1 AND public_verified = 1)) ORDER BY name COLLATE NOCASE, id""",
             (int(active_only),),
         ).fetchall()
         return [_serialize(row) for row in rows]
@@ -156,21 +158,21 @@ def _save_point(point: RecyclingPointInput, point_id: str | None) -> dict[str, o
                 """INSERT INTO recycling_points
                    (id, name, latitude, longitude, accepted_materials_json,
                     description, address, address_source, access_notes, opening_hours,
-                    active, data_origin, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'production', ?, ?)""",
+                    active, public_verified, data_origin, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'production', ?, ?)""",
                 (point_id, point.name, point.latitude, point.longitude,
                  json.dumps(point.accepted_materials), point.description, point.address, point.address_source,
-                 point.access_notes, point.opening_hours, int(point.active), now, now),
+                 point.access_notes, point.opening_hours, int(point.active), int(point.public_verified), now, now),
             )
         else:
             cursor = database.execute(
                 """UPDATE recycling_points SET name = ?, latitude = ?, longitude = ?,
                    accepted_materials_json = ?, description = ?, address = ?, address_source = ?,
-                   access_notes = ?, opening_hours = ?, active = ?, updated_at = ?
+                   access_notes = ?, opening_hours = ?, active = ?, public_verified = ?, updated_at = ?
                    WHERE id = ? AND data_origin = 'production'""",
                 (point.name, point.latitude, point.longitude, json.dumps(point.accepted_materials),
                  point.description, point.address, point.address_source, point.access_notes,
-                 point.opening_hours, int(point.active), now, point_id),
+                 point.opening_hours, int(point.active), int(point.public_verified), now, point_id),
             )
             if cursor.rowcount == 0:
                 database.rollback()
@@ -224,6 +226,7 @@ async def submit_recycling_action(
     payload: str = Form(...),
     proof: UploadFile = File(...),
 ) -> dict[str, object]:
+    raise HTTPException(status_code=410, detail="New recycling proof submissions are retired in the community reporting workflow.")
     if user["role"] != "user":
         raise HTTPException(status_code=403, detail="Participant access is required.")
     try:

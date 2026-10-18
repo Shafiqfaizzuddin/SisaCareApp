@@ -1,13 +1,15 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { signInWithIdToken, signOut, linkIdentity, authenticatedFetch } = vi.hoisted(() => ({
-  signInWithIdToken: vi.fn(), signOut: vi.fn(), linkIdentity: vi.fn(), authenticatedFetch: vi.fn(),
+const { signInWithIdToken, signOut, linkIdentity, refreshSession, authenticatedFetch, createBrowserSession, revokeBrowserSession } = vi.hoisted(() => ({
+  signInWithIdToken: vi.fn(), signOut: vi.fn(), linkIdentity: vi.fn(), refreshSession: vi.fn(), authenticatedFetch: vi.fn(), createBrowserSession: vi.fn(), revokeBrowserSession: vi.fn(),
 }))
 
 vi.mock('../../lib/supabase', () => ({
-  supabaseClient: { auth: { signInWithIdToken, signOut, linkIdentity } },
+  supabaseClient: { auth: { signInWithIdToken, signOut, linkIdentity, refreshSession } },
 }))
 vi.mock('./authenticated-fetch', () => ({ authenticatedFetch }))
+vi.mock('./browser-session', () => ({ createBrowserSession, revokeBrowserSession }))
 
 import { linkGoogleIdentity, signInWithGoogle } from './google'
 
@@ -17,6 +19,9 @@ describe('Google account flow', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'approved' }) }))
     signInWithIdToken.mockResolvedValue({ error: null })
     linkIdentity.mockResolvedValue({ error: null })
+    refreshSession.mockResolvedValue({ error: null })
+    createBrowserSession.mockResolvedValue(undefined)
+    revokeBrowserSession.mockResolvedValue(undefined)
     authenticatedFetch.mockResolvedValue({ ok: true })
   })
 
@@ -43,9 +48,9 @@ describe('Google account flow', () => {
     expect(signInWithIdToken).not.toHaveBeenCalled()
   })
 
-  it('does not sign in after a server domain rejection', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: async () => ({ detail: 'Use a verified UiTM Google account.' }) }))
-    await expect(signInWithGoogle('invalid-domain-token')).rejects.toThrow('Use a verified UiTM Google account.')
+  it('does not sign in after an unverified Google credential', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: async () => ({ detail: 'Google email is not verified.' }) }))
+    await expect(signInWithGoogle('unverified-token')).rejects.toThrow('Google email is not verified.')
     expect(signInWithIdToken).not.toHaveBeenCalled()
   })
 

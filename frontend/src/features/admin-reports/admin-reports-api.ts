@@ -152,11 +152,12 @@ export async function fetchPersistedReports(
   signal?: AbortSignal,
 ): Promise<ReportSummary[]> {
   const response = await authenticatedFetch(REPORT_SUBMISSION_URL, { signal })
-  if (!response.ok) return []
+  if (!response.ok) throw new Error(response.status === 401 ? 'Your session has expired. Sign in again.' : 'Reports could not be loaded.')
   const value: unknown = await response.json()
-  return Array.isArray(value)
-    ? value.map(mapSummary).filter((item): item is ReportSummary => item !== null)
-    : []
+  if (!Array.isArray(value)) throw new Error('The report list returned an unexpected response.')
+  const reports = value.map(mapSummary)
+  if (reports.some(item => item === null)) throw new Error('The report list contains invalid data.')
+  return reports as ReportSummary[]
 }
 
 export async function fetchPersistedReport(
@@ -180,11 +181,27 @@ export async function fetchPersistedReport(
   })
   if (!summary) return null
 
+  const resultItems = isObject(value.confirmed_results)
+    ? Array.isArray(value.confirmed_results.final_confirmed_items)
+      ? value.confirmed_results.final_confirmed_items
+      : Array.isArray(value.confirmed_results.items) ? value.confirmed_results.items : []
+    : []
+
   const report: AdminReportDetail = {
     ...summary,
     reportLocation: mapReportLocation(value),
     rewardPoints:
       typeof value.reward_points === 'number' ? value.reward_points : 0,
+    assignedTeam: typeof value.assigned_team === 'string' ? value.assigned_team : null,
+    resolutionDetails: typeof value.resolution_details === 'string' ? value.resolution_details : null,
+    afterPhoto: typeof value.after_photo === 'string' ? value.after_photo : null,
+    statusEvents: Array.isArray(value.status_events) ? value.status_events.filter(isObject).map(event => ({
+      previousStatus: String(event.previous_status ?? ''), newStatus: String(event.new_status ?? ''),
+      reason: typeof event.reason === 'string' ? event.reason : null,
+      assignedTeam: typeof event.assigned_team === 'string' ? event.assigned_team : null,
+      resolutionDetails: typeof event.resolution_details === 'string' ? event.resolution_details : null,
+      createdAt: String(event.created_at ?? ''),
+    })) : [],
     siteNotes: typeof value.site_notes === 'string' ? value.site_notes : '',
     title: typeof value.title === 'string' ? value.title : '',
     summary: typeof value.summary === 'string' ? value.summary : '',
@@ -212,13 +229,11 @@ export async function fetchPersistedReport(
         )
       : [],
     aiAnalysis: isObject(value.ai_analysis) ? value.ai_analysis : null,
-    confirmedItems: isObject(value.confirmed_results) && Array.isArray(value.confirmed_results.items)
-      ? value.confirmed_results.items.filter((item: unknown) =>
+    confirmedItems: resultItems.filter((item: unknown) =>
           isObject(item) && typeof item.name === 'string' &&
           typeof item.material === 'string' &&
-          ['Recyclable Waste', 'Non-Recyclable Waste', 'Bulky Waste', 'Hazardous Waste'].includes(item.category as string),
-        ) as AdminReportDetail['confirmedItems']
-      : [],
+          (item.category === null || ['Recyclable Waste', 'Non-Recyclable Waste', 'Bulky Waste', 'Hazardous Waste'].includes(item.category as string)),
+        ) as AdminReportDetail['confirmedItems'],
     originalImage:
       typeof value.original_image === 'string' ? value.original_image : '',
     annotatedImage:
@@ -247,13 +262,14 @@ export async function fetchPersistedReport(
 export async function validatePersistedReport(
   reportId: string,
   validationStatus: 'valid' | 'invalid',
+  rejectionReason?: string,
 ): Promise<ReportValidationResult> {
   const response = await authenticatedFetch(
     `${REPORT_SUBMISSION_URL}/${encodeURIComponent(reportId)}/validation`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ validation_status: validationStatus }),
+      body: JSON.stringify({ validation_status: validationStatus, rejection_reason: rejectionReason }),
     },
   )
   let value: unknown
@@ -286,4 +302,23 @@ export async function validatePersistedReport(
     rewardAwarded: value.reward_awarded,
     rewardPoints: value.reward_points,
   }
+}
+
+export async function assignPersistedReport(reportId: string, team: string): Promise<void> {
+  const response = await authenticatedFetch(`${REPORT_SUBMISSION_URL}/${encodeURIComponent(reportId)}/assignment`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ team }),
+  })
+  const value: unknown = await response.json()
+  if (!response.ok) throw new Error(isObject(value) && typeof value.detail === 'string' ? value.detail : 'Assignment failed.')
+}
+
+export async function resolvePersistedReport(reportId: string, details: string, image: File | null): Promise<void> {
+  const payload = new FormData()
+  payload.set('details', details)
+  if (image) payload.set('image', image)
+  const response = await authenticatedFetch(`${REPORT_SUBMISSION_URL}/${encodeURIComponent(reportId)}/resolution`, {
+    method: 'POST', body: payload,
+  })
+  const value: unknown = await response.json()
+  if (!response.ok) throw new Error(isObject(value) && typeof value.detail === 'string' ? value.detail : 'Resolution failed.')
 }

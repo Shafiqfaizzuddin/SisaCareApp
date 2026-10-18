@@ -10,6 +10,7 @@ import sqlite3
 
 from app.core.config import Settings
 from app.core.google_identity import (
+    GOOGLE_TOKEN_CLOCK_SKEW_SECONDS,
     ensure_no_automatic_link,
     normalized_email_domain,
     suggested_matric,
@@ -44,39 +45,78 @@ def test_domain_is_exact_and_normalized() -> None:
     assert normalized_email_domain("x@fakeuitm.edu.my") != "uitm.edu.my"
 
 
-def test_google_token_checks_verified_email_and_domain(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_google_token_checks_verified_email_for_uitm_and_gmail(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "app.core.google_identity.id_token.verify_oauth2_token",
-        lambda *_args: {"sub": "stable-123", "email": "123@STUDENT.UITM.EDU.MY", "email_verified": True},
+        lambda *_args, **_kwargs: {"sub": "stable-123", "email": "123@STUDENT.UITM.EDU.MY", "email_verified": True},
     )
     assert verify_google_token("token", settings()) == {
         "sub": "stable-123", "email": "123@student.uitm.edu.my"
     }
     monkeypatch.setattr(
         "app.core.google_identity.id_token.verify_oauth2_token",
-        lambda *_args: {"sub": "stable-123", "email": "person@gmail.com", "email_verified": True},
+        lambda *_args, **_kwargs: {"sub": "stable-123", "email": "person@gmail.com", "email_verified": True},
     )
-    with pytest.raises(HTTPException) as exc:
-        verify_google_token("token", settings())
-    assert exc.value.status_code == 403
+    assert verify_google_token("token", settings()) == {
+        "sub": "stable-123", "email": "person@gmail.com"
+    }
     monkeypatch.setattr(
         "app.core.google_identity.id_token.verify_oauth2_token",
-        lambda *_args: {"sub": "stable-123", "email": "staff@uitm.edu.my", "email_verified": True},
+        lambda *_args, **_kwargs: {"sub": "stable-123", "email": "staff@uitm.edu.my", "email_verified": True},
     )
     assert verify_google_token("token", settings())["email"] == "staff@uitm.edu.my"
     monkeypatch.setattr(
         "app.core.google_identity.id_token.verify_oauth2_token",
-        lambda *_args: {"sub": "stable-123", "email": "staff@uitm.edu.my", "email_verified": False},
+        lambda *_args, **_kwargs: {"sub": "stable-123", "email": "staff@uitm.edu.my", "email_verified": False},
     )
     with pytest.raises(HTTPException) as exc:
         verify_google_token("token", settings())
     assert exc.value.status_code == 403
-    def invalid_token(*_args: object) -> None:
+    def invalid_token(*_args: object, **_kwargs: object) -> None:
         raise ValueError("invalid")
     monkeypatch.setattr("app.core.google_identity.id_token.verify_oauth2_token", invalid_token)
     with pytest.raises(HTTPException) as exc:
         verify_google_token("token", settings())
     assert exc.value.status_code == 401
+    assert "token" not in exc.value.detail.casefold()
+
+
+def test_google_token_uses_bounded_clock_skew(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed: dict[str, object] = {}
+    def verified(_token: str, _request: object, audience: str, *, clock_skew_in_seconds: int) -> dict[str, object]:
+        observed.update(audience=audience, skew=clock_skew_in_seconds)
+        return {"sub": "stable-123", "email": "person@gmail.com", "email_verified": True}
+    monkeypatch.setattr("app.core.google_identity.id_token.verify_oauth2_token", verified)
+    verify_google_token("token", settings())
+    assert observed == {"audience": settings().google_client_id, "skew": GOOGLE_TOKEN_CLOCK_SKEW_SECONDS}
+    assert 0 < GOOGLE_TOKEN_CLOCK_SKEW_SECONDS <= 30
+
+
+def test_google_clock_failure_logs_offset_without_token(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    def reject(*_args: object, **_kwargs: object) -> None:
+        raise ValueError("Token used too early, 100 < 145. Check that your computer's clock is set correctly.")
+    monkeypatch.setattr("app.core.google_identity.id_token.verify_oauth2_token", reject)
+    with pytest.raises(HTTPException):
+        verify_google_token("private-jwt-value", settings())
+    assert "reason=clock_skew ahead_seconds=45" in caplog.text
+    assert "private-jwt-value" not in caplog.text
+
+
+@pytest.mark.parametrize("verifier_error,expected", [
+    ("Wrong recipient, payload audience does not match", "configuration does not match"),
+    ("Token expired, 123 < 456", "expired"),
+    ("Token used too early, 123 < 456", "server clock"),
+    ("Could not verify signature", "could not verify this credential"),
+])
+def test_google_token_failure_has_actionable_safe_reason(monkeypatch: pytest.MonkeyPatch, verifier_error: str, expected: str) -> None:
+    def reject(*_args: object, **_kwargs: object) -> None:
+        raise ValueError(verifier_error)
+    monkeypatch.setattr("app.core.google_identity.id_token.verify_oauth2_token", reject)
+    with pytest.raises(HTTPException) as exc:
+        verify_google_token("private-jwt-value", settings())
+    assert exc.value.status_code == 401
+    assert expected in exc.value.detail
+    assert "private-jwt-value" not in exc.value.detail
 
 
 def test_existing_email_requires_explicit_link(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

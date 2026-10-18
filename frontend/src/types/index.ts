@@ -7,10 +7,12 @@ export type WasteCategory =
   | 'Non-Recyclable Waste'
   | 'Bulky Waste'
   | 'Hazardous Waste'
+  | 'Needs Confirmation'
 
 export type CampusWasteCategory = 'Recyclable Waste' | 'Non-Recyclable Waste' | 'Bulky Waste' | 'Hazardous Waste'
+export type ReportWasteCategory = CampusWasteCategory | 'Needs Confirmation'
 
-export type ReportStatus = 'submitted' | 'processing' | 'in_progress' | 'completed'
+export type ReportStatus = 'submitted' | 'verified' | 'in_progress' | 'resolved' | 'rejected' | 'processing' | 'completed'
 
 export type UserRole = 'guest' | 'user' | 'admin'
 
@@ -90,18 +92,24 @@ export type DetectionReviewStatus = 'likely_waste' | 'background' | 'needs_confi
 export interface FlorenceDetection {
   id: string
   label: string
+    original_label?: string
   name: string
+    canonical_name?: string
   display_name: string
   bounding_box: WasteBoundingBox
   confidence: null
   review_status: DetectionReviewStatus
   suggested_category: CampusWasteCategory | null
+    waste_category?: CampusWasteCategory | null
+    needs_confirmation?: boolean
+    confirmation_question?: string | null
+    classification_source?: 'rule' | 'user_confirmed'
   material: string
   recommended_handling: string
   confirmation_reason?: string | null
   questions?: Array<{ key: string; prompt: string }>
   station_material_key?: string | null
-  rule_id?: string
+    rule_id?: string | null
   bulky?: boolean
 }
 
@@ -200,7 +208,7 @@ export type WasteAnalysisResponse = WasteAnalysisSuccess | WasteAnalysisFailure
 
 export interface ReportSubmissionPayload {
   analysis_id?: string
-  rule_version?: '1.0.0'
+  rule_version?: '1.0.0' | '1.1.0' | '1.2.0'
   reporter_role: 'guest' | 'user'
   user_id?: string
   guest_name?: string
@@ -210,8 +218,12 @@ export interface ReportSubmissionPayload {
   waste_identified: string
   recommended_action: string
   environmental_concern: string
-  category: CampusWasteCategory
-  confirmed_items: Array<{ review_id?: string; name: string; category: CampusWasteCategory; material: string; quantity?: number; condition_answers?: Record<string, boolean> }>
+  category: ReportWasteCategory
+  draft_source?: 'ollama' | 'template' | 'user'
+  draft_model_id?: string | null
+  user_edited_fields?: Array<keyof WasteAnalysisReport>
+  confirmed_items: Array<{ review_id?: string; name: string; category: CampusWasteCategory | null; material: string; quantity?: number; condition_answers?: Record<string, boolean> }>
+  split_recycling_review_ids?: string[]
   reviewed_detections?: Array<{ id: string; source_detection_id: string | null; disposition: 'waste' | 'background' | 'removed' | 'attached_component' | 'needs_confirmation'; corrected_label: string; material: string; category: CampusWasteCategory | null; quantity?: number; condition_answers: Record<string, boolean>; component_relation: 'attached' | 'detached' | 'unclear' | null }>
   location: string
   latitude: number
@@ -258,6 +270,10 @@ export interface AdminReportDetail {
   status: ReportStatus
   validationStatus: ValidationStatus
   rewardPoints: number
+  assignedTeam?: string | null
+  resolutionDetails?: string | null
+  afterPhoto?: string | null
+  statusEvents?: Array<{ previousStatus: string; newStatus: string; reason: string | null; assignedTeam: string | null; resolutionDetails: string | null; createdAt: string }>
   reporterRole: 'guest' | 'user'
   reporter: string
   title: string
@@ -268,7 +284,7 @@ export interface AdminReportDetail {
   generatedReport: WasteAnalysisReport | null
   finalCategories: FinalWasteCategory[]
   aiAnalysis: Record<string, unknown> | null
-  confirmedItems: Array<{ name: string; category: CampusWasteCategory; material: string }>
+  confirmedItems: Array<{ name: string; category: CampusWasteCategory | null; material: string; classification_source?: 'rule' | 'user_confirmed' }>
   originalImage: string
   annotatedImage: string
   createdAt: string

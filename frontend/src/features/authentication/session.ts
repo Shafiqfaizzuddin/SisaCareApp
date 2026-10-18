@@ -45,7 +45,7 @@ export function profileFromAuthUser(user: User): UserProfile {
     role: isAdmin ? 'admin' : 'user',
     points: 0,
     title: isAdmin
-      ? metadataString(user.app_metadata.title) ?? 'Municipal Administrator'
+      ? metadataString(user.app_metadata.title) ?? 'SisaCare Administrator'
       : 'Community Member',
     rank: undefined,
     validReports: 0,

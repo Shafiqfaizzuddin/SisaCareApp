@@ -6,6 +6,7 @@ export type ConfirmedItem = {
   material: string
   condition_answers?: Record<string, boolean>
   questions?: Array<{ key: string; prompt: string }>
+  stationMaterialKey?: string | null
 }
 
 export function suggestedItems(detections: FusedWasteObject[]): ConfirmedItem[] {

@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   LogOut,
   Settings,
-  UserCheck,
   Recycle,
 } from 'lucide-react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
@@ -27,18 +26,7 @@ export function AdminLayout() {
             <ClipboardList size={18} />
             Reports
           </NavLink>
-          <NavLink to="/admin/matric">
-            <UserCheck size={18} />
-            Matric reviews
-          </NavLink>
-          <NavLink to="/admin/recycling-points">
-            <Recycle size={18} />
-            Recycling points
-          </NavLink>
-          <NavLink to="/admin/recycling-reviews">
-            <UserCheck size={18} />
-            Recycling reviews
-          </NavLink>
+          <NavLink to="/admin/recycling-points"><Recycle size={18} />Recycling locations</NavLink>
           <span className="admin-sidebar__disabled">
             <Settings size={18} />
             Settings
@@ -59,14 +47,14 @@ export function AdminLayout() {
       <div className="admin-workspace">
         <header className="admin-topbar">
           <div>
-            <span className="admin-topbar__label">Municipal operations</span>
-            <strong>Central district</strong>
+            <span className="admin-topbar__label">Municipal administration</span>
+            <strong>Waste reports</strong>
           </div>
           <div className="admin-profile" aria-label="Signed in administrator">
             <span>{user?.name.split(' ').map((part) => part[0]).join('') ?? 'AD'}</span>
             <div>
               <strong>{user?.name ?? 'Administrator'}</strong>
-              <small>{user?.title ?? 'Municipal Administrator'}</small>
+              <small>{user?.title ?? 'Administrator'}</small>
             </div>
           </div>
         </header>

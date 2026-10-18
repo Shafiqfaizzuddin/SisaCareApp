@@ -41,15 +41,15 @@ export function AdminLoginPage() {
           <span className="login-context__icon">
             <ShieldCheck size={25} />
           </span>
-          <p className="eyebrow">Municipal workspace</p>
+          <p className="eyebrow">Municipal administration</p>
           <h1>Coordinate cleaner communities from one clear view.</h1>
           <p>
             Review incoming evidence, prioritise sites, and track response
-            progress across the district.
+            progress in the service area you manage.
           </p>
         </div>
         <p className="login-context__footer">
-          Authorised municipal personnel only
+          Authorised administrators only
         </p>
       </section>
 
@@ -62,7 +62,7 @@ export function AdminLoginPage() {
           <div className="login-heading">
             <span><LockKeyhole size={21} /></span>
             <h2>Administrator sign in</h2>
-            <p>Use your municipal account to continue.</p>
+            <p>Use your administrator account to continue.</p>
           </div>
           <form onSubmit={handleSubmit}>
             <div className="field">
@@ -118,7 +118,7 @@ export function AdminLoginPage() {
             </button>
           </form>
           <p className="login-note">
-            Access is restricted to authorised municipal personnel. Account
+            Access is restricted to authorised administrators. Account
             activity may be monitored.
           </p>
         </div>

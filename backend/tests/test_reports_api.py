@@ -612,7 +612,7 @@ def test_member_submission_stores_user_id(
     assert reward_count == 0
 
 
-def test_member_reward_is_created_once_after_admin_validation(
+def test_admin_verification_is_idempotent_and_creates_no_campus_reward(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -651,16 +651,16 @@ def test_member_reward_is_created_once_after_admin_validation(
     assert first_validation.json() == {
         "report_id": report_id,
         "validation_status": "valid",
-        "status": "in_progress",
-        "reward_awarded": True,
-        "reward_points": 2,
+        "status": "verified",
+        "reward_awarded": False,
+        "reward_points": 0,
     }
     assert retried_validation.status_code == 200
     assert retried_validation.json()["reward_awarded"] is False
     assert retried_validation.json()["reward_points"] == 0
     reopened = client.get(f"/api/reports/{report_id}")
     assert reopened.status_code == 200
-    assert reopened.json()["reward_points"] == 2
+    assert reopened.json()["reward_points"] == 0
 
     with sqlite3.connect(report_repository.DATABASE_PATH) as database:
         report = database.execute(
@@ -670,11 +670,9 @@ def test_member_reward_is_created_once_after_admin_validation(
             "SELECT report_id, user_id, points, reason FROM reward_events"
         ).fetchall()
 
-    assert report[0:2] == ("valid", "in_progress")
+    assert report[0:2] == ("valid", "verified")
     assert report[2] is not None
-    assert rewards == [
-        (report_id, "usr-204", 2, "validated_report"),
-    ]
+    assert rewards == []
 
 
 def test_invalid_report_cannot_generate_a_reward_or_be_revalidated(
@@ -694,7 +692,7 @@ def test_invalid_report_cannot_generate_a_reward_or_be_revalidated(
 
     invalid = client.post(
         f"/api/reports/{report_id}/validation",
-        json={"validation_status": "invalid"},
+        json={"validation_status": "invalid", "rejection_reason": "Duplicate report"},
     )
     reversal = client.post(
         f"/api/reports/{report_id}/validation",
@@ -703,7 +701,7 @@ def test_invalid_report_cannot_generate_a_reward_or_be_revalidated(
 
     assert invalid.status_code == 200
     assert invalid.json()["reward_awarded"] is False
-    assert invalid.json()["status"] == "completed"
+    assert invalid.json()["status"] == "rejected"
     assert reversal.status_code == 409
     with sqlite3.connect(report_repository.DATABASE_PATH) as database:
         reward_count = database.execute(

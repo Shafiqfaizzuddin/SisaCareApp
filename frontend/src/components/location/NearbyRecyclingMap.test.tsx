@@ -32,3 +32,15 @@ it('shows only database stations, ranks from confirmed origin, and navigates wit
     .toContain('destination=6.801,100.301')
   expect(globalThis.fetch).not.toHaveBeenCalled()
 })
+
+it('ranks compact station guidance from the confirmed waste location without another picker', () => {
+  render(<NearbyRecyclingMap compact wasteLocation={{ latitude: 6.8, longitude: 100.3, address: 'Site', source: 'map',
+    street: null, city: null, state: null, postcode: null, country: null }}
+    registeredPoints={[
+      { id: 'far', name: 'A Far station', latitude: 7.5, longitude: 100.3, accepted_materials: ['Plastic'], description: '', active: true },
+      { id: 'near', name: 'Z Near station', latitude: 6.801, longitude: 100.301, accepted_materials: ['Plastic'], description: '', active: true },
+    ]} />)
+  expect(screen.queryByRole('button', { name: 'Choose origin' })).toBeNull()
+  expect(screen.getAllByRole('button', { name: /station/i })[0].textContent).toContain('Z Near station')
+  expect(screen.getAllByText(/straight-line/, { selector: 'span' })).toHaveLength(2)
+})

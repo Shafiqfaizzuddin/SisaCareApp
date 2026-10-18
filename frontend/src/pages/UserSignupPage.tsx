@@ -9,7 +9,6 @@ interface SignupFields {
   email: string
   password: string
   confirmPassword: string
-  claimedAffiliation: 'student' | 'staff'
 }
 
 const EMPTY_FIELDS: SignupFields = {
@@ -17,7 +16,6 @@ const EMPTY_FIELDS: SignupFields = {
   email: '',
   password: '',
   confirmPassword: '',
-  claimedAffiliation: 'student',
 }
 
 export function UserSignupPage() {
@@ -52,7 +50,7 @@ export function UserSignupPage() {
     setIsSubmitting(true)
     setSignupError('')
     try {
-      const result = await signUp(fields.fullName, fields.email, fields.password, fields.claimedAffiliation)
+      const result = await signUp(fields.fullName, fields.email, fields.password)
       if (result.requiresEmailConfirmation) {
         setConfirmationEmail(fields.email.trim())
       } else {
@@ -78,12 +76,11 @@ export function UserSignupPage() {
           <p className="eyebrow">Join SisaCare</p>
           <h1>Make your community reports count.</h1>
           <p>
-            Create a member account to track submitted reports and earn rewards
-            after municipal verification.
+            Create a community account to submit reports and follow their progress.
           </p>
         </div>
         <p className="login-context__footer">
-          Rewards recognise verified contributions.
+          Reports are reviewed by a municipal administrator.
         </p>
       </section>
 
@@ -110,8 +107,8 @@ export function UserSignupPage() {
             <>
               <div className="login-heading">
                 <span><UserPlus size={21} /></span>
-                <h2>Create member account</h2>
-                <p>Register to track reports and receive verified rewards.</p>
+                <h2>Create community account</h2>
+                <p>Register to submit and track community waste reports.</p>
               </div>
               <form onSubmit={handleSubmit}>
                 <div className="field">
@@ -169,13 +166,6 @@ export function UserSignupPage() {
                     disabled={isSubmitting}
                     required
                   />
-                </div>
-                <div className="field">
-                  <label htmlFor="signup-affiliation">I am a</label>
-                  <select id="signup-affiliation" value={fields.claimedAffiliation} onChange={event => updateField('claimedAffiliation', event.target.value as 'student' | 'staff')}>
-                    <option value="student">Student</option><option value="staff">Staff</option>
-                  </select>
-                  <span className="field__hint">This is a claim. Verification and admin permissions are separate.</span>
                 </div>
                 {signupError && (
                   <p className="login-error" role="alert">{signupError}</p>

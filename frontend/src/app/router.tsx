@@ -4,14 +4,12 @@ import { PublicLayout } from '../layouts/PublicLayout'
 import { RoleGuard } from '../components/common/RoleGuard'
 import { AdminDashboardPage } from '../pages/AdminDashboardPage'
 import { AdminLoginPage } from '../pages/AdminLoginPage'
-import { AdminMatricReviewPage } from '../pages/AdminMatricReviewPage'
-import { AdminRecyclingPointsPage } from '../pages/AdminRecyclingPointsPage'
-import { AdminRecyclingReviewPage } from '../pages/AdminRecyclingReviewPage'
 import { AdminReportDetailPage } from '../pages/AdminReportDetailPage'
+import { AdminRecyclingPointsPage } from '../pages/AdminRecyclingPointsPage'
 import { EducationPage } from '../pages/EducationPage'
 import { HomePage } from '../pages/HomePage'
-import { LeaderboardPage } from '../pages/LeaderboardPage'
 import { MemberDashboardPage } from '../pages/MemberDashboardPage'
+import { MemberReportDetailPage } from '../pages/MemberReportDetailPage'
 import { ReportSuccessPage } from '../pages/ReportSuccessPage'
 import { SubmitReportPage } from '../pages/SubmitReportPage'
 import { UserLoginPage } from '../pages/UserLoginPage'
@@ -26,7 +24,6 @@ export const router = createBrowserRouter([
       { path: 'report', element: <RoleGuard allow={['user']} redirectTo="/login"><SubmitReportPage /></RoleGuard> },
       { path: 'report/success', element: <ReportSuccessPage /> },
       { path: 'education', element: <EducationPage /> },
-      { path: 'leaderboard', element: <LeaderboardPage /> },
       {
         path: 'account',
         element: (
@@ -35,6 +32,7 @@ export const router = createBrowserRouter([
           </RoleGuard>
         ),
       },
+      { path: 'account/reports/:reportId', element: <RoleGuard allow={['user']} redirectTo="/login"><MemberReportDetailPage /></RoleGuard> },
     ],
   },
   {
@@ -59,9 +57,7 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <AdminDashboardPage /> },
-      { path: 'matric', element: <AdminMatricReviewPage /> },
       { path: 'recycling-points', element: <AdminRecyclingPointsPage /> },
-      { path: 'recycling-reviews', element: <AdminRecyclingReviewPage /> },
       { path: 'reports/:reportId', element: <AdminReportDetailPage /> },
     ],
   },

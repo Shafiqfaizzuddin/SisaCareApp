@@ -7,29 +7,30 @@ import { googleMapsNavigationUrl } from '../../features/location/google-maps'
 import { LocationPicker } from './LocationPicker'
 import { GoogleMap } from './GoogleMap'
 
-export function NearbyRecyclingMap({ registeredPoints, items = [], compact = false }: { registeredPoints: RecyclingPoint[]; items?: ConfirmedItem[]; compact?: boolean }) {
+export function NearbyRecyclingMap({ registeredPoints, items = [], compact = false, wasteLocation = null }: { registeredPoints: RecyclingPoint[]; items?: ConfirmedItem[]; compact?: boolean; wasteLocation?: ReportLocation | null }) {
   const [origin, setOrigin] = useState<ReportLocation | null>(null)
   const [confirmed, setConfirmed] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const rankedOrigin = wasteLocation ?? (confirmed ? origin : null)
   const materials = useMemo(() => new Set(items.filter(item => item.category === 'Recyclable Waste')
     .map(item => item.material.trim().toLocaleLowerCase()).filter(value => value && value !== 'unknown')), [items])
   const points = useMemo(() => registeredPoints.filter(point => point.active !== false).map(point => ({
-    point, distance: origin && confirmed ? straightLineDistanceKm(origin, point) : null,
+    point, distance: rankedOrigin ? straightLineDistanceKm(rankedOrigin, point) : null,
     matches: point.accepted_materials.some(value => materials.has(value.trim().toLocaleLowerCase())),
   })).sort((a, b) => a.distance === null || b.distance === null
-    ? a.point.name.localeCompare(b.point.name) : a.distance - b.distance), [registeredPoints, origin, confirmed, materials])
+    ? a.point.name.localeCompare(b.point.name) : a.distance - b.distance), [registeredPoints, rankedOrigin, materials])
   const selected = points.find(entry => entry.point.id === selectedId)?.point ?? null
   const nearby = points.filter(entry => entry.distance !== null && entry.distance <= 20)
 
   return <section aria-label="Nearby registered recycling stations">
     <h3>Registered recycling stations</h3>
-    <p>{compact ? 'These stations come from the SisaCare registry. Open one in Google Maps for directions.'
+    <p>{compact ? 'Ranked from the confirmed waste location by approximate straight-line distance. Open a station in Google Maps for directions.'
       : 'Choose an origin to rank stations by approximate straight-line distance. GPS is requested only if you select “Use my current location”.'}</p>
     {!compact && <LocationPicker idPrefix="recycling-origin" mapLabel="Select an origin for recycling stations"
       value={origin} confirmed={confirmed} onChange={value => { setOrigin(value); setConfirmed(false) }}
       onConfirm={() => setConfirmed(true)} />}
     {points.length === 0 && <p>No active registered recycling stations are available. Try reporting the waste or ask staff for disposal guidance.</p>}
-    {origin && confirmed && points.length > 0 && nearby.length === 0 && <p>No registered stations were found within 20 km of this origin. Other registered stations remain listed below.</p>}
+    {rankedOrigin && points.length > 0 && nearby.length === 0 && <p>No registered stations were found within 20 km of this origin. Other registered stations remain listed below.</p>}
     {points.length > 0 && <>
       <ul className="recycling-recommendations__list">{points.map(({ point, distance, matches }) => <li key={point.id}>
         <button type="button" className={selected?.id === point.id ? 'recycling-point recycling-point--selected' : 'recycling-point'}

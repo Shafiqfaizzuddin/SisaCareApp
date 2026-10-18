@@ -61,27 +61,6 @@ export function HomePage() {
         </div>
       </section>
 
-      <section className="impact-band" aria-label="Service impact">
-        <div className="container impact-band__grid">
-          <div>
-            <strong>1,248</strong>
-            <span>reports received</span>
-          </div>
-          <div>
-            <strong>82%</strong>
-            <span>reviewed within 24 hours</span>
-          </div>
-          <div>
-            <strong>936</strong>
-            <span>sites resolved</span>
-          </div>
-          <div>
-            <strong>4.8/5</strong>
-            <span>community satisfaction</span>
-          </div>
-        </div>
-      </section>
-
       <section className="section">
         <div className="container">
           <div className="section-heading">
@@ -90,7 +69,7 @@ export function HomePage() {
               <h2>Three steps from sighting to action</h2>
             </div>
             <p>
-              Good evidence helps municipal teams understand the site before they
+              Good evidence helps response teams understand the site before they
               arrive.
             </p>
           </div>

@@ -6,12 +6,14 @@ import json
 import hashlib
 import shutil
 import sqlite3
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
 from app.core.config import get_settings
+from app.core.reward_policy import REPORT_POINTS, SPLIT_OFFSET_REASON
 from app.services.ai.waste_rules import classify_item
 
 
@@ -19,7 +21,7 @@ _settings = get_settings()
 DATABASE_PATH = _settings.database_path
 REPORT_ASSETS_DIR = _settings.report_assets_dir
 REPORT_ASSET_URL_PREFIX = "/api/reports/files"
-REPORT_VALIDATION_REWARD_POINTS = 2
+REPORT_VALIDATION_REWARD_POINTS = REPORT_POINTS
 
 
 class DraftNotFoundError(LookupError):
@@ -78,6 +80,7 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
                 ai_report_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 consumed_at TEXT
+                ,split_recycling_ids_json TEXT
             );
 
             CREATE TABLE IF NOT EXISTS reports (
@@ -146,6 +149,21 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
             CREATE INDEX IF NOT EXISTS idx_waste_detections_report_id
                 ON waste_detections(report_id);
 
+            CREATE TABLE IF NOT EXISTS report_status_events (
+                id TEXT PRIMARY KEY,
+                report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE RESTRICT,
+                actor_id TEXT NOT NULL,
+                previous_status TEXT NOT NULL,
+                new_status TEXT NOT NULL,
+                reason TEXT,
+                assigned_team TEXT,
+                resolution_details TEXT,
+                after_photo TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_report_status_events_report
+                ON report_status_events(report_id, created_at);
+
             CREATE TABLE IF NOT EXISTS recycling_points (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL CHECK (length(trim(name)) > 0),
@@ -161,6 +179,7 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
                 opening_hours TEXT NOT NULL DEFAULT '',
                 data_origin TEXT NOT NULL DEFAULT 'production'
                     CHECK (data_origin IN ('production', 'demo')),
+                public_verified INTEGER NOT NULL DEFAULT 0 CHECK (public_verified IN (0, 1)),
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -244,11 +263,25 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
 
             CREATE INDEX IF NOT EXISTS idx_reward_events_user_id
                 ON reward_events(user_id);
+
+            CREATE TABLE IF NOT EXISTS public_participants (
+                user_id TEXT PRIMARY KEY,
+                public_name TEXT NOT NULL UNIQUE,
+                role TEXT NOT NULL CHECK (role IN ('user', 'admin')),
+                visible INTEGER NOT NULL DEFAULT 1 CHECK (visible IN (0, 1)),
+                disabled INTEGER NOT NULL DEFAULT 0 CHECK (disabled IN (0, 1)),
+                deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
+                data_origin TEXT NOT NULL DEFAULT 'production'
+                    CHECK (data_origin IN ('production', 'demo'))
+            );
             """
         )
         _ensure_analysis_draft_owner_column(database)
+        if "split_recycling_ids_json" not in {row["name"] for row in database.execute("PRAGMA table_info(analysis_drafts)")}:
+            database.execute("ALTER TABLE analysis_drafts ADD COLUMN split_recycling_ids_json TEXT")
         _ensure_report_validation_columns(database)
         _ensure_report_location_columns(database)
+        _ensure_community_report_columns(database)
         _ensure_report_ai_columns(database)
         _ensure_campus_columns(database)
         _ensure_recycling_action_columns(database)
@@ -312,6 +345,13 @@ def _ensure_report_location_columns(database: sqlite3.Connection) -> None:
             database.execute(f"ALTER TABLE reports ADD COLUMN {name} {data_type}")
 
 
+def _ensure_community_report_columns(database: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in database.execute("PRAGMA table_info(reports)")}
+    for name in ("assigned_team", "resolution_details", "after_photo"):
+        if name not in columns:
+            database.execute(f"ALTER TABLE reports ADD COLUMN {name} TEXT")
+
+
 def _ensure_report_ai_columns(database: sqlite3.Connection) -> None:
     """Add immutable server-owned AI facts to previously created databases."""
 
@@ -346,6 +386,7 @@ def _ensure_campus_columns(database: sqlite3.Connection) -> None:
     for name, definition in {
         "address": "TEXT", "address_source": "TEXT",
         "access_notes": "TEXT NOT NULL DEFAULT ''", "opening_hours": "TEXT NOT NULL DEFAULT ''",
+        "public_verified": "INTEGER NOT NULL DEFAULT 0",
     }.items():
         if name not in point_columns:
             database.execute(f"ALTER TABLE recycling_points ADD COLUMN {name} {definition}")
@@ -582,7 +623,7 @@ def analysis_draft_provider(draft_id: str) -> str | None:
 def validate_review_for_drafting(
     analysis_id: str | None, user_id: str, submission: Mapping[str, Any],
 ) -> None:
-    """Authorize a draft and ensure only fully reviewed items reach the writer."""
+    """Authorize a draft and keep model observations separate from user edits."""
     if analysis_id is None:
         _build_review_confirmation(None, submission)
         return
@@ -599,7 +640,7 @@ def validate_review_for_drafting(
     if draft["consumed_at"] is not None:
         raise DraftAlreadySubmittedError("This analysis draft has already been submitted.")
     if json.loads(draft["detection_json"]).get("provider") != "florence2":
-        raise ReviewValidationError("Report drafting requires confirmed Florence or manual items.")
+        raise ReviewValidationError("Report drafting requires Florence or manual items.")
     _build_review_confirmation(draft["detection_json"], submission)
 
 
@@ -620,9 +661,9 @@ def _build_review_confirmation(
     detection_json: str | None,
     submission: Mapping[str, Any],
 ) -> dict[str, Any] | None:
-    """Join user review to immutable detector IDs and derive rule provenance.
+    """Join review state to immutable detector IDs and derive rule provenance.
 
-    Every raw detection must receive one review decision. Only reviewed waste
+    Every raw detection must receive one disposition. Only reportable
     entries become final disposal items; background, removed, and attached cap
     detections remain in the correction audit without inflating item counts.
     """
@@ -655,11 +696,11 @@ def _build_review_confirmation(
             if source_id not in raw_by_id or source_id in seen_detection_ids:
                 raise ReviewValidationError("A reviewed detection is missing or repeated.")
             seen_detection_ids.add(source_id)
-        elif review.get("disposition") != "waste":
-            raise ReviewValidationError("A manually added item must be confirmed waste.")
+        elif review.get("disposition") not in {"waste", "needs_confirmation"}:
+            raise ReviewValidationError("A manually added item must be reportable waste.")
         disposition = review.get("disposition")
-        if disposition not in {"waste", "background", "removed", "attached_component"}:
-            raise ReviewValidationError("Resolve every detection before submitting.")
+        if disposition not in {"waste", "needs_confirmation", "background", "removed", "attached_component"}:
+            raise ReviewValidationError("Each detection needs a valid disposition.")
         corrected_label = str(review.get("corrected_label") or "").strip()
         raw_label = raw_by_id[source_id]["label"] if source_id is not None else None
         effective_label = corrected_label or raw_label or ""
@@ -668,10 +709,10 @@ def _build_review_confirmation(
         if disposition == "attached_component":
             if not is_cap or relation != "attached":
                 raise ReviewValidationError("Only a confirmed attached cap can be excluded as a component.")
-        if disposition == "waste":
-            if not corrected_label or review.get("category") is None:
-                raise ReviewValidationError("Each waste item needs a corrected label and category.")
-            if is_cap and relation != "detached":
+        if disposition in {"waste", "needs_confirmation"}:
+            if not corrected_label:
+                raise ReviewValidationError("Each report item needs an observed label.")
+            if is_cap and relation != "detached" and disposition == "waste":
                 raise ReviewValidationError("Confirm whether a cap is detached before counting it separately.")
             waste_reviews[review_id] = review
         corrections.append({
@@ -689,12 +730,22 @@ def _build_review_confirmation(
     if seen_detection_ids != set(raw_by_id):
         raise ReviewValidationError("Every model detection must be reviewed exactly once.")
     confirmed_by_review = {item.get("review_id"): item for item in confirmed if isinstance(item, dict)}
-    if len(confirmed_by_review) != len(confirmed) or set(confirmed_by_review) != set(waste_reviews):
+    split_ids = submission.get("split_recycling_review_ids") or []
+    if not isinstance(split_ids, list) or len(split_ids) != len(set(split_ids)):
+        raise ReviewValidationError("Split recycling items were repeated.")
+    split_set = set(split_ids)
+    if (len(confirmed_by_review) != len(confirmed)
+            or set(confirmed_by_review) & split_set
+            or set(confirmed_by_review) | split_set != set(waste_reviews)):
         raise ReviewValidationError("Confirmed items do not match the detection review.")
+    if any(waste_reviews[review_id].get("category") != "Recyclable Waste" for review_id in split_set):
+        raise ReviewValidationError("Only recyclable items may be assigned to recycling.")
     final_items: list[dict[str, Any]] = []
     applied_rules: list[dict[str, Any]] = []
     for item in confirmed:
         review = waste_reviews[item["review_id"]]
+        source_id = review.get("source_detection_id")
+        original = raw_by_id.get(source_id) if source_id else None
         if (item["name"].strip() != review["corrected_label"].strip()
                 or item["category"] != review["category"]
                 or item.get("material") != review.get("material")
@@ -702,17 +753,28 @@ def _build_review_confirmation(
                 or (item.get("condition_answers") or {}) != (review.get("condition_answers") or {})):
             raise ReviewValidationError("Confirmed item details do not match the reviewed correction.")
         confirmed_material = item.get("material")
+        original_rule = classify_item(original["label"]) if original else None
+        edited = (original is None or original_rule["canonical_name"] != classify_item(item["name"])["canonical_name"]
+                  or confirmed_material != original.get("material") or item["category"] != original.get("suggested_category")
+                  or bool(item.get("condition_answers")) or item.get("quantity") is not None)
         verdict = classify_item(
             item["name"],
             confirmed_material=confirmed_material if confirmed_material != "Unknown" else None,
             answers=item.get("condition_answers") or {},
+            user_confirmed=edited,
         )
-        if verdict["category"] is not None and verdict["category"] != item["category"]:
+        if item["category"] == "Bulky Waste" and verdict["category"] != "Bulky Waste":
+            raise ReviewValidationError("Confirm that furniture is discarded waste before reporting it.")
+        if item["category"] is not None and verdict["category"] is not None and verdict["category"] != item["category"]:
             raise ReviewValidationError("A confirmed category conflicts with its applied waste rule.")
         final_items.append({
             **item,
             "source_detection_ids": [review["source_detection_id"]] if review.get("source_detection_id") else [],
             "rule_id": verdict["rule_id"],
+            "classification_source": verdict["classification_source"],
+            "classification_state": "needs_confirmation" if item["category"] is None else "classified",
+            "independently_verified": False,
+            "station_material_key": verdict["station_material_key"],
             "rule_category": verdict["category"],
             "bulky": verdict["bulky"],
             "quantity": item.get("quantity"),
@@ -720,6 +782,7 @@ def _build_review_confirmation(
         applied_rules.append({
             "review_id": item["review_id"],
             "rule_id": verdict["rule_id"],
+            "classification_source": verdict["classification_source"],
             "rule_category": verdict["category"],
             "confirmed_category": item["category"],
             "needs_confirmation_at_detection": verdict["needs_confirmation"],
@@ -728,6 +791,7 @@ def _build_review_confirmation(
         "user_corrections": corrections,
         "final_confirmed_items": final_items,
         "applied_classification_rules": applied_rules,
+        "split_recycling_review_ids": sorted(split_set),
     }
 
 
@@ -977,13 +1041,16 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
         confirmed_items = submission.get("confirmed_items")
         if confirmed_items:
             final_categories = list(dict.fromkeys(
-                item["category"] for item in confirmed_items
+                item["category"] for item in confirmed_items if item["category"] is not None
             ))
 
         activity_key = (
             "sha256:" + hashlib.sha256(source_photo.read_bytes()).hexdigest()
             if source_photo is not None else f"report:{report_id}"
         )
+        split_recycling_ids = confirmation.get("split_recycling_review_ids", []) if confirmation else []
+        if split_recycling_ids:
+            activity_key += ":report"
 
         database.execute(
             """
@@ -1047,6 +1114,11 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                     "waste_identified": submission.get("waste_identified", ""),
                     "recommended_action": submission.get("recommended_action", ""),
                     "items": confirmed_items or [],
+                    "draft_source": submission.get("draft_source", "user"),
+                    "draft_model_id": submission.get("draft_model_id"),
+                    "user_edited_fields": submission.get("user_edited_fields", []),
+                    "submitted_by_user": True,
+                    "independently_verified": False,
                     **(confirmation or {}),
                 }, ensure_ascii=True),
                 "production",
@@ -1066,9 +1138,15 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
         )
         if analysis_id:
             database.execute(
-                "UPDATE analysis_drafts SET consumed_at = ? WHERE id = ?",
-                (now, analysis_id),
+                "UPDATE analysis_drafts SET consumed_at = ?, split_recycling_ids_json = ? WHERE id = ?",
+                (now, json.dumps(split_recycling_ids) if split_recycling_ids else None, analysis_id),
             )
+        database.execute(
+            """INSERT INTO report_status_events
+               (id, report_id, actor_id, previous_status, new_status, created_at)
+               VALUES (?, ?, ?, '', 'submitted', ?)""",
+            (uuid4().hex, report_id, submission.get("user_id") or "guest", now),
+        )
         database.commit()
     except Exception:
         database.rollback()
@@ -1078,7 +1156,7 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
     finally:
         database.close()
 
-    if draft_sources is not None:
+    if draft_sources is not None and not split_recycling_ids:
         for source in draft_sources:
             try:
                 source.unlink(missing_ok=True)
@@ -1204,6 +1282,12 @@ def get_report(report_id: str) -> dict[str, Any] | None:
             confirmed_results = json.loads(report["confirmed_ai_result_json"])
         except (json.JSONDecodeError, TypeError):
             confirmed_results = None
+        status_events = database.execute(
+            """SELECT previous_status, new_status, reason, assigned_team,
+                      resolution_details, after_photo, created_at
+               FROM report_status_events WHERE report_id = ? ORDER BY created_at, rowid""",
+            (report_id,),
+        ).fetchall()
 
     return {
         "id": report["id"],
@@ -1222,6 +1306,10 @@ def get_report(report_id: str) -> dict[str, Any] | None:
         "location_source": report["location_source"],
         "site_notes": report["site_notes"],
         "status": report["status"],
+        "assigned_team": report["assigned_team"],
+        "resolution_details": report["resolution_details"],
+        "after_photo": report["after_photo"],
+        "status_events": [dict(event) for event in status_events],
         "validation_status": report["validation_status"],
         "reward_points": int(reward_points),
         "validated_at": report["validated_at"],
@@ -1308,15 +1396,29 @@ def get_member_dashboard(user_id: str, *, report_limit: int = 5) -> dict[str, An
             """,
             (user_id, user_id),
         ).fetchone()
+        earned_rank = database.execute("""
+            WITH earned AS (
+              SELECT e.user_id, SUM(e.signed_amount) AS lifetime_points
+              FROM reward_events e JOIN public_participants p ON p.user_id = e.user_id
+              WHERE (e.transaction_type IN ('report_award', 'recycling_award') OR e.reason = 'split_incident_cap_offset')
+                AND e.data_origin = 'production'
+                AND p.role = 'user' AND p.visible = 1 AND p.disabled = 0 AND p.deleted = 0
+                AND p.data_origin = 'production'
+              GROUP BY e.user_id
+            )
+            SELECT CASE WHEN mine.lifetime_points IS NULL THEN NULL ELSE
+              1 + (SELECT COUNT(*) FROM earned others WHERE others.lifetime_points > mine.lifetime_points) END AS rank
+            FROM (SELECT (SELECT lifetime_points FROM earned WHERE user_id = ?) AS lifetime_points) mine
+        """, (user_id,)).fetchone()
         reports = database.execute(
             """
             SELECT
                 id,
                 reference,
-                location,
-                status,
-                validation_status,
-                created_at
+                COALESCE(NULLIF(trim(location), ''), 'Location not recorded') AS location,
+                CASE WHEN status IS NULL OR status IN ('pending', '') THEN 'submitted' ELSE status END AS status,
+                COALESCE(NULLIF(validation_status, ''), 'pending') AS validation_status,
+                COALESCE(created_at, updated_at) AS created_at
             FROM reports
             WHERE reporter_role = 'user' AND user_id = ?
             ORDER BY created_at DESC
@@ -1328,7 +1430,7 @@ def get_member_dashboard(user_id: str, *, report_limit: int = 5) -> dict[str, An
     return {
         "points": int(statistics["points"]),
         "valid_reports": int(statistics["valid_reports"]),
-        "rank": int(statistics["rank"]) if statistics["rank"] is not None else None,
+        "rank": int(earned_rank["rank"]) if earned_rank["rank"] is not None else None,
         "reports": [
             {
                 "id": report["id"],
@@ -1343,13 +1445,104 @@ def get_member_dashboard(user_id: str, *, report_limit: int = 5) -> dict[str, An
     }
 
 
+def get_own_report_tracking(report_id: str, user_id: str) -> dict[str, Any] | None:
+    """Return one resident's report and municipal status history only to its owner."""
+    with _connect() as database:
+        initialize_database(database)
+        row = database.execute(
+            """SELECT id, reference, title, location, category, status, validation_status,
+                      rejection_reason, assigned_team, resolution_details, created_at, updated_at
+               FROM reports WHERE id = ? AND user_id = ? AND reporter_role = 'user'""",
+            (report_id, user_id),
+        ).fetchone()
+        if row is None:
+            return None
+        events = database.execute(
+            """SELECT previous_status, new_status, reason, assigned_team,
+                      resolution_details, created_at FROM report_status_events
+               WHERE report_id = ? ORDER BY created_at, rowid""",
+            (report_id,),
+        ).fetchall()
+        return dict(row) | {"status_events": [dict(event) for event in events]}
+
+
+def register_public_participant(user_id: str, role: str, email: str = "") -> None:
+    """Register a safe public pseudonym; never publish email or matric data."""
+    with _connect() as database:
+        initialize_database(database)
+        domain = email.strip().casefold().rpartition("@")[2]
+        origin = "demo" if domain in {"example.com", "example.org", "example.net", "test", "test.local"} else "production"
+        existing = database.execute("SELECT 1 FROM public_participants WHERE user_id = ?", (user_id,)).fetchone()
+        if existing:
+            database.execute("UPDATE public_participants SET role = ?, data_origin = ? WHERE user_id = ?", (role, origin, user_id))
+            return
+        for _ in range(5):
+            try:
+                database.execute("INSERT INTO public_participants (user_id, public_name, role, data_origin) VALUES (?, ?, ?, ?)",
+                                 (user_id, f"Participant {secrets.randbelow(900000) + 100000}", role, origin))
+                return
+            except sqlite3.IntegrityError:
+                continue
+        raise RuntimeError("A unique public participant name could not be assigned.")
+
+
+def get_leaderboard(*, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    if not 1 <= limit <= 100 or offset < 0:
+        raise ValueError("Invalid leaderboard page.")
+    with _connect() as database:
+        initialize_database(database)
+        rows = database.execute("""
+            WITH earned AS (
+                SELECT user_id, SUM(signed_amount) AS points,
+                       SUM(CASE WHEN transaction_type = 'report_award' THEN 1 ELSE 0 END) AS valid_reports
+                FROM reward_events
+                WHERE (transaction_type IN ('report_award', 'recycling_award') OR reason = 'split_incident_cap_offset')
+                  AND data_origin = 'production'
+                GROUP BY user_id
+            ), ranked AS (
+                SELECT p.user_id, p.public_name, e.points, e.valid_reports,
+                       RANK() OVER (ORDER BY e.points DESC) AS rank
+                FROM earned e JOIN public_participants p ON p.user_id = e.user_id
+                WHERE p.role = 'user' AND p.visible = 1 AND p.disabled = 0
+                  AND p.deleted = 0 AND p.data_origin = 'production' AND e.points > 0
+            )
+            SELECT *, (SELECT COUNT(*) FROM ranked) AS total
+            FROM ranked ORDER BY points DESC, user_id ASC LIMIT ? OFFSET ?
+        """, (limit, offset)).fetchall()
+        total = database.execute("""SELECT COUNT(DISTINCT e.user_id) FROM reward_events e
+            JOIN public_participants p ON p.user_id = e.user_id
+            WHERE e.transaction_type IN ('report_award', 'recycling_award') AND e.data_origin = 'production'
+              AND p.role = 'user' AND p.visible = 1 AND p.disabled = 0 AND p.deleted = 0
+              AND p.data_origin = 'production'""").fetchone()[0]
+    return {"entries": [{"id": row["user_id"], "name": row["public_name"],
+                         "points": row["points"], "valid_reports": row["valid_reports"],
+                         "rank": row["rank"]} for row in rows],
+            "total": total, "limit": limit, "offset": offset}
+
+
+def other_incident_has_award(database: sqlite3.Connection, activity_key: str, analysis_id: str | None) -> bool:
+    """Prevent another analysis of the same photo earning a second base reward."""
+    base = activity_key.removesuffix(":report").removesuffix(":recycling")
+    return database.execute("""
+        SELECT 1 FROM reward_events e
+        LEFT JOIN reports r ON r.id = e.report_id
+        LEFT JOIN recycling_actions a ON a.id = e.recycling_action_id
+        WHERE e.transaction_type IN ('report_award', 'recycling_award')
+          AND (e.activity_key = ? OR e.activity_key = ? OR e.activity_key = ?)
+          AND COALESCE(r.analysis_id, a.analysis_id, '') != COALESCE(?, '')
+        LIMIT 1
+    """, (base, base + ":report", base + ":recycling", analysis_id)).fetchone() is not None
+
+
 def validate_report(
     report_id: str, validation_status: str, reviewer_id: str | None = None,
     rejection_reason: str | None = None,
 ) -> dict[str, Any]:
-    """Persist one final validation decision and award a member report once."""
+    """Record a municipal verification decision without issuing campus rewards."""
     if validation_status not in {"valid", "invalid"}:
         raise ValueError("Validation status must be 'valid' or 'invalid'.")
+    if validation_status == "invalid" and not (rejection_reason or "").strip():
+        raise ValueError("A rejection reason is required.")
 
     now = _utc_now()
     database = _connect()
@@ -1358,7 +1551,7 @@ def validate_report(
         database.execute("BEGIN IMMEDIATE")
         report = database.execute(
             """
-            SELECT reporter_role, user_id, validation_status, status, activity_affiliation,
+            SELECT reporter_role, user_id, analysis_id, validation_status, status, activity_affiliation,
                    activity_key, data_origin
             FROM reports
             WHERE id = ?
@@ -1383,7 +1576,7 @@ def validate_report(
                 "reward_points": 0,
             }
 
-        report_status = "in_progress" if validation_status == "valid" else "completed"
+        report_status = "verified" if validation_status == "valid" else "rejected"
         database.execute(
             """
             UPDATE reports
@@ -1397,56 +1590,97 @@ def validate_report(
              f"report:{report_id}", report_id),
         )
 
-        reward_awarded = False
-        if (
-            validation_status == "valid"
-            and report["reporter_role"] == "user"
-            and report["user_id"]
-        ):
-            cursor = database.execute(
-                """
-                INSERT INTO reward_events (
-                    id, report_id, user_id, signed_amount, points, transaction_type,
-                    source_activity_type, source_activity_id, activity_key, reason,
-                    activity_affiliation, e_merit_classification, audit_reference,
-                    reviewer_id, data_origin, created_at
-                ) VALUES (?, ?, ?, ?, ?, 'report_award', 'report', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT DO NOTHING
-                """,
-                (
-                    uuid4().hex,
-                    report_id,
-                    report["user_id"],
-                    REPORT_VALIDATION_REWARD_POINTS,
-                    REPORT_VALIDATION_REWARD_POINTS,
-                    report_id,
-                    report["activity_key"] or f"report:{report_id}",
-                    "validated_report",
-                    report["activity_affiliation"],
-                    ("eligible_student" if report["activity_affiliation"] == "student"
-                     and report["data_origin"] == "production" else
-                     "ineligible_staff" if report["activity_affiliation"] == "staff" else
-                     "ineligible_unknown"),
-                    f"report-review:{report_id}",
-                    reviewer_id,
-                    report["data_origin"],
-                    now,
-                ),
-            )
-            reward_awarded = cursor.rowcount == 1
+        database.execute(
+            """INSERT INTO report_status_events
+               (id, report_id, actor_id, previous_status, new_status, reason, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (uuid4().hex, report_id, reviewer_id or "municipal-admin", report["status"],
+             report_status, rejection_reason.strip() if validation_status == "invalid" else None, now),
+        )
 
         database.commit()
         return {
             "report_id": report_id,
             "validation_status": validation_status,
             "status": report_status,
-            "reward_awarded": reward_awarded,
-            "reward_points": (
-                REPORT_VALIDATION_REWARD_POINTS if reward_awarded else 0
-            ),
+            "reward_awarded": False,
+            "reward_points": 0,
         }
     except Exception:
         database.rollback()
+        raise
+    finally:
+        database.close()
+
+
+def transition_report(
+    report_id: str, action: str, actor_id: str, *, assigned_team: str = "",
+    resolution_details: str = "", after_photo_source: Path | None = None,
+) -> dict[str, Any]:
+    """Assign or resolve a verified report with an immutable status audit."""
+    if action not in {"assign", "resolve"}:
+        raise ValueError("Unsupported report action.")
+    team = assigned_team.strip()
+    details = resolution_details.strip()
+    if action == "assign" and (not team or len(team) > 120):
+        raise ValueError("Enter the municipal team assigned to this report.")
+    if action == "resolve" and (not details or len(details) > 2000):
+        raise ValueError("Record resolution details before marking a report resolved.")
+    database = _connect()
+    copied_photo: Path | None = None
+    try:
+        initialize_database(database)
+        database.execute("BEGIN IMMEDIATE")
+        row = database.execute(
+            "SELECT status, validation_status, assigned_team FROM reports WHERE id = ?", (report_id,),
+        ).fetchone()
+        if row is None:
+            raise ReportNotFoundError("Report not found.")
+        if row["validation_status"] != "valid":
+            raise ValidationAlreadyDecidedError("Verify the report before assigning or resolving it.")
+        if action == "assign":
+            if row["status"] not in {"verified", "in_progress"}:
+                raise ValidationAlreadyDecidedError("Only a verified or active report can be assigned.")
+            new_status = "in_progress"
+        else:
+            if row["status"] != "in_progress" or not row["assigned_team"]:
+                raise ValidationAlreadyDecidedError("Assign an active report before resolving it.")
+            new_status = "resolved"
+        now = _utc_now()
+        after_photo = None
+        if after_photo_source is not None:
+            if action != "resolve":
+                raise ValueError("An after-photo belongs to a resolution only.")
+            destination = REPORT_ASSETS_DIR / report_id
+            destination.mkdir(parents=True, exist_ok=True)
+            copied_photo = destination / f"after{_asset_suffix(after_photo_source)}"
+            if copied_photo.exists():
+                raise ValueError("A resolution photo already exists for this report.")
+            shutil.copy2(after_photo_source, copied_photo)
+            after_photo = f"{REPORT_ASSET_URL_PREFIX}/{report_id}/{copied_photo.name}"
+        database.execute(
+            """UPDATE reports SET status = ?, assigned_team = COALESCE(?, assigned_team),
+               resolution_details = COALESCE(?, resolution_details),
+               after_photo = COALESCE(?, after_photo), updated_at = ? WHERE id = ?""",
+            (new_status, team if action == "assign" else None,
+             details if action == "resolve" else None, after_photo, now, report_id),
+        )
+        database.execute(
+            """INSERT INTO report_status_events
+               (id, report_id, actor_id, previous_status, new_status,
+                assigned_team, resolution_details, after_photo, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (uuid4().hex, report_id, actor_id, row["status"], new_status,
+             team if action == "assign" else None, details if action == "resolve" else None,
+             after_photo, now),
+        )
+        database.commit()
+        return {"report_id": report_id, "status": new_status, "assigned_team": team or row["assigned_team"],
+                "resolution_details": details or None, "after_photo": after_photo}
+    except Exception:
+        database.rollback()
+        if copied_photo is not None:
+            copied_photo.unlink(missing_ok=True)
         raise
     finally:
         database.close()
@@ -1465,6 +1699,7 @@ __all__ = [
     "create_analysis_draft",
     "create_report",
     "get_member_dashboard",
+    "get_own_report_tracking",
     "get_report",
     "initialize_database",
     "list_reports",

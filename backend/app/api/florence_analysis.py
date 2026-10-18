@@ -63,7 +63,7 @@ async def classify_confirmed_item(
         raise HTTPException(status_code=403, detail="Participant access is required.")
     return classify_item(
         request.label, confirmed_material=request.material if request.material != "Unknown" else None,
-        answers=request.condition_answers,
+        answers=request.condition_answers, user_confirmed=True,
     )
 
 
@@ -122,18 +122,24 @@ def _review_detection(item: dict[str, Any], index: int) -> dict[str, Any]:
     return {
         "id": f"det-{index}",
         "label": item["label"],
+        "original_label": result["original_label"],
         "name": name,
+        "canonical_name": result["canonical_name"],
         "display_name": result["display_name"],
         "bounding_box": item["bounding_box"],
         "confidence": None,
         "review_status": status,
         "suggested_category": result["category"],
+        "waste_category": result["waste_category"],
+        "needs_confirmation": result["needs_confirmation"],
+        "confirmation_question": result["confirmation_question"],
         "material": result["material"] or "Unknown",
         "recommended_handling": result["handling_guidance"],
         "confirmation_reason": result["confirmation_reason"],
         "questions": result["questions"],
         "station_material_key": result["station_material_key"],
         "rule_id": result["rule_id"],
+        "classification_source": result["classification_source"],
         "bulky": result["bulky"],
     }
 

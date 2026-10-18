@@ -22,8 +22,12 @@ export class MemberDashboardRequestError extends Error {
 }
 
 const REPORT_STATUSES = new Set<ReportStatus>([
+  'submitted',
+  'verified',
   'processing',
   'in_progress',
+  'resolved',
+  'rejected',
   'completed',
 ])
 const VALIDATION_STATUSES = new Set<ValidationStatus>([
@@ -55,11 +59,11 @@ function mapReport(value: unknown): MemberReportSummary | null {
     !REPORT_STATUSES.has(value.status as ReportStatus) ||
     typeof value.validation_status !== 'string' ||
     !VALIDATION_STATUSES.has(value.validation_status as ValidationStatus) ||
-    typeof value.submitted_at !== 'string'
+    (value.submitted_at !== null && typeof value.submitted_at !== 'string')
   ) {
     return null
   }
-  const submittedAt = formatDate(value.submitted_at)
+  const submittedAt = value.submitted_at === null ? 'Date unavailable' : formatDate(value.submitted_at)
   if (!submittedAt) return null
 
   return {
@@ -82,10 +86,11 @@ export async function fetchMemberDashboard(
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw error
     }
-    throw new MemberDashboardRequestError(
-      'The member dashboard service is unavailable.',
-    )
+    throw new MemberDashboardRequestError(error instanceof Error && error.message.includes('session')
+      ? 'Your session has expired. Please sign in again.' : 'The member dashboard service is unavailable.')
   }
+
+  if (response.status === 401) throw new MemberDashboardRequestError('Your session has expired. Please sign in again.')
 
   let value: unknown
   try {

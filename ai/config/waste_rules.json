@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.2.0",
   "rules": {
     "plastic_bag_film": {
       "display_name": "Plastic Bag / Film",
@@ -10,11 +10,11 @@
         "soft plastic bag"
       ],
       "material": "Soft Plastic",
-      "category": "Non-Recyclable Waste",
-      "questions": [],
-      "handling_guidance": "Keep separate from recyclable materials and dispose of through the appropriate general-waste or soft-plastic collection stream where available.",
+      "category": null,
+      "questions": [{"key": "packaging_type", "prompt": "Confirm the bag material, condition and supported local disposal stream."}],
+      "handling_guidance": "Confirm the material and local collection stream before choosing a disposal route.",
       "station_material_key": null,
-      "rule_id": "WASTE-PLASTIC_BAG_FILM-v1",
+      "rule_id": "WASTE-PLASTIC_BAG_FILM-v2",
       "bulky": false,
       "guidance_source": "existing_project_mapping_v1"
     },
@@ -91,9 +91,14 @@
       "hazardous_handling_guidance": "Keep separate from general waste and ordinary recycling stations. Contact an appropriate hazardous-waste collector for the confirmed contents.",
       "hazardous_guidance_source": "https://www.epa.gov/hw/household-hazardous-waste-hhw"
     },
-    "drink_can": {
-      "display_name": "Drink Can",
+    "metal_can": {
+      "display_name": "Metal Can",
       "aliases": [
+        "tin can",
+        "aluminum can",
+        "aluminium can",
+        "soda can",
+        "food can",
         "drink can",
         "metal drink can",
         "beverage can",
@@ -138,7 +143,9 @@
       "display_name": "Paper",
       "aliases": [
         "paper",
-        "paper waste"
+        "paper waste",
+        "newspaper",
+        "magazine"
       ],
       "material": "Paper",
       "category": "Recyclable Waste",
@@ -154,12 +161,13 @@
       "bulky": false,
       "guidance_source": "https://www.epa.gov/recycle/how-do-i-recycle-common-recyclables"
     },
-    "glass": {
-      "display_name": "Glass",
+    "glass_container": {
+      "display_name": "Glass Container",
       "aliases": [
         "glass",
         "glass waste",
-        "glass bottle"
+        "glass bottle",
+        "glass jar"
       ],
       "material": "Glass",
       "category": "Recyclable Waste",
@@ -181,10 +189,11 @@
       "hazardous_handling_guidance": "Keep separate from general waste and ordinary recycling stations. Contact an appropriate hazardous-waste collector for the confirmed contents.",
       "hazardous_guidance_source": "https://www.epa.gov/hw/household-hazardous-waste-hhw"
     },
-    "cardboard_carton": {
-      "display_name": "Cardboard / Carton",
+    "cardboard": {
+      "display_name": "Cardboard",
       "aliases": [
         "cardboard carton",
+        "cardboard",
         "cardboard box",
         "cardboard packaging"
       ],
@@ -249,15 +258,16 @@
       "aliases": [
         "foam styrofoam",
         "styrofoam",
+        "polystyrene",
         "polystyrene foam",
         "foam packaging"
       ],
       "material": "Expanded Plastic Foam",
-      "category": "Non-Recyclable Waste",
-      "questions": [],
-      "handling_guidance": "Keep separate from recyclable materials and dispose of through the appropriate general-waste stream unless a specialised collection facility is available.",
+      "category": null,
+      "questions": [{"key": "packaging_type", "prompt": "Confirm the foam type, condition and supported local disposal stream."}],
+      "handling_guidance": "Check the local disposal stream; ordinary recycling stations may not accept this packaging.",
       "station_material_key": null,
-      "rule_id": "WASTE-FOAM_STYROFOAM-v1",
+      "rule_id": "WASTE-FOAM_STYROFOAM-v2",
       "bulky": false,
       "guidance_source": "existing_project_mapping_v1"
     },
@@ -296,6 +306,8 @@
       "aliases": [
         "food waste",
         "food scraps",
+        "leftover food",
+        "fruit peel",
         "discarded food"
       ],
       "material": "Organic Material",
@@ -344,6 +356,8 @@
       "aliases": [
         "used diaper",
         "used nappy",
+        "diaper",
+        "nappy",
         "soiled diaper",
         "soiled nappy"
       ],
@@ -371,10 +385,26 @@
       "bulky": false,
       "guidance_source": "existing_project_mapping_v1"
     },
+    "sanitary_pad": {
+      "display_name": "Sanitary Pad",
+      "aliases": ["sanitary pad", "used sanitary pad"],
+      "material": "Mixed Material",
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Contain securely and use the appropriate sanitary or general-waste collection stream.",
+      "station_material_key": null,
+      "rule_id": "WASTE-SANITARY_PAD-v1",
+      "bulky": false,
+      "guidance_source": "existing_project_mapping_v1"
+    },
     "electronic_waste": {
       "display_name": "Electronic Waste",
       "aliases": [
         "electronic waste",
+        "discarded electronics",
+        "circuit board",
+        "discarded phone",
+        "discarded laptop",
         "e waste",
         "e-waste"
       ],
@@ -402,6 +432,18 @@
       "bulky": false,
       "guidance_source": "https://www.epa.gov/recycle/used-household-batteries"
     },
+    "power_bank": {
+      "display_name": "Power Bank",
+      "aliases": ["power bank", "discarded power bank"],
+      "material": "Electronic Components",
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep intact and out of ordinary recycling. Arrange an appropriate battery or electronic-waste collection route.",
+      "station_material_key": null,
+      "rule_id": "WASTE-POWER_BANK-v1",
+      "bulky": false,
+      "guidance_source": "https://www.epa.gov/recycle/used-household-batteries"
+    },
     "sofa": {
       "display_name": "Sofa",
       "aliases": [
@@ -412,10 +454,10 @@
       ],
       "material": "Mixed Furniture Material",
       "category": "Bulky Waste",
-      "questions": [],
+      "questions": [{"key": "discarded", "prompt": "Is this furniture discarded waste?"}],
       "handling_guidance": "Arrange collection through an appropriate bulky-waste or furniture recovery service.",
       "station_material_key": null,
-      "rule_id": "WASTE-SOFA-v1",
+      "rule_id": "WASTE-SOFA-v2",
       "bulky": true,
       "guidance_source": "existing_project_mapping_v1"
     },
@@ -427,10 +469,10 @@
       ],
       "material": "Mixed Bedding Material",
       "category": "Bulky Waste",
-      "questions": [],
+      "questions": [{"key": "discarded", "prompt": "Is this mattress discarded waste?"}],
       "handling_guidance": "Arrange collection through an appropriate bulky-waste or mattress recovery service.",
       "station_material_key": null,
-      "rule_id": "WASTE-MATTRESS-v1",
+      "rule_id": "WASTE-MATTRESS-v2",
       "bulky": true,
       "guidance_source": "existing_project_mapping_v1"
     },
@@ -442,10 +484,10 @@
       ],
       "material": "Mixed Furniture Material",
       "category": "Bulky Waste",
-      "questions": [],
+      "questions": [{"key": "discarded", "prompt": "Is this furniture discarded waste?"}],
       "handling_guidance": "Arrange collection through an appropriate bulky-waste or furniture recovery service.",
       "station_material_key": null,
-      "rule_id": "WASTE-LARGE_TABLE-v1",
+      "rule_id": "WASTE-LARGE_TABLE-v2",
       "bulky": true,
       "guidance_source": "existing_project_mapping_v1"
     },
@@ -496,6 +538,102 @@
       "rule_id": "WASTE-LARGE_APPLIANCE-v1",
       "bulky": true,
       "guidance_source": "https://ewaste.doe.gov.my/index.php/about/where-can-i-discharge-recycle-e-waste/"
+    },
+    "lighter": {
+      "display_name": "Lighter",
+      "aliases": ["lighter", "cigarette lighter", "disposable lighter"],
+      "material": "Mixed Material",
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Do not place in an ordinary recycling bin. Leave the lighter intact and report it for appropriate collection; do not release fuel yourself.",
+      "station_material_key": null,
+      "rule_id": "WASTE-LIGHTER-v1",
+      "bulky": false,
+      "guidance_source": "https://www.cornwall.gov.uk/rubbish-recycling-and-waste/recycling/recycling-items/lighters/"
+    },
+    "aerosol_can": {
+      "display_name": "Aerosol Can",
+      "aliases": ["aerosol can", "spray can", "aerosol container"],
+      "material": "Metal",
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Do not puncture, empty, or dismantle the can. Keep it out of ordinary recycling and report it for an appropriate collection route.",
+      "station_material_key": null,
+      "rule_id": "WASTE-AEROSOL_CAN-v1",
+      "bulky": false,
+      "guidance_source": "https://www.epa.gov/recycle/frequent-questions-recycling"
+    },
+    "gas_cartridge": {
+      "display_name": "Gas Cartridge",
+      "aliases": ["gas cartridge"],
+      "material": "Metal",
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep intact. Do not puncture, empty, burn or dismantle it; report it for appropriate collection.",
+      "station_material_key": null,
+      "rule_id": "WASTE-GAS_CARTRIDGE-v1",
+      "bulky": false,
+      "guidance_source": "https://www.epa.gov/hw/household-hazardous-waste-hhw"
+    },
+    "wardrobe": {
+      "display_name": "Wardrobe",
+      "aliases": ["wardrobe", "discarded wardrobe"],
+      "material": "Mixed Furniture Material",
+      "category": "Bulky Waste",
+      "questions": [{"key": "discarded", "prompt": "Is this furniture discarded waste?"}],
+      "handling_guidance": "Arrange an appropriate bulky-waste collection; do not assume furniture in use is waste.",
+      "station_material_key": null,
+      "rule_id": "WASTE-WARDROBE-v1",
+      "bulky": true,
+      "guidance_source": "existing_project_mapping_v1"
+    },
+    "bed_frame": {
+      "display_name": "Bed Frame",
+      "aliases": ["bed frame", "discarded bed frame"],
+      "material": "Mixed Furniture Material",
+      "category": "Bulky Waste",
+      "questions": [{"key": "discarded", "prompt": "Is this furniture discarded waste?"}],
+      "handling_guidance": "Arrange an appropriate bulky-waste collection; do not assume furniture in use is waste.",
+      "station_material_key": null,
+      "rule_id": "WASTE-BED_FRAME-v1",
+      "bulky": true,
+      "guidance_source": "existing_project_mapping_v1"
+    },
+    "can": {
+      "display_name": "Can",
+      "aliases": ["can"],
+      "material": null,
+      "category": null,
+      "questions": [{"key": "packaging_type", "prompt": "Is this ordinary food or beverage packaging, or an aerosol or chemical container?"}],
+      "handling_guidance": "Confirm the can type and any known contents before choosing a disposal route.",
+      "station_material_key": null,
+      "rule_id": "WASTE-CAN-v1",
+      "bulky": false,
+      "guidance_source": "existing_project_mapping_v1"
+    },
+    "container": {
+      "display_name": "Container",
+      "aliases": ["container"],
+      "material": null,
+      "category": null,
+      "questions": [{"key": "material", "prompt": "What material is this container made from, and what did it contain if known?"}],
+      "handling_guidance": "Confirm material and known contents before choosing a disposal route.",
+      "station_material_key": null,
+      "rule_id": "WASTE-CONTAINER-v1",
+      "bulky": false,
+      "guidance_source": "existing_project_mapping_v1"
+    },
+    "packaging": {
+      "display_name": "Packaging",
+      "aliases": ["packaging", "bag", "wrapper", "takeaway packaging"],
+      "material": null,
+      "category": null,
+      "questions": [{"key": "packaging_type", "prompt": "Confirm the packaging material, condition and supported local disposal stream."}],
+      "handling_guidance": "Confirm packaging material and condition before choosing a disposal route.",
+      "station_material_key": null,
+      "rule_id": "WASTE-PACKAGING-v1",
+      "bulky": false,
+      "guidance_source": "existing_project_mapping_v1"
     },
     "bottle": {
       "display_name": "Bottle",

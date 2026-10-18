@@ -10,9 +10,9 @@ vi.mock('../../features/reporting/recycling-actions', () => ({ submitRecyclingAc
 
 const wasteLocation = { latitude: 6.4, longitude: 100.2, address: 'Campus', source: 'map' as const,
   street: '', city: '', state: '', postcode: '', country: 'Malaysia' }
-const items = [{ name: 'Bottle', material: 'Plastic', category: 'Recyclable Waste' as const }]
+const items = [{ name: 'Plastic Bottle', material: 'Plastic', category: 'Recyclable Waste' as const, stationMaterialKey: 'Plastic' }]
 const point = { id: 'one', name: 'Registered point', latitude: 6.401, longitude: 100.2,
-  accepted_materials: ['Plastic'], description: '', active: true }
+  accepted_materials: ['Plastic'], description: '', active: true, public_verified: true }
 
 describe('recycling recommendation location fallback', () => {
   afterEach(cleanup)
@@ -27,7 +27,7 @@ describe('recycling recommendation location fallback', () => {
     render(<RecyclingRecommendations points={[point]} items={items} wasteLocation={wasteLocation}
       loading={false} error="" analysisId="draft" onReport={vi.fn()} onSubmitted={vi.fn()} />)
     expect(await screen.findByText(/Sorted from the selected location/)).toBeTruthy()
-    expect(screen.getByText(/straight-line/, { selector: 'span' })).toBeTruthy()
+    expect(screen.getAllByText(/straight-line/).length).toBeGreaterThan(0)
     expect(screen.getAllByText('Google map').length).toBeGreaterThan(0)
   })
 
@@ -44,6 +44,7 @@ describe('recycling recommendation location fallback', () => {
     actionMocks.submit.mockImplementation(() => new Promise(resolve => { resolveSubmission = resolve }))
     render(<RecyclingRecommendations points={[point]} items={items} wasteLocation={wasteLocation}
       loading={false} error="" analysisId="draft" onReport={vi.fn()} onSubmitted={onSubmitted} />)
+    fireEvent.click(screen.getByRole('button', { name: /Registered point/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Submit for admin verification' }))
     expect(screen.getByText('Upload one proof photo before submitting.')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Proof photo'), { target: { files: [new File(['photo'], 'proof.png', { type: 'image/png' })] } })

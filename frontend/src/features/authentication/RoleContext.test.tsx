@@ -5,6 +5,8 @@ import { beforeEach, expect, it, vi } from 'vitest'
 const { getSession, onAuthStateChange, signInWithPassword, signOut, fetchMemberDashboard } = vi.hoisted(() => ({
   getSession: vi.fn(), onAuthStateChange: vi.fn(), signInWithPassword: vi.fn(), signOut: vi.fn(), fetchMemberDashboard: vi.fn(),
 }))
+vi.mock('./browser-session', () => ({ createBrowserSession: vi.fn().mockResolvedValue(undefined),
+  loadBrowserSession: vi.fn().mockResolvedValue(null), revokeBrowserSession: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('../../lib/supabase', () => ({
   supabaseClient: { auth: { getSession, onAuthStateChange, signInWithPassword, signOut } },
 }))

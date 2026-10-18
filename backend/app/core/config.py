@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     )
     ai_rate_limit_requests: int = Field(default=5, gt=0)
     ai_rate_limit_window_seconds: int = Field(default=60, gt=0)
+    session_idle_seconds: int = Field(default=3600, ge=60, le=604800)
+    session_absolute_seconds: int = Field(default=43200, ge=300, le=2592000)
+    session_cookie_secure: bool = False
 
 
     model_config = SettingsConfigDict(
@@ -121,6 +124,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_service_configuration(self) -> "Settings":
+        if self.app_env.lower() == "production" and not self.session_cookie_secure:
+            raise ValueError("SESSION_COOKIE_SECURE must be true in production.")
         parsed_florence_url = urlparse(self.florence_service_url)
         if parsed_florence_url.scheme != "http" or not parsed_florence_url.hostname:
             raise ValueError("FLORENCE_SERVICE_URL must be a loopback HTTP URL.")

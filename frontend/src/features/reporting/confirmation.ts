@@ -10,12 +10,12 @@ export interface ReviewedItem extends ConfirmedItem {
   originalLabel: string | null
   status: ReviewDisposition
   componentRelation: ComponentRelation
-  reviewed: boolean
   quantity?: number
   handlingGuidance?: string
   confirmationReason?: string | null
   ruleId?: string
   stationMaterialKey?: string | null
+  classificationSource?: 'rule' | 'user_confirmed'
 }
 
 export function isCap(label: string): boolean {
@@ -30,11 +30,12 @@ export function initialItem(detection: FlorenceDetection): ReviewedItem {
     category: detection.suggested_category ?? '',
     status: cap ? 'needs_confirmation' : detection.review_status === 'likely_waste' ? 'waste' : detection.review_status,
     componentRelation: cap ? 'unclear' : null,
-    reviewed: false, condition_answers: {}, questions: detection.questions ?? [],
+    condition_answers: {}, questions: detection.questions ?? [],
     handlingGuidance: detection.recommended_handling,
-    confirmationReason: detection.confirmation_reason,
-    ruleId: detection.rule_id,
+    confirmationReason: detection.confirmation_question ?? detection.confirmation_reason,
+    ruleId: detection.rule_id ?? undefined,
     stationMaterialKey: detection.station_material_key,
+    classificationSource: detection.classification_source,
   }
 }
 

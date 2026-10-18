@@ -32,6 +32,7 @@ export function GoogleIdentityButton({ onCredential, onError, text = 'continue_w
       if (!active || !container.current || !window.google) return
       window.google.accounts.id.initialize({
         client_id: googleClientId,
+        auto_select: false,
         callback: ({ credential }) => {
           if (activeRequest.current || disabledRef.current) return
           activeRequest.current = true

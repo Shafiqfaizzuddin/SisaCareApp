@@ -198,8 +198,8 @@ def _build_prompt(analysis_context: Mapping[str, object]) -> str:
         indent=2,
         sort_keys=True,
     )
-    return f"""You are a controlled language formatter for a municipal waste report.
-You are not an object detector, classifier, investigator, verifier, or municipal
+    return f"""You are a controlled language formatter for a SisaCare waste report.
+You are not an object detector, classifier, investigator, verifier, or response
 authority.
 Convert only the authoritative structured facts below into concise professional
 language. No image is available to you.
@@ -220,11 +220,11 @@ Non-negotiable grounding rules:
 4. Use only the supplied categories. Do not infer, change, or override a category.
 5. Do not call anything hazardous because no hazard classification was supplied.
 6. Do not mention or invent a location, address, site ownership, reporter, user,
-   resident, uploader, municipality identity, or responsible party. None of
+   resident, uploader, organisation identity, or responsible party. None of
    those facts were supplied.
 7. Do not claim that inspection, verification, notification, scheduling,
    dispatch, collection, cleanup, removal, recycling, disposal, or any other
-   municipal action has already happened or is confirmed to happen.
+   staff action has already happened or is confirmed to happen.
 8. Phrase recommended_action only as prospective guidance, using language such
    as "should", "is recommended", or "consider". Keep it consistent with the
    supplied final categories.
@@ -283,7 +283,7 @@ def _validate_report_grounding(
     if INVENTED_CONTEXT_PATTERN.search(report_text):
         raise ValueError("Ollama report contains unsupported user or location data.")
     if COMPLETED_ACTION_PATTERN.search(report_text):
-        raise ValueError("Ollama report claims a completed municipal action.")
+        raise ValueError("Ollama report claims a completed staff action.")
     if not UNCERTAINTY_PATTERN.search(report["environmental_concern"]):
         raise ValueError("Environmental concern must use conditional language.")
 

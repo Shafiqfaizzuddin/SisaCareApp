@@ -55,7 +55,9 @@ def member_api(
     app.dependency_overrides.clear()
 
 
-def test_member_dashboard_uses_persisted_reports_and_rewards() -> None:
+def test_member_dashboard_uses_owned_reports_without_new_rewards() -> None:
+    report_repository.register_public_participant("member-1", "user")
+    report_repository.register_public_participant("member-2", "user")
     pending = report_repository.create_report(report_submission("member-1", 1))
     validated = report_repository.create_report(report_submission("member-1", 2))
     report_repository.validate_report(validated["id"], "valid")
@@ -70,9 +72,9 @@ def test_member_dashboard_uses_persisted_reports_and_rewards() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["points"] == 2
-    assert payload["valid_reports"] == 1
-    assert payload["rank"] == 2
+    assert payload["points"] == 0
+    assert payload["valid_reports"] == 0
+    assert payload["rank"] is None
     assert {report["id"] for report in payload["reports"]} == {
         pending["id"],
         validated["id"],
@@ -101,3 +103,25 @@ def test_admin_cannot_use_member_dashboard() -> None:
     response = client.get("/api/members/me/dashboard")
 
     assert response.status_code == 403
+
+
+def test_legacy_leaderboard_is_retired() -> None:
+    report_repository.register_public_participant("member-1", "user", "member@uitm.edu.my")
+    report_repository.register_public_participant("staff-1", "user", "staff@uitm.edu.my")
+    report_repository.register_public_participant("demo-1", "user", "demo@example.com")
+    report_repository.register_public_participant("admin-1", "admin", "admin@uitm.edu.my")
+    for user_id in ("member-1", "staff-1", "demo-1", "admin-1"):
+        item = report_repository.create_report(report_submission(user_id, 1))
+        report_repository.validate_report(item["id"], "valid")
+    with report_repository._connect() as database:
+        report_repository.initialize_database(database)
+        database.execute("""INSERT INTO reward_events
+            (id, user_id, signed_amount, points, transaction_type, source_activity_type,
+             source_activity_id, activity_key, reason, activity_affiliation, e_merit_classification,
+             audit_reference, data_origin, created_at)
+             VALUES ('conversion', 'member-1', -2, -2, 'adjustment', 'manual', 'conversion',
+                     NULL, 'e_merit_conversion', 'student', 'ineligible_unknown', 'conversion-1',
+                     'production', 'now')""")
+    response = client.get("/api/members/leaderboard")
+    assert response.status_code == 410
+    assert "incentive policy" in response.json()["detail"]

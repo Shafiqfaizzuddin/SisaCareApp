@@ -101,6 +101,7 @@ async def put_my_identity(
     body: AffiliationUpdate,
     user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
 ) -> dict[str, object]:
+    raise HTTPException(status_code=410, detail="Student and staff affiliation updates are retired. Historical records remain private.")
     matric = body.matric_number.strip() if body.matric_number else None
     if body.claimed_affiliation == "student" and not matric:
         raise HTTPException(status_code=422, detail="Enter a matric number.")
@@ -116,6 +117,7 @@ async def post_my_matric(
     user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
     response: Response,
 ) -> dict[str, object]:
+    raise HTTPException(status_code=410, detail="Matric verification is retired. Historical records remain private.")
     if user["role"] != "user":
         raise HTTPException(status_code=403, detail="Participant access is required.")
     response.headers["Cache-Control"] = "private, no-store"
@@ -129,6 +131,7 @@ async def post_my_matric(
 async def get_pending_matric(
     _admin: Annotated[AuthenticatedUser, Depends(require_admin_user)], response: Response,
 ) -> list[dict[str, object]]:
+    raise HTTPException(status_code=410, detail="Matric review is retired.")
     response.headers["Cache-Control"] = "private, no-store"
     return await run_in_threadpool(pending_matric_reviews)
 
@@ -138,6 +141,7 @@ async def post_matric_review(
     user_id: str, body: MatricReview,
     admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
 ) -> dict[str, object]:
+    raise HTTPException(status_code=410, detail="Matric review is retired.")
     if not body.procedure_confirmed:
         raise HTTPException(status_code=422, detail="Confirm that you checked an authorized record or agreed manual procedure.")
     try:
@@ -153,6 +157,7 @@ async def post_matric_review(
 async def post_e_merit_eligibility(
     user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
 ) -> dict[str, object]:
+    raise HTTPException(status_code=410, detail="New E-Merit claims are retired. Historical records remain available for audit.")
     if user["role"] != "user":
         raise HTTPException(status_code=403, detail="Participant access is required.")
     try:

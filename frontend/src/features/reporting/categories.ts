@@ -7,6 +7,7 @@ export interface WasteCategoryOption {
 }
 
 export const wasteCategoryOptions: WasteCategoryOption[] = [
+  { value: 'Needs Confirmation', label: 'Needs Confirmation', description: 'Reported photo needs admin assessment; this is not a final waste category.' },
   { value: 'Recyclable Waste', label: 'Recyclable Waste', description: 'Confirmed recyclable materials.' },
   { value: 'Non-Recyclable Waste', label: 'Non-Recyclable Waste', description: 'General or mixed waste requiring appropriate collection.' },
   { value: 'Bulky Waste', label: 'Bulky Waste', description: 'Large items routed to a waste report.' },

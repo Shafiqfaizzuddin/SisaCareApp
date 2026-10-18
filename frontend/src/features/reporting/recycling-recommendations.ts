@@ -37,8 +37,8 @@ export function recommendPoints(
   points: RecyclingPoint[], items: ConfirmedItem[], origin: Coordinates,
 ): PointRecommendation[] {
   const materials = [...new Map(items
-    .filter(item => conditionConfirmedForRecycling(item) && key(item.material) !== 'unknown')
-    .map(item => [key(item.material), item.material.trim()])).values()]
+    .filter(item => conditionConfirmedForRecycling(item) && item.stationMaterialKey)
+    .map(item => [key(item.stationMaterialKey!), item.stationMaterialKey!.trim()])).values()]
   return points.filter(point => point.active !== false).flatMap(point => {
     const accepted = new Set(point.accepted_materials.map(key))
     const matchedMaterials = materials.filter(material => accepted.has(key(material)))

@@ -1,28 +1,4 @@
-import type {
-  Achievement,
-  LeaderboardEntry,
-  UserProfile,
-} from '../../types'
-
-export const demoMember: UserProfile = {
-  id: 'usr-204',
-  name: 'Aiman Rahman',
-  email: 'aiman.rahman@example.com',
-  role: 'user',
-  points: 420,
-  title: 'Neighbourhood Scout',
-  rank: 4,
-  validReports: 11,
-}
-
-export const demoAdmin: UserProfile = {
-  id: 'adm-001',
-  name: 'Shafiq Faizzuddin',
-  email: 'shafiq@council.gov.my',
-  role: 'admin',
-  points: 0,
-  title: 'Municipal Administrator',
-}
+import type { Achievement } from '../../types'
 
 export const achievements: Achievement[] = [
   {
@@ -62,49 +38,3 @@ export function memberTitleForPoints(points: number): string {
     'Community Member',
   )
 }
-
-export const leaderboardEntries: LeaderboardEntry[] = [
-  {
-    id: 'usr-188',
-    name: 'Nur Izzati',
-    title: 'Community Guardian',
-    points: 1280,
-    validReports: 31,
-  },
-  {
-    id: 'usr-193',
-    name: 'Daniel Lee',
-    title: 'Waste Watcher',
-    points: 910,
-    validReports: 24,
-  },
-  {
-    id: 'usr-176',
-    name: 'Siti Hajar',
-    title: 'Waste Watcher',
-    points: 680,
-    validReports: 19,
-  },
-  {
-    id: demoMember.id,
-    name: demoMember.name,
-    title: demoMember.title,
-    points: demoMember.points,
-    validReports: demoMember.validReports ?? 0,
-    isCurrentUser: true,
-  },
-  {
-    id: 'usr-221',
-    name: 'Kumar Raj',
-    title: 'Community Starter',
-    points: 310,
-    validReports: 8,
-  },
-  {
-    id: 'usr-229',
-    name: 'Mei Xin',
-    title: 'Community Starter',
-    points: 190,
-    validReports: 5,
-  },
-]
