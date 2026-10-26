@@ -117,3 +117,44 @@ def test_google_subject_is_read_from_provider_metadata_not_identity_row_id() -> 
     user = asyncio.run(authenticate())
     assert user["google_sub"] == "stable-google-sub"
     assert user["role"] == "user"
+
+
+@pytest.mark.parametrize("email", ["resident@gmail.com", "resident@example.org", "resident@student.uitm.edu.my"])
+def test_verified_google_identity_allows_any_email_domain_without_supabase_email_confirmation(email: str) -> None:
+    async def authenticate() -> object:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json={
+                "id": "google-user", "email": email, "email_confirmed_at": None,
+                "app_metadata": {"provider": "google", "providers": ["google"]},
+                "identities": [{"provider": "google", "provider_id": "stable-google-sub",
+                                "identity_data": {"email": email.upper(), "email_verified": True}}],
+            })
+        )) as client:
+            return await authenticate_access_token("access-token", auth_settings(), client=client)
+
+    user = asyncio.run(authenticate())
+    assert user["email_verified"] is True
+    assert user["google_sub"] == "stable-google-sub"
+    assert user["role"] == "user"
+
+
+@pytest.mark.parametrize("provider_email,verified", [
+    ("resident@gmail.com", False),
+    ("other@gmail.com", True),
+])
+def test_google_identity_does_not_bypass_email_verification(provider_email: str, verified: bool) -> None:
+    async def authenticate() -> object:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json={
+                "id": "google-user", "email": "resident@gmail.com", "email_confirmed_at": None,
+                "app_metadata": {"provider": "google"},
+                "identities": [{"provider": "google", "provider_id": "stable-google-sub",
+                                "identity_data": {"email": provider_email, "email_verified": verified}}],
+                "user_metadata": {"email_verified": True, "role": "admin"},
+            })
+        )) as client:
+            return await authenticate_access_token("access-token", auth_settings(), client=client)
+
+    user = asyncio.run(authenticate())
+    assert user["email_verified"] is False
+    assert user["role"] == "user"

@@ -18,7 +18,7 @@ function destination(state: unknown): string {
 export function UserLoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { signIn, refreshMemberData } = useRole()
+  const { signIn, syncBrowserSession, refreshMemberData } = useRole()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -37,13 +37,14 @@ export function UserLoginPage() {
     setCanRecoverLink(false)
     try {
       await signInWithGoogle(credential)
+      await syncBrowserSession()
       refreshMemberData()
       navigate(destination(location.state), { replace: true })
     } finally {
       busy.current = false
       setProcessing(null)
     }
-  }, [location.state, navigate, refreshMemberData])
+  }, [location.state, navigate, refreshMemberData, syncBrowserSession])
   const handleGoogleError = useCallback((message: string) => {
     setLoginError(message)
     setCanRecoverLink(message.includes('An account already uses this email'))
@@ -72,7 +73,8 @@ export function UserLoginPage() {
     busy.current = true
     setProcessing('password')
     try {
-      const { error } = await supabaseClient.auth.resend({ type: 'signup', email: email.trim() })
+      const { error } = await supabaseClient.auth.resend({ type: 'signup', email: email.trim(),
+        options: { emailRedirectTo: `${window.location.origin}/login` } })
       setConfirmationMessage(error?.message ?? 'If this address needs confirmation, a new link has been sent.')
     } finally {
       busy.current = false

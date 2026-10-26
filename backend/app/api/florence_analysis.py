@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import sqlite3
+import asyncio
 from pathlib import Path
 from time import perf_counter
 from typing import Annotated, Any
@@ -24,6 +25,8 @@ from app.core.rate_limit import enforce_ai_analysis_rate_limit
 from app.repositories.reports import create_analysis_draft
 from app.services.ai.image_validation import ImageValidationError, validate_image
 from app.services.ai.waste_rules import classify_item
+from app.services.ai.visual_fallback import VisualFallbackError, resolve_detection, resolve_batch
+from app.services.ai.grouping_service import group_report_observations
 from app.services.image_uploads import (
     MAX_UPLOAD_SIZE,
     UploadMetadataError,
@@ -38,11 +41,12 @@ router = APIRouter()
 settings = get_settings()
 UPLOAD_DIR = settings.upload_dir
 PREVIEW_DIR = settings.annotated_output_dir
+_visual_limit = asyncio.Semaphore(1)
 
 # These objects are shown to the user and persisted, including when marked as
 # background. The set only suggests a review state; it never removes a result.
 BACKGROUND_LABELS = frozenset({
-    "person", "people", "car", "vehicle", "wheel", "door_handle", "road",
+    "person", "people", "car", "vehicle", "land_vehicle", "wheel", "door_handle", "road",
     "street", "tree", "sky", "building", "wall", "grass", "ground",
     "window", "door", "floor", "cloud", "sign", "shadow",
 })
@@ -116,7 +120,7 @@ def _review_detection(item: dict[str, Any], index: int) -> dict[str, Any]:
     name = result["canonical_item"]
     status = (
         "background" if name in BACKGROUND_LABELS else
-        "likely_waste" if result["category"] is not None and not result["needs_confirmation"] else
+        "likely_waste" if result["category"] is not None else
         "needs_confirmation"
     )
     return {
@@ -141,7 +145,61 @@ def _review_detection(item: dict[str, Any], index: int) -> dict[str, Any]:
         "rule_id": result["rule_id"],
         "classification_source": result["classification_source"],
         "bulky": result["bulky"],
+        "visual_assessment": None,
     }
+
+
+def _apply_visual_result(item: dict[str, Any], visual: dict[str, Any]) -> None:
+    item["visual_assessment"] = visual
+    item["classification_source"] = "vision"
+    if visual["decision"] == "background":
+        item["review_status"] = "background"
+        item["confirmation_reason"] = visual["visual_justification"]
+        return
+    rule = classify_item(visual["object_name"], confirmed_material=visual["material"] if visual["material"].casefold() != "unknown" else None)
+    item["name"] = rule["canonical_name"]
+    item["canonical_name"] = rule["canonical_name"]
+    item["display_name"] = rule["display_name"]
+    item["material"] = rule["material"] or (visual["material"] if visual["material"].casefold() != "unknown" else "Unknown")
+    item["suggested_category"] = rule["category"] or visual["category"]
+    item["waste_category"] = item["suggested_category"]
+    item["review_status"] = "likely_waste"
+    item["needs_confirmation"] = visual["uncertain"]
+    item["confirmation_reason"] = visual["visual_justification"] if visual["uncertain"] else None
+    item["confirmation_question"] = None
+    item["rule_id"] = rule["rule_id"]
+    item["station_material_key"] = rule["station_material_key"] if rule["category"] == "Recyclable Waste" else None
+    item["recommended_handling"] = rule["handling_guidance"] if rule["rule_id"] else "Ask the municipal review team to assess the item and appropriate handling."
+
+
+async def _resolve_visual_candidates(preview_path: Path, detections: list[dict[str, Any]]) -> VisualFallbackError | None:
+    candidates = [item for item in detections if item["review_status"] == "needs_confirmation"]
+    if not candidates:
+        return None
+    if len(candidates) > 40:
+        return VisualFallbackError("VISION_LIMIT", "Too many ambiguous detections for one local analysis. Try a clearer photo or smaller scene.")
+    with Image.open(preview_path) as source:
+        image = source.convert("RGB")
+    for start in range(0, len(candidates), 4):
+        batch = candidates[start:start + 4]
+        async with _visual_limit:
+            if len(batch) > 1:
+                try:
+                    resolved = await resolve_batch(image, batch)
+                except VisualFallbackError as exc:
+                    if exc.code not in {"VISION_UNAVAILABLE", "VISION_TIMEOUT", "VISION_INVALID_OUTPUT"}:
+                        return exc
+                    log.warning("visual_batch_retry_as_single code=%s", exc.code)
+                else:
+                    for item in batch:
+                        _apply_visual_result(item, resolved[item["id"]])
+                    continue
+            for item in batch:
+                try:
+                    _apply_visual_result(item, await resolve_detection(image, item))
+                except VisualFallbackError as exc:
+                    return exc
+    return None
 
 
 @router.post("/analyze", response_model=None)
@@ -201,10 +259,18 @@ async def analyze_uploaded_waste(
         if preview_dimensions != (result["image_width"], result["image_height"]):
             return _error(502, "FLORENCE_DIMENSION_MISMATCH", "Photo dimensions did not match local analysis.")
 
+        visual_failure = await _resolve_visual_candidates(preview_path, raw_detections)
+        groups = group_report_observations([{
+            "name": item["name"], "material": item["material"],
+            "category": item["suggested_category"], "source_detection_id": item["id"],
+            "uncertainty_reason": item["confirmation_reason"] if item["needs_confirmation"] else None,
+        } for item in raw_detections if item["review_status"] == "likely_waste"])
+
         draft_payload = {
             "provider": "florence2",
             "model_id": result["model_id"],
             "model_revision": result["model_revision"],
+            "visual_model_id": settings.ollama_vision_model if any(item["visual_assessment"] is not None for item in raw_detections) else None,
             "service_analysis_id": result["analysis_id"],
             "image_width": result["image_width"],
             "image_height": result["image_height"],
@@ -212,6 +278,8 @@ async def analyze_uploaded_waste(
             # documented clipping. Review suggestions are stored separately.
             "model_detections": result["detections"],
             "raw_detections": raw_detections,
+            "grouped_waste": groups,
+            "visual_failure": {"code": visual_failure.code, "message": str(visual_failure)} if visual_failure else None,
             "detections": [{
                 "class_name": item["name"], "display_name": item["display_name"],
                 "waste_category": item["suggested_category"] or "Needs Confirmation",
@@ -223,6 +291,7 @@ async def analyze_uploaded_waste(
                 "mode": "florence2", "provider": "florence2",
                 "model_id": result["model_id"],
                 "model_revision": result["model_revision"],
+                "visual_model_id": settings.ollama_vision_model if any(item["visual_assessment"] is not None for item in raw_detections) else None,
                 "categories_detected": list(dict.fromkeys(
                     item["suggested_category"] for item in raw_detections
                     if item["suggested_category"] is not None
@@ -238,6 +307,11 @@ async def analyze_uploaded_waste(
             user_id=user["id"],
         )
         completed = True
+        if visual_failure:
+            return JSONResponse(status_code=503, content={
+                "success": False, "code": visual_failure.code, "message": str(visual_failure),
+                "analysis_id": analysis_id, "completed_detections": raw_detections,
+            })
         log.info("florence_analysis_completed analysis_id=%s count=%d duration_ms=%d",
                  analysis_id, len(raw_detections), round((perf_counter() - started) * 1000))
         return {
@@ -248,6 +322,7 @@ async def analyze_uploaded_waste(
             "provider": "florence2", "model_id": result["model_id"],
             "model_revision": result["model_revision"],
             "detections": raw_detections,
+            "groups": groups,
             "processing_time_ms": result["processing_time_ms"],
             "warnings": result.get("warnings", []),
         }

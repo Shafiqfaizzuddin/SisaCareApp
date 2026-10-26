@@ -16,9 +16,9 @@ def test_plastic_bottle_category_is_separate_from_condition_and_station_acceptan
     assert pending["canonical_item"] == "plastic_bottle"
     assert pending["material"] == "Plastic"
     assert pending["category"] == "Recyclable Waste"
-    assert pending["needs_confirmation"] is True
+    assert pending["needs_confirmation"] is False
     assert pending["station_material_key"] == "Plastic"
-    assert pending["rule_id"] == "WASTE-PLASTIC_BOTTLE-v1"
+    assert pending["rule_id"] == "COMMUNITY-PLASTIC_BOTTLE-v1"
 
     confirmed = {"hazardous_contents": False, "empty_and_clean": True}
     assert classify_item("plastic bottle", answers=confirmed)["category"] == "Recyclable Waste"
@@ -82,7 +82,7 @@ def test_electronic_waste_is_hazardous_and_unknown_identity_stays_unresolved():
     unknown = classify_item("ceramic plant pot", confirmed_material="Ceramic")
     assert electronics["category"] == "Hazardous Waste"
     assert electronics["station_material_key"] is None
-    assert "authorised" in electronics["handling_guidance"]
+    assert "collection team" in electronics["handling_guidance"]
     assert unknown["category"] is None
     assert unknown["needs_confirmation"] is True
     assert unknown["canonical_item"] == "ceramic_plant_pot"
@@ -95,13 +95,14 @@ def test_can_aliases_hazardous_precedence_and_exact_matching():
         result = classify_item(label)
         assert result["waste_category"] == "Recyclable Waste"
         assert result["material"] == "Metal"
-        assert result["canonical_name"] == "metal_can"
+        assert result["canonical_name"] in {"food_can", "aluminium_can"}
     assert classify_item("aerosol can")["category"] == "Hazardous Waste"
     assert classify_item("can")["category"] is None
     assert classify_item("can")["confirmation_question"]
     assert classify_item("candy can")["category"] is None
-    for label in ("container", "bag", "wrapper", "packaging", "plastic bag", "polystyrene", "takeaway packaging"):
+    for label in ("container", "bag", "wrapper", "packaging", "polystyrene", "takeaway packaging"):
         assert classify_item(label)["category"] is None
+    assert classify_item("plastic shopping bag")["category"] == "Non-Recyclable Waste"
 
 
 def test_mixed_items_background_furniture_and_user_correction():

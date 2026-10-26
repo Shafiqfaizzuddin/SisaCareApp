@@ -46,6 +46,10 @@ def test_analysis_uses_local_detector_without_location_and_preserves_unknowns(tm
         return "draft-123"
 
     monkeypatch.setattr(florence_analysis, "create_analysis_draft", save_draft)
+    async def resolve(_image, _detection):
+        return {"decision": "waste", "object_name": "plastic bottle", "material": "Plastic",
+                "category": "Recyclable Waste", "visual_justification": "Visible plastic bottle shape.", "uncertain": False}
+    monkeypatch.setattr(florence_analysis, "resolve_detection", resolve)
 
     class FakeClient:
         def __init__(self, **kwargs):
@@ -75,7 +79,8 @@ def test_analysis_uses_local_detector_without_location_and_preserves_unknowns(tm
     data = response.json()
     assert data["analysis_id"] == "draft-123"
     assert data["provider"] == "florence2"
-    assert [item["review_status"] for item in data["detections"]] == ["needs_confirmation", "background"]
+    assert [item["review_status"] for item in data["detections"]] == ["likely_waste", "background"]
+    assert data["detections"][0]["classification_source"] == "vision"
     assert all(item["confidence"] is None for item in data["detections"])
     assert captured["detection"]["raw_detections"] == data["detections"]
     assert captured["report"] is None
@@ -106,6 +111,38 @@ def test_detector_unavailable_is_failure_and_cleans_upload(tmp_path, monkeypatch
     assert response.status_code == 503
     assert response.json()["code"] == "FLORENCE_UNAVAILABLE"
     assert list((tmp_path / "uploads").iterdir()) == []
+
+
+def test_visual_service_failure_keeps_partial_analysis_without_a_fake_category(tmp_path, monkeypatch):
+    _auth()
+    monkeypatch.setattr(florence_analysis, "UPLOAD_DIR", tmp_path / "uploads")
+    monkeypatch.setattr(florence_analysis, "PREVIEW_DIR", tmp_path / "previews")
+    captured = {}
+    monkeypatch.setattr(florence_analysis, "create_analysis_draft", lambda **kwargs: captured.update(kwargs) or "partial-draft")
+
+    class FakeClient:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, files):
+            return httpx.Response(200, json={"success": True, "analysis_id": "service-partial",
+                "image_width": 1, "image_height": 1, "model_id": "microsoft/Florence-2-base",
+                "model_revision": "pinned", "processing_time_ms": 5, "warnings": [],
+                "detections": [{"label": "bottle", "bounding_box": {"x1": 0, "y1": 0, "x2": 1, "y2": 1}, "confidence": None}]})
+
+    async def fail(_image, _item):
+        raise florence_analysis.VisualFallbackError("VISION_UNAVAILABLE", "Vision unavailable; retry.")
+    monkeypatch.setattr(florence_analysis.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(florence_analysis, "resolve_detection", fail)
+    try:
+        response = TestClient(app).post("/api/waste/analyze", files={"image": ("bottle.png", PNG, "image/png")})
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 503
+    assert response.json()["code"] == "VISION_UNAVAILABLE"
+    assert response.json()["analysis_id"] == "partial-draft"
+    assert captured["detection"]["raw_detections"][0]["suggested_category"] is None
+    assert captured["original_image_path"].exists()
 
 
 def test_no_objects_is_success_and_not_a_failure(tmp_path, monkeypatch):
@@ -185,10 +222,11 @@ def test_active_detection_review_uses_versioned_rules():
     tin = florence_analysis._review_detection({"label": "tin can", "bounding_box": box}, 3)
     aerosol = florence_analysis._review_detection({"label": "aerosol can", "bounding_box": box}, 4)
     sofa = florence_analysis._review_detection({"label": "sofa", "bounding_box": box}, 5)
-    assert tin["canonical_name"] == "metal_can"
+    assert tin["canonical_name"] == "food_can"
     assert tin["waste_category"] == "Recyclable Waste"
     assert tin["bounding_box"] == box
     assert tin["classification_source"] == "rule"
     assert aerosol["waste_category"] == "Hazardous Waste"
     assert sofa["waste_category"] is None
     assert sofa["confirmation_question"]
+    assert florence_analysis._review_detection({"label": "land vehicle", "bounding_box": box}, 6)["review_status"] == "background"

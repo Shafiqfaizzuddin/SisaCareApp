@@ -21,15 +21,29 @@ export function GoogleIdentityButton({ onCredential, onError, text = 'continue_w
   const container = useRef<HTMLDivElement>(null)
   const activeRequest = useRef(false)
   const disabledRef = useRef(disabled)
+  const onCredentialRef = useRef(onCredential)
+  const onErrorRef = useRef(onError)
   disabledRef.current = disabled
+  onCredentialRef.current = onCredential
+  onErrorRef.current = onError
   const [loading, setLoading] = useState(false)
+  const [widgetState, setWidgetState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [retry, setRetry] = useState(0)
 
   useEffect(() => {
     if (!googleClientId) return
     let active = true
     let resizeObserver: ResizeObserver | undefined
+    let widgetObserver: MutationObserver | undefined
+    let widgetTimer: number | undefined
+    let renderedWidth = 0
+    setWidgetState('loading')
     void loadGoogleIdentity().then(() => {
-      if (!active || !container.current || !window.google) return
+      if (!active) return
+      if (!container.current || !window.google?.accounts?.id) {
+        setWidgetState('error')
+        return
+      }
       window.google.accounts.id.initialize({
         client_id: googleClientId,
         auto_select: false,
@@ -37,27 +51,49 @@ export function GoogleIdentityButton({ onCredential, onError, text = 'continue_w
           if (activeRequest.current || disabledRef.current) return
           activeRequest.current = true
           setLoading(true)
-          void onCredential(credential).catch((error: unknown) => {
-            onError(error instanceof Error ? error.message : 'Google sign-in failed.')
+          void onCredentialRef.current(credential).catch((error: unknown) => {
+            onErrorRef.current(error instanceof Error ? error.message : 'Google sign-in failed.')
           }).finally(() => { activeRequest.current = false; setLoading(false) })
         },
       })
       const render = () => {
         if (!container.current || !window.google) return
         const width = Math.min(400, Math.max(220, Math.floor(container.current.getBoundingClientRect().width)))
+        if (width === renderedWidth) return
+        renderedWidth = width
         container.current.replaceChildren()
         window.google.accounts.id.renderButton(container.current, {
           theme: 'outline', size: 'large', text, width,
         })
       }
       render()
+      const revealIfRendered = () => {
+        if (!active || !container.current?.childElementCount) return
+        if (widgetTimer !== undefined) window.clearTimeout(widgetTimer)
+        widgetObserver?.disconnect()
+        setWidgetState('ready')
+      }
+      if (container.current.childElementCount) revealIfRendered()
+      else {
+        widgetObserver = new MutationObserver(revealIfRendered)
+        widgetObserver.observe(container.current, { childList: true })
+        widgetTimer = window.setTimeout(() => {
+          widgetObserver?.disconnect()
+          if (active) setWidgetState('error')
+        }, 10000)
+      }
       if (typeof ResizeObserver !== 'undefined') {
         resizeObserver = new ResizeObserver(render)
         resizeObserver.observe(container.current)
       }
-    }).catch(() => onError('Google sign-in is temporarily unavailable.'))
-    return () => { active = false; resizeObserver?.disconnect() }
-  }, [onCredential, onError, text])
+    }).catch(() => { if (active) setWidgetState('error') })
+    return () => {
+      active = false
+      if (widgetTimer !== undefined) window.clearTimeout(widgetTimer)
+      widgetObserver?.disconnect()
+      resizeObserver?.disconnect()
+    }
+  }, [retry, text])
 
   if (!googleClientId) {
     return <button className="google-sign-in google-sign-in--fallback" type="button" disabled={disabled}
@@ -67,6 +103,12 @@ export function GoogleIdentityButton({ onCredential, onError, text = 'continue_w
   }
   return <div className={`google-sign-in${disabled || loading ? ' google-sign-in--disabled' : ''}`}
     aria-busy={loading}>
-    <div ref={container} className="google-sign-in__widget" inert={disabled || loading} />
+    <div ref={container} className="google-sign-in__widget" inert={disabled || loading || widgetState !== 'ready'}
+      style={{ visibility: widgetState === 'ready' ? 'visible' : 'hidden', height: widgetState === 'ready' ? undefined : 0 }} />
+    {widgetState !== 'ready' && <button type="button" className="google-sign-in google-sign-in--fallback"
+      disabled={disabled || widgetState === 'loading'}
+      onClick={() => setRetry((value) => value + 1)}>
+      <GoogleMark /> {widgetState === 'loading' ? 'Loading Google sign-in...' : 'Retry Google sign-in'}
+    </button>}
   </div>
 }

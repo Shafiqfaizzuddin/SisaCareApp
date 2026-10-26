@@ -10,6 +10,7 @@ from typing import TypedDict, cast
 
 from app.services.ai.category_mapping import WasteCategory
 from app.services.ai.fusion_service import FusedWasteObject
+from app.services.ai.waste_rules import classify_item
 
 
 LABEL_MAPPING_PATH = (
@@ -226,4 +227,61 @@ __all__ = [
     "group_fused_objects",
     "load_group_labels",
     "reload_group_labels",
+    "group_report_observations",
 ]
+
+
+def group_report_observations(items: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    """Group current Florence/report facts for presentation, never for object counts.
+
+    Raw detections and their boxes stay untouched. Category, uncertainty and
+    condition answers participate in the key so incompatible handling stays
+    separate. Explicit user quantities are retained independently of the
+    number of model detections.
+    """
+    grouped: dict[tuple[str, str, str, str, str], dict[str, object]] = {}
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        label = str(item.get("name") or "").strip()
+        if not label:
+            continue
+        material = str(item.get("material") or "Unknown").strip() or "Unknown"
+        answers = item.get("condition_answers") or {}
+        if not isinstance(answers, Mapping):
+            answers = {}
+        verdict = classify_item(label, confirmed_material=None if material.casefold() == "unknown" else material,
+                                answers=dict(answers))
+        category = item.get("category") if isinstance(item.get("category"), str) else None
+        reason = str(item.get("uncertainty_reason") or item.get("confirmation_reason") or
+                     (verdict["confirmation_reason"] if category is None else "") or "")
+        canonical = str(verdict["canonical_name"])
+        display_name = str(verdict["display_name"])
+        if canonical in {"plastic_bag", "plastic_film"}:
+            canonical, display_name = "plastic_bag_film", "Plastic Bags / Film"
+        conditions = json.dumps(dict(answers), sort_keys=True)
+        key = (canonical, material.casefold(), category or "", reason, conditions)
+        group = grouped.get(key)
+        if group is None:
+            group = {"canonical_name": canonical, "display_name": display_name, "material": material,
+                     "category": category, "uncertainty_reason": reason or None, "detection_count": 0,
+                     "detection_ids": [], "confirmed_quantities": [], "condition_answers": dict(answers),
+                     "handling_guidance": item.get("guidance") or verdict["handling_guidance"]}
+            grouped[key] = group
+        refs = item.get("source_detection_ids")
+        if not isinstance(refs, list):
+            ref = item.get("source_detection_id") or item.get("review_id")
+            refs = [ref] if isinstance(ref, str) and ref.startswith("det-") else []
+        ids = group["detection_ids"]
+        if isinstance(ids, list):
+            for ref in refs:
+                if isinstance(ref, str) and ref not in ids:
+                    ids.append(ref)
+        quantity = item.get("quantity")
+        if isinstance(quantity, int) and not isinstance(quantity, bool) and quantity > 0:
+            quantities = group["confirmed_quantities"]
+            if isinstance(quantities, list):
+                quantities.append(quantity)
+    for group in grouped.values():
+        group["detection_count"] = len(group["detection_ids"])
+    return list(grouped.values())

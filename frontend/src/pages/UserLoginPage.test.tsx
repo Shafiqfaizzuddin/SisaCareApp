@@ -4,11 +4,11 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-const { signIn, signInWithGoogle, refreshMemberData } = vi.hoisted(() => ({
-  signIn: vi.fn(), signInWithGoogle: vi.fn(), refreshMemberData: vi.fn(),
+const { signIn, signInWithGoogle, syncBrowserSession, refreshMemberData } = vi.hoisted(() => ({
+  signIn: vi.fn(), signInWithGoogle: vi.fn(), syncBrowserSession: vi.fn(), refreshMemberData: vi.fn(),
 }))
 vi.mock('../features/authentication/useRole', () => ({
-  useRole: () => ({ signIn, refreshMemberData }),
+  useRole: () => ({ signIn, syncBrowserSession, refreshMemberData }),
 }))
 vi.mock('../features/authentication/google', () => ({ signInWithGoogle }))
 vi.mock('../components/common/GoogleIdentityButton', () => ({
@@ -36,6 +36,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   signIn.mockResolvedValue(undefined)
   signInWithGoogle.mockResolvedValue(undefined)
+  syncBrowserSession.mockResolvedValue(undefined)
 })
 
 afterEach(() => cleanup())
@@ -96,4 +97,16 @@ it('routes verified Google sign-in to the same participant destination', async (
   fireEvent.click(screen.getByRole('button', { name: 'Continue with Google' }))
   await waitFor(() => expect(screen.getByText('Report destination')).toBeTruthy())
   expect(signInWithGoogle).toHaveBeenCalledWith('test-google-token')
+  expect(syncBrowserSession).toHaveBeenCalledOnce()
+})
+
+it('waits for the browser session to reach context before navigating after Google sign-in', async () => {
+  let finishSync: (() => void) | undefined
+  syncBrowserSession.mockReturnValue(new Promise<void>((resolve) => { finishSync = resolve }))
+  renderLogin('/report')
+  fireEvent.click(screen.getByRole('button', { name: 'Continue with Google' }))
+  await waitFor(() => expect(syncBrowserSession).toHaveBeenCalledOnce())
+  expect(screen.queryByText('Report destination')).toBeNull()
+  finishSync?.()
+  await waitFor(() => expect(screen.getByText('Report destination')).toBeTruthy())
 })

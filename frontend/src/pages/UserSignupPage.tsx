@@ -3,6 +3,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Brand } from '../components/common/Brand'
 import { useRole } from '../features/authentication/useRole'
+import { supabaseClient } from '../lib/supabase'
 
 interface SignupFields {
   fullName: string
@@ -25,6 +26,23 @@ export function UserSignupPage() {
   const [signupError, setSignupError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [confirmationEmail, setConfirmationEmail] = useState('')
+  const [resendStatus, setResendStatus] = useState('')
+  const [isResending, setIsResending] = useState(false)
+
+  async function resendConfirmation() {
+    if (!supabaseClient || !confirmationEmail || isResending) return
+    setIsResending(true)
+    setResendStatus('')
+    try {
+      const { error } = await supabaseClient.auth.resend({ type: 'signup', email: confirmationEmail,
+        options: { emailRedirectTo: `${window.location.origin}/login` } })
+      setResendStatus(error?.message ?? 'If confirmation is still needed, a new email has been sent.')
+    } catch {
+      setResendStatus('The confirmation email could not be resent. Please try again.')
+    } finally {
+      setIsResending(false)
+    }
+  }
 
   function updateField(field: keyof SignupFields, value: string) {
     setSignupError('')
@@ -68,7 +86,7 @@ export function UserSignupPage() {
   }
 
   return (
-    <main className="login-page member-login-page">
+    <main className="login-page signup-page">
       <section className="login-context">
         <Brand />
         <div>
@@ -96,9 +114,12 @@ export function UserSignupPage() {
               <span><MailCheck size={24} /></span>
               <h2>Check your email</h2>
               <p>
-                A confirmation link was sent to <strong>{confirmationEmail}</strong>.
-                Confirm the address before signing in.
+                Check <strong>{confirmationEmail}</strong> for a verification link.
+                Open it to confirm your address, then sign in.
               </p>
+              <button className="member-login-card__resend" type="button" onClick={() => void resendConfirmation()}
+                disabled={isResending}>{isResending ? 'Sending...' : 'Resend verification email'}</button>
+              {resendStatus && <p role="status">{resendStatus}</p>}
               <Link className="button button--primary button--full" to="/login">
                 Continue to sign in
               </Link>

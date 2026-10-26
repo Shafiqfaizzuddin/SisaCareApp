@@ -5,7 +5,7 @@ import { PageIntro } from '../components/common/PageIntro'
 import { LocationPicker } from '../components/location/LocationPicker'
 import { useRole } from '../features/authentication/useRole'
 import type { ConfirmedItem } from '../features/reporting/campus-workflow'
-import { categoriesForItems, groupReviewedItems, initialItem, isCap, type ReviewedItem, type ReviewDisposition } from '../features/reporting/confirmation'
+import { categoriesForItems, groupDisplayName, groupReviewedItems, initialItem, isCap, type ReviewedItem, type ReviewDisposition } from '../features/reporting/confirmation'
 import { ReportSubmissionRequestError, submitWasteReport } from '../features/reporting/report-submission'
 import { generateReportDraft, type ReportDraftResult } from '../features/reporting/report-draft'
 import { classifyConfirmedItem } from '../features/reporting/waste-rules'
@@ -86,6 +86,7 @@ export function SubmitReportPage() {
   const category = primaryCategory(reportItems)
   const applicableCategories = categoriesForItems(reportItems)
   const groupedItems = groupReviewedItems(reviewedItems)
+  const reportGroups = groupReviewedItems(reportItems)
 
   function openLocationPicker(clearError = true) {
     setDraftLocation(selectedLocation)
@@ -190,7 +191,6 @@ export function SubmitReportPage() {
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       setAnalysisError(error instanceof WasteAnalysisRequestError ? error.message : 'Photo analysis failed. You can identify items manually.')
-      if (!hasCurrentAnalysis) setManualMode(true)
     } finally {
       if (analysisRequest.current === controller) { analysisRequest.current = null; setIsAnalyzing(false) }
     }
@@ -273,7 +273,7 @@ export function SubmitReportPage() {
     setSubmissionError('')
     try {
       const result = await submitWasteReport({
-        rule_version: '1.2.0',
+        rule_version: '2.0.0',
         reporter_role: 'user', user_id: user?.id,
         ...reportDraft, category,
         draft_source: generatedDraft?.source ?? 'user', draft_model_id: generatedDraft?.model_id ?? null,
@@ -312,20 +312,25 @@ export function SubmitReportPage() {
           {hasCurrentAnalysis && <span className="analysis-complete"><Check size={17} /> Analysis complete</span>}
         </div>
         {isAnalyzing && <div className="analysis-processing" role="status"><LoaderCircle className="spin" size={20} /> Detecting objects locally. This may take a moment.</div>}
-        {analysisError && <div className="analysis-error" role="alert"><AlertCircle size={19} /><div><strong>Analysis could not be completed</strong><p>{analysisError}</p><p>Your photo and entered details are still here. Retry or identify items manually.</p></div></div>}
-        {selectedFile && !hasCurrentAnalysis && <button type="button" className="button button--secondary" onClick={() => canUseAi ? setManualMode(true) : navigate('/login', { state: { returnTo: '/report' } })}>{canUseAi ? 'Identify items manually' : 'Sign in to report waste'}</button>}
+        {analysisError && <div className="analysis-error" role="alert"><AlertCircle size={19} /><div><strong>Analysis could not be completed</strong><p>{analysisError}</p><p>Your photo and entered details are still here. Retry analysis when local inference is ready.</p></div></div>}
+        {selectedFile && !hasCurrentAnalysis && <button type="button" className="button button--secondary" onClick={() => canUseAi ? setManualMode(true) : navigate('/login', { state: { returnTo: '/report' } })}>{canUseAi ? 'Write a manual report instead' : 'Sign in to report waste'}</button>}
         {hasCurrentAnalysis && analysis && <div className="analysis-results" aria-live="polite"><div className="analysis-results__grid">
           <figure className="florence-photo"><div className="florence-photo__frame">
             <img src={analysis.display_image && !displayImageError ? analysis.display_image : previewUrl} alt="Uploaded waste photo" onError={() => setDisplayImageError(true)} />
             {analysis.display_image && !displayImageError && showBoxes && <svg viewBox={`0 0 ${analysis.image_width} ${analysis.image_height}`} preserveAspectRatio="none" aria-label="Detected object outlines">
               {analysis.detections.map(({ id, bounding_box: box }) => <rect key={id} x={box.x1} y={box.y1} width={box.x2 - box.x1} height={box.y2 - box.y1} className={`florence-photo__box florence-photo__box--${reviewedItems.find((item) => item.sourceDetectionId === id)?.status ?? 'needs_confirmation'}`} />)}
             </svg>}
-          </div><figcaption>Photo analyzed with {analysis.model_id} in {analysis.processing_time_ms} ms</figcaption>
+          </div><figcaption>Uploaded photo and optional object outlines</figcaption>
             {analysis.display_image && !displayImageError && <label><input type="checkbox" checked={showBoxes} onChange={(event) => setShowBoxes(event.target.checked)} /> Show object outlines</label>}
             {(!analysis.display_image || displayImageError) && <p>Aligned preview unavailable; outlines are hidden.</p>}
+            <details className="analysis-technical"><summary>Technical details</summary><p>Model: {analysis.model_id}</p><p>Inference: {analysis.processing_time_ms} ms</p><p>Raw detections: {analysis.detections.length}</p></details>
           </figure>
           <div className="detection-panel"><h3>Analysis summary</h3><p>AI-generated details may contain errors. You can edit them before submitting.</p>
-            {reportItems.map((item) => <p key={item.id}><strong>{item.name || 'Unidentified waste'}</strong> · {item.material === 'Unknown' ? 'Material unclear' : item.material} · {item.category || 'Needs Confirmation'}</p>)}
+            <div className="waste-group-list">{reportGroups.map((group) => <div className="waste-group-card" key={group[0].id}>
+              <div className="waste-group-card__heading"><strong>{groupDisplayName(group)}</strong><span>{group.some((item) => item.sourceDetectionId) ? `${group.filter((item) => item.sourceDetectionId).length} detections` : 'Added by you'}</span></div>
+              <p>{group[0].material === 'Unknown' ? 'Material unclear' : group[0].material} · {group[0].category || 'Needs assessment'}</p>
+              {group[0].confirmationReason && <p className="field__hint">{group[0].category ? 'AI note: ' : ''}{group[0].confirmationReason}</p>}
+            </div>)}</div>
             {analysis.detections.length === 0 && <p>No objects were detected. Try another photo, add details, or submit for admin assessment.</p>}
             {analysis.warnings.map((warning, index) => <p key={index}>{warning}</p>)}
           </div></div></div>}
@@ -368,18 +373,23 @@ export function SubmitReportPage() {
       </section>
       {(hasCurrentAnalysis || manualMode) && <section className="form-section"><div className="form-section__heading"><span>3</span><div><h2>Report draft</h2><p>A local draft is prepared after analysis. Review and edit it before submitting.</p></div></div>
         <section className="ai-report"><div className="ai-report__heading"><div><span>Report details</span><h3>Draft and review your report</h3></div></div><div className="ai-report__editor">
-          <div className="field"><label htmlFor="report-user-description">Additional notes (optional)</label><textarea id="report-user-description" value={userDescription} maxLength={1000} rows={3} onChange={(event) => { setUserDescription(event.target.value); if (generatedDraft) setDraftNeedsRefresh(true) }} /><p className="field__hint">Notes can be included if you regenerate the draft.</p></div>
-          <button type="button" className="button button--secondary" disabled={isDrafting} onClick={handleGenerateDraft}>{isDrafting ? 'Drafting report…' : generatedDraft ? 'Regenerate report draft' : 'Generate report draft'}</button>
+          <div className="field"><label htmlFor="report-title">Title</label><input id="report-title" value={reportDraft.title} maxLength={180} required onChange={(event) => { manuallyEditedReportFields.current.add('title'); setReportDraft((current) => ({ ...current, title: event.target.value })) }} /></div>
+          <div className="field"><label htmlFor="report-summary">Report description</label><textarea id="report-summary" value={reportDraft.summary} maxLength={4000} rows={6} required onChange={(event) => { manuallyEditedReportFields.current.add('summary'); setReportDraft((current) => ({ ...current, summary: event.target.value })) }} /></div>
+          <div className="draft-actions"><button type="button" className="button button--secondary" disabled={isDrafting} onClick={handleGenerateDraft}>{isDrafting ? 'Drafting report…' : generatedDraft ? 'Regenerate report draft' : 'Generate report draft'}</button>
+            {generatedDraft && <small>{generatedDraft.source === 'ollama' ? 'Suggested by local AI' : 'Factual template'} · Editable</small>}</div>
           {draftError && <p role="alert">{draftError} Your edits remain available.</p>}
           {generatedDraft && draftNeedsRefresh && <p role="status">Analysis details changed. Regenerate the draft if you want updated suggestions. Your edits will remain.</p>}
-          {generatedDraft && <div className="report-draft-preview"><p><strong>Editable preview · {generatedDraft.source === 'ollama' ? `Local Ollama (${generatedDraft.model_id})` : 'Factual template'}</strong></p>
-            <p><strong>Title:</strong> {generatedDraft.title}</p><p><strong>Description:</strong> {generatedDraft.summary}</p>
-            <button type="button" className="button button--secondary" onClick={() => setReportDraft((current) => ({ ...current, title: generatedDraft.title, summary: generatedDraft.summary }))}>Use preview title and description</button>
-            <p>AI-generated details may contain errors. You can edit them before submitting.</p></div>}
-          {([['title', 'Title', 180], ['summary', 'Summary', 4000], ['waste_identified', 'Waste identified', 2000], ['recommended_action', 'Recommended action', 2000], ['environmental_concern', 'Environmental concern', 2000]] as const).map(([key, label, maxLength]) => <div className="field" key={key}>
-            <label htmlFor={`report-${key}`}>{label}</label>{key === 'title'
-              ? <input id={`report-${key}`} value={reportDraft[key]} maxLength={maxLength} required onChange={(event) => { manuallyEditedReportFields.current.add(key); setReportDraft((current) => ({ ...current, [key]: event.target.value })) }} />
-              : <textarea id={`report-${key}`} value={reportDraft[key]} maxLength={maxLength} rows={4} required onChange={(event) => { manuallyEditedReportFields.current.add(key); setReportDraft((current) => ({ ...current, [key]: event.target.value })) }} />}</div>)}
+          {generatedDraft && (manuallyEditedReportFields.current.has('title') || manuallyEditedReportFields.current.has('summary')) &&
+            <details className="draft-optional"><summary>View generated suggestion</summary><div className="generated-suggestion">
+              <p><strong>Title:</strong> {generatedDraft.title}</p><p><strong>Description:</strong> {generatedDraft.summary}</p>
+              {manuallyEditedReportFields.current.has('title') && <button type="button" className="button button--secondary" onClick={() => { manuallyEditedReportFields.current.delete('title'); setReportDraft((current) => ({ ...current, title: generatedDraft.title })) }}>Use suggested title</button>}
+              {manuallyEditedReportFields.current.has('summary') && <button type="button" className="button button--secondary" onClick={() => { manuallyEditedReportFields.current.delete('summary'); setReportDraft((current) => ({ ...current, summary: generatedDraft.summary })) }}>Use suggested description</button>}
+            </div></details>}
+          <div className="draft-waste-summary"><strong>Waste summary</strong><p>{reportGroups.map(groupDisplayName).join(', ') || 'Unidentified waste'} · {applicableCategories.join(', ') || 'Classification needs assessment'}</p></div>
+          <details className="draft-optional"><summary>Additional notes (optional)</summary><div className="field"><label htmlFor="report-user-description">Your notes</label><textarea id="report-user-description" value={userDescription} maxLength={1000} rows={3} onChange={(event) => { setUserDescription(event.target.value); if (generatedDraft) setDraftNeedsRefresh(true) }} /><p className="field__hint">Notes can be included if you regenerate the draft.</p></div></details>
+          <details className="draft-optional"><summary>Additional report details</summary><div className="draft-optional__fields">
+            {([['waste_identified', 'Waste identified', 2000], ['recommended_action', 'Recommended action', 2000], ['environmental_concern', 'Environmental concern', 2000]] as const).map(([key, label, maxLength]) => <div className="field" key={key}><label htmlFor={`report-${key}`}>{label}</label><textarea id={`report-${key}`} value={reportDraft[key]} maxLength={maxLength} rows={3} required onChange={(event) => { manuallyEditedReportFields.current.add(key); setReportDraft((current) => ({ ...current, [key]: event.target.value })) }} /></div>)}
+          </div></details>
         </div></section></section>}
       {(hasCurrentAnalysis || manualMode) && <section className="form-section" aria-label="Waste location"><div className="form-section__heading"><span>4</span><div><h2>Waste location</h2><p>Choose where the waste was found before submitting.</p></div></div>
         {!locationPickerOpen && <div className="report-location-summary" role="status">{selectedLocation && <p><strong>{selectedLocation.address}</strong>{siteNotes && <><br />Landmark: {siteNotes}</>}</p>}
@@ -391,7 +401,7 @@ export function SubmitReportPage() {
         }} /></div>}
       </section>}
       {(hasCurrentAnalysis || manualMode) && selectedLocation && <section className="form-section"><div className="form-section__heading"><span>5</span><div><h2>Final review</h2><p>Review the incident before submission.</p></div></div>
-        <p>Primary review category: <strong>{category}</strong>. Identified categories: {applicableCategories.join(', ') || 'Needs Confirmation'}.</p>
+        <p>Primary review status: <strong>{category === 'Needs Confirmation' ? 'No waste category established' : category}</strong>. Identified categories: {applicableCategories.join(', ') || 'No category established yet'}.</p>
         {applicableCategories.includes('Hazardous Waste') && <p className="review-hazard" role="status">Hazardous item present. Keep a safe distance and follow the reviewed handling guidance.</p>}
       </section>}
       <div className="form-actions">{submissionError && <div className="analysis-error form-actions__error" role="alert"><AlertCircle size={19} /><div><strong>Report not submitted</strong><p>{submissionError}</p></div></div>}

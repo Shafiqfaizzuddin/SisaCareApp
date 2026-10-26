@@ -1,12 +1,19 @@
 import { supabaseClient } from '../../lib/supabase'
 import type { UserProfile } from '../../types'
 
+export async function authFailureMessage(response: Response, fallback: string): Promise<string> {
+  const body: unknown = await response.json().catch(() => null)
+  if (body && typeof body === 'object' && 'detail' in body
+    && typeof body.detail === 'string' && body.detail.trim()) return body.detail
+  return fallback
+}
+
 export async function createBrowserSession(notify = true): Promise<void> {
   const { data } = await supabaseClient!.auth.getSession()
   if (!data.session?.access_token) throw new Error('Sign in again to start a browser session.')
   const response = await fetch('/api/auth/session', { method: 'POST', credentials: 'same-origin',
     headers: { Authorization: `Bearer ${data.session.access_token}` } })
-  if (!response.ok) throw new Error('The browser session could not be started.')
+  if (!response.ok) throw new Error(await authFailureMessage(response, 'The browser session could not be started.'))
   if (notify) window.dispatchEvent(new Event('sisacare:session-created'))
 }
 

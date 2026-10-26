@@ -76,3 +76,34 @@ def test_completion_never_links_a_different_supabase_user(
         assert identities.google_owner_id("stable-sub") is None
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize("email", ["resident@gmail.com", "resident@example.org"])
+def test_public_google_accounts_can_complete_and_return_without_duplicate_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, email: str,
+) -> None:
+    monkeypatch.setattr(identities, "get_settings", lambda: Settings(_env_file=None, database_path=tmp_path / "identity.db"))
+    monkeypatch.setattr(identity_api, "verify_google_token", lambda _token, _settings: {
+        "sub": "public-google-sub", "email": email,
+    })
+
+    async def resolve(_email: str, _sub: str, _settings: Settings) -> str | None:
+        return identities.google_owner_id("public-google-sub")
+
+    monkeypatch.setattr(identity_api, "ensure_no_automatic_link", resolve)
+    app.dependency_overrides[get_settings] = lambda: Settings(_env_file=None)
+    app.dependency_overrides[get_optional_authenticated_user] = lambda: {
+        "id": "same-public-user", "email": email, "role": "user",
+        "google_sub": "public-google-sub", "has_email_identity": False, "email_verified": True,
+    }
+    try:
+        for token in (TOKEN_ONE, TOKEN_TWO):
+            assert client.post("/api/identity/google/preflight", json={"id_token": token}).status_code == 200
+            completed = client.post("/api/identity/google/complete", json={"id_token": token})
+            assert completed.status_code == 200, completed.text
+            assert completed.json()["google_sub"] == "public-google-sub"
+        with identities._connect() as database:
+            rows = database.execute("SELECT user_id, google_sub FROM member_identities").fetchall()
+            assert [tuple(row) for row in rows] == [("same-public-user", "public-google-sub")]
+    finally:
+        app.dependency_overrides.clear()

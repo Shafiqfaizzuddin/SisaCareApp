@@ -15,6 +15,7 @@ from uuid import uuid4
 from app.core.config import get_settings
 from app.core.reward_policy import REPORT_POINTS, SPLIT_OFFSET_REASON
 from app.services.ai.waste_rules import classify_item
+from app.services.ai.grouping_service import group_report_observations
 
 
 _settings = get_settings()
@@ -622,11 +623,10 @@ def analysis_draft_provider(draft_id: str) -> str | None:
 
 def validate_review_for_drafting(
     analysis_id: str | None, user_id: str, submission: Mapping[str, Any],
-) -> None:
+) -> dict[str, Any] | None:
     """Authorize a draft and keep model observations separate from user edits."""
     if analysis_id is None:
-        _build_review_confirmation(None, submission)
-        return
+        return _build_review_confirmation(None, submission)
     with _connect() as database:
         initialize_database(database)
         draft = database.execute(
@@ -641,7 +641,7 @@ def validate_review_for_drafting(
         raise DraftAlreadySubmittedError("This analysis draft has already been submitted.")
     if json.loads(draft["detection_json"]).get("provider") != "florence2":
         raise ReviewValidationError("Report drafting requires Florence or manual items.")
-    _build_review_confirmation(draft["detection_json"], submission)
+    return _build_review_confirmation(draft["detection_json"], submission)
 
 
 def _asset_suffix(path: Path) -> str:
@@ -753,8 +753,7 @@ def _build_review_confirmation(
                 or (item.get("condition_answers") or {}) != (review.get("condition_answers") or {})):
             raise ReviewValidationError("Confirmed item details do not match the reviewed correction.")
         confirmed_material = item.get("material")
-        original_rule = classify_item(original["label"]) if original else None
-        edited = (original is None or original_rule["canonical_name"] != classify_item(item["name"])["canonical_name"]
+        edited = (original is None or original.get("name") != classify_item(item["name"])["canonical_name"]
                   or confirmed_material != original.get("material") or item["category"] != original.get("suggested_category")
                   or bool(item.get("condition_answers")) or item.get("quantity") is not None)
         verdict = classify_item(
@@ -763,15 +762,19 @@ def _build_review_confirmation(
             answers=item.get("condition_answers") or {},
             user_confirmed=edited,
         )
-        if item["category"] == "Bulky Waste" and verdict["category"] != "Bulky Waste":
+        visual_category = (original.get("suggested_category") if original and original.get("classification_source") == "vision" and not edited else None)
+        if item["category"] == "Bulky Waste" and verdict["category"] != "Bulky Waste" and visual_category != "Bulky Waste":
             raise ReviewValidationError("Confirm that furniture is discarded waste before reporting it.")
         if item["category"] is not None and verdict["category"] is not None and verdict["category"] != item["category"]:
             raise ReviewValidationError("A confirmed category conflicts with its applied waste rule.")
+        if verdict["category"] is None and item["category"] is not None and visual_category != item["category"] and not edited:
+            raise ReviewValidationError("An automatic category must match the saved visual assessment.")
         final_items.append({
             **item,
             "source_detection_ids": [review["source_detection_id"]] if review.get("source_detection_id") else [],
             "rule_id": verdict["rule_id"],
-            "classification_source": verdict["classification_source"],
+            "classification_source": "vision" if visual_category else verdict["classification_source"],
+            "uncertainty_reason": original.get("confirmation_reason") if original and original.get("needs_confirmation") else None,
             "classification_state": "needs_confirmation" if item["category"] is None else "classified",
             "independently_verified": False,
             "station_material_key": verdict["station_material_key"],
@@ -782,7 +785,7 @@ def _build_review_confirmation(
         applied_rules.append({
             "review_id": item["review_id"],
             "rule_id": verdict["rule_id"],
-            "classification_source": verdict["classification_source"],
+            "classification_source": "vision" if visual_category else verdict["classification_source"],
             "rule_category": verdict["category"],
             "confirmed_category": item["category"],
             "needs_confirmation_at_detection": verdict["needs_confirmation"],
@@ -820,6 +823,7 @@ def _deserialize_ai_analysis(
         "provider": analysis.get("provider"),
         "model_id": analysis.get("model_id"),
         "model_revision": analysis.get("model_revision"),
+          "visual_model_id": analysis.get("visual_model_id"),
         "service_analysis_id": payload.get("service_analysis_id"),
         "raw_detections": payload.get("raw_detections") if analysis.get("provider") == "florence2" else None,
         "model_detections": payload.get("model_detections") if analysis.get("provider") == "florence2" else None,
@@ -1282,6 +1286,8 @@ def get_report(report_id: str) -> dict[str, Any] | None:
             confirmed_results = json.loads(report["confirmed_ai_result_json"])
         except (json.JSONDecodeError, TypeError):
             confirmed_results = None
+        report_items = (confirmed_results.get("final_confirmed_items") or confirmed_results.get("items") or []) if isinstance(confirmed_results, dict) else []
+        grouped_report_items = group_report_observations(report_items) if isinstance(report_items, list) else []
         status_events = database.execute(
             """SELECT previous_status, new_status, reason, assigned_team,
                       resolution_details, after_photo, created_at
@@ -1328,6 +1334,7 @@ def get_report(report_id: str) -> dict[str, Any] | None:
         "final_categories": final_categories,
         "ai_analysis": ai_analysis,
         "confirmed_results": confirmed_results,
+        "grouped_report_items": grouped_report_items,
         "original_image": report["original_image"] or "",
         "annotated_image": report["annotated_image"] or "",
         "created_at": report["created_at"],

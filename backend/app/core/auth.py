@@ -117,10 +117,18 @@ async def authenticate_access_token(
                 candidate = identity.get("provider_id")
                 if not isinstance(candidate, str) and isinstance(identity_data, dict):
                     candidate = identity_data.get("sub")
-                if isinstance(candidate, str):
+                if isinstance(candidate, str) and candidate:
                     google_sub = candidate
                     if isinstance(identity_data, dict) and isinstance(identity_data.get("email"), str):
                         google_email = identity_data["email"]
+                        # The Google identity comes from Supabase Auth, not
+                        # user-editable metadata. A verified provider email is
+                        # sufficient even if this Supabase account has no
+                        # email_confirmed_at value yet.
+                        if (identity_data.get("email_verified") is True
+                                and isinstance(email, str)
+                                and google_email.strip().casefold() == email.strip().casefold()):
+                            verified = True
                     break
     authenticated_user: AuthenticatedUser = {
         "id": payload["id"],

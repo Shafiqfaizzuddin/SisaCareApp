@@ -1854,6 +1854,14 @@ a:focus-visible {
   background: var(--surface);
 }
 
+.signup-page {
+  min-width: 0;
+}
+
+.signup-page > * {
+  min-width: 0;
+}
+
 .login-context {
   padding: 42px max(42px, 8vw);
   display: flex;
@@ -1907,7 +1915,7 @@ a:focus-visible {
 }
 
 .login-panel {
-  padding: 42px;
+  padding: clamp(24px, 4vw, 56px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1915,6 +1923,7 @@ a:focus-visible {
 
 .login-form-wrap {
   width: min(420px, 100%);
+  min-width: 0;
 }
 
 .back-link {
@@ -2573,6 +2582,7 @@ a:focus-visible {
 .report-description p {
   margin-top: 12px;
   font-size: 0.84rem;
+  white-space: pre-line;
 }
 
 .map-panel {
@@ -4372,3 +4382,27 @@ a:focus-visible {
 .florence-photo__box--removed { stroke: #94a3b8; stroke-dasharray: 6 4; }
 .florence-photo__box--attached_component { stroke: #3b82f6; stroke-dasharray: 6 4; }
 .florence-photo figcaption { margin-top: .5rem; }
+.analysis-technical { margin-top: .75rem; font-size: .82rem; color: var(--ink-muted); }
+.analysis-technical p { margin: .3rem 0; }
+.waste-group-list { display: grid; gap: .75rem; margin-top: 1rem; }
+.waste-group-card { min-width: 0; padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.waste-group-card__heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: .3rem .8rem; }
+.waste-group-card__heading span { color: var(--ink-muted); font-size: .76rem; white-space: nowrap; }
+.waste-group-card p { margin: .35rem 0 0; overflow-wrap: anywhere; font-size: .8rem; }
+.ai-report__editor { grid-template-columns: minmax(0, 1fr); }
+.ai-report__editor .field, .draft-optional, .draft-waste-summary { min-width: 0; }
+.ai-report__editor input, .ai-report__editor textarea { width: 100%; min-width: 0; }
+.ai-report__editor #report-summary { min-height: 180px; max-height: 480px; resize: vertical; line-height: 1.55; }
+.draft-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.draft-actions .button { width: auto; min-height: 44px; align-self: flex-start; justify-self: start; }
+.draft-actions small { color: var(--ink-muted); }
+.draft-waste-summary { padding: .85rem 1rem; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.draft-waste-summary p { margin: .4rem 0 0; overflow-wrap: anywhere; }
+.draft-optional { padding: .7rem 0; border-top: 1px solid var(--line); }
+.draft-optional summary, .analysis-technical summary { cursor: pointer; font-weight: 650; }
+.draft-optional .field, .draft-optional__fields { margin-top: 1rem; }
+.draft-optional__fields { display: grid; gap: 1rem; }
+.generated-suggestion { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-top: .75rem; }
+.generated-suggestion p { flex-basis: 100%; margin: 0; overflow-wrap: anywhere; }
+.generated-suggestion .button { width: auto; }
+@media (max-width: 900px) { .analysis-results__grid { grid-template-columns: minmax(0, 1fr); } }

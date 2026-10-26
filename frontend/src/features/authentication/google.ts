@@ -1,6 +1,6 @@
 import { supabaseClient } from '../../lib/supabase'
 import { authenticatedFetch } from './authenticated-fetch'
-import { createBrowserSession, revokeBrowserSession } from './browser-session'
+import { authFailureMessage, createBrowserSession, revokeBrowserSession } from './browser-session'
 
 declare global {
   interface Window {
@@ -19,18 +19,33 @@ declare global {
 export const googleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim() ?? ''
 
 let scriptPromise: Promise<void> | null = null
+const GOOGLE_SCRIPT_TIMEOUT_MS = 10000
 export function loadGoogleIdentity(): Promise<void> {
-  if (window.google) return Promise.resolve()
+  if (window.google?.accounts?.id) return Promise.resolve()
   if (!scriptPromise) {
-    scriptPromise = new Promise((resolve, reject) => {
+    const pending = new Promise<void>((resolve, reject) => {
       const script = document.createElement('script')
       script.src = 'https://accounts.google.com/gsi/client'
       script.async = true
       script.defer = true
-      script.onload = () => resolve()
-      script.onerror = () => reject(new Error('Google sign-in is unavailable.'))
+      const timeout = window.setTimeout(() => fail(), GOOGLE_SCRIPT_TIMEOUT_MS)
+      const fail = () => {
+        window.clearTimeout(timeout)
+        script.remove()
+        reject(new Error('Google sign-in is unavailable.'))
+      }
+      script.onload = () => {
+        window.clearTimeout(timeout)
+        if (window.google?.accounts?.id) resolve()
+        else fail()
+      }
+      script.onerror = fail
       document.head.appendChild(script)
+    }).catch((error: unknown) => {
+      scriptPromise = null
+      throw error
     })
+    scriptPromise = pending
   }
   return scriptPromise
 }
@@ -60,7 +75,7 @@ export async function signInWithGoogle(credential: string): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id_token: credential }),
     })
-    if (!response.ok) throw new Error('Google session verification failed.')
+    if (!response.ok) throw new Error(await authFailureMessage(response, 'Google session verification failed.'))
     window.dispatchEvent(new Event('sisacare:session-created'))
   } catch (error) {
     await revokeBrowserSession().catch(() => undefined)
@@ -76,7 +91,7 @@ export async function linkGoogleIdentity(credential: string): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id_token: credential }),
   })
-  if (!verified.ok) throw new Error('Use a verified Google account.')
+  if (!verified.ok) throw new Error(await authFailureMessage(verified, 'Use a verified Google account.'))
   const { error } = await supabaseClient.auth.linkIdentity({ provider: 'google', token: credential })
   if (error) throw new Error(error.message)
   await supabaseClient.auth.refreshSession()
@@ -86,5 +101,5 @@ export async function linkGoogleIdentity(credential: string): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id_token: credential }),
   })
-  if (!response.ok) throw new Error('Google identity was linked, but verification could not be saved.')
+  if (!response.ok) throw new Error(await authFailureMessage(response, 'Google identity was linked, but verification could not be saved.'))
 }

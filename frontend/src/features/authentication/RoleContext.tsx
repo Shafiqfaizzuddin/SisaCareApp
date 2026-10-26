@@ -16,6 +16,8 @@ import { RoleContext, type RoleContextValue } from './role-context'
 import { AuthenticationError, profileFromAuthUser } from './session'
 import { loadBrowserSession, createBrowserSession, revokeBrowserSession } from './browser-session'
 
+const SESSION_HEARTBEAT_MS = 5 * 60 * 1000
+
 export function RoleProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [isAuthLoading, setIsAuthLoading] = useState(true)
@@ -65,6 +67,35 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       channel?.close()
     }
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+    const signedInUserId = user.id
+    let lastActivityAt = Date.now()
+    let heartbeatInFlight = false
+    const markActivity = () => { lastActivityAt = Date.now() }
+    const heartbeat = () => {
+      if (heartbeatInFlight || document.visibilityState !== 'visible'
+        || Date.now() - lastActivityAt >= SESSION_HEARTBEAT_MS) return
+      heartbeatInFlight = true
+      void loadBrowserSession().then((profile) => {
+        if (!profile || profile.id !== signedInUserId) {
+          setUser((current) => current?.id === signedInUserId ? null : current)
+          setMemberReports([])
+        }
+      }).catch(() => undefined).finally(() => { heartbeatInFlight = false })
+    }
+    window.addEventListener('pointerdown', markActivity)
+    window.addEventListener('keydown', markActivity)
+    window.addEventListener('scroll', markActivity, { passive: true })
+    const interval = window.setInterval(heartbeat, SESSION_HEARTBEAT_MS)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('pointerdown', markActivity)
+      window.removeEventListener('keydown', markActivity)
+      window.removeEventListener('scroll', markActivity)
+    }
+  }, [user?.id])
 
   useEffect(() => {
     if (user?.role !== 'user') {
@@ -133,6 +164,9 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         email: email.trim(),
         password,
       })
+      if (error?.code === 'email_not_confirmed') {
+        throw new AuthenticationError('Confirm your email before signing in. You can resend the confirmation email below.')
+      }
       if (error || !data.user) {
         throw new AuthenticationError('Email or password is incorrect.')
       }
@@ -177,6 +211,13 @@ export function RoleProvider({ children }: { children: ReactNode }) {
 
   const refreshMemberData = useCallback(() => {
     setMemberRefreshVersion((version) => version + 1)
+  }, [])
+
+  const syncBrowserSession = useCallback(async () => {
+    const profile = await loadBrowserSession()
+    if (!profile) throw new AuthenticationError('The Google session could not be restored. Please try again.')
+    setUser(profile)
+    setIsAuthLoading(false)
   }, [])
 
   const signUp = useCallback(
@@ -224,6 +265,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
       signIn,
       signUp,
       signOut,
+      syncBrowserSession,
       refreshMemberData,
     }
   }, [
@@ -235,6 +277,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     signIn,
     signOut,
     signUp,
+    syncBrowserSession,
     user,
   ])
 

@@ -108,12 +108,12 @@ async def generate_report_draft(
         raise HTTPException(status_code=403, detail="Participant access is required.")
     facts = request.model_dump()
     try:
-        await run_in_threadpool(
+        reviewed = await run_in_threadpool(
             report_repository.validate_review_for_drafting,
             request.analysis_id, user["id"], facts,
         )
         return await run_in_threadpool(
-            draft_confirmed_report, facts["confirmed_items"],
+            draft_confirmed_report, reviewed["final_confirmed_items"] if reviewed else facts["confirmed_items"],
             user_description=request.user_description,
             confirmed_address=request.confirmed_address,
         )
@@ -143,7 +143,7 @@ def category_for_items(items: list[ConfirmedWasteItem]) -> ReportCategory:
 
 class ReportSubmission(BaseModel):
     analysis_id: str | None = Field(default=None, min_length=1, max_length=64)
-    rule_version: Literal["1.0.0", "1.1.0", "1.2.0"] | None = None
+    rule_version: Literal["1.0.0", "1.1.0", "1.2.0", "2.0.0"] | None = None
     reporter_role: Literal["guest", "user"]
     user_id: str | None = Field(default=None, max_length=100)
     guest_name: str | None = Field(default=None, max_length=120)
@@ -190,7 +190,7 @@ class ReportSubmission(BaseModel):
                     confirmed_material=item.material if item.material != "Unknown" else None,
                     answers=item.condition_answers,
                 )
-                if item.category == "Bulky Waste" and verdict["category"] != "Bulky Waste":
+                if item.category == "Bulky Waste" and verdict["category"] != "Bulky Waste" and self.analysis_id is None:
                     raise ValueError(f"Confirm that {item.name} is discarded waste before reporting it.")
                 if item.category is not None and verdict["category"] is not None and item.category != verdict["category"]:
                     raise ValueError(
@@ -245,7 +245,7 @@ def _authorize_submission(
 
     if (submission.analysis_id is not None
             and report_repository.analysis_draft_provider(submission.analysis_id) == "florence2"
-            and submission.rule_version not in {"1.0.0", "1.1.0", "1.2.0"}):
+            and submission.rule_version not in {"1.0.0", "1.1.0", "1.2.0", "2.0.0"}):
         raise HTTPException(status_code=422, detail="This Florence analysis requires the current waste rule version.")
 
     submission_data = submission.model_dump()

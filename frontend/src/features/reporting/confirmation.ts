@@ -15,7 +15,7 @@ export interface ReviewedItem extends ConfirmedItem {
   confirmationReason?: string | null
   ruleId?: string
   stationMaterialKey?: string | null
-  classificationSource?: 'rule' | 'user_confirmed'
+  classificationSource?: 'rule' | 'vision' | 'user_confirmed'
 }
 
 export function isCap(label: string): boolean {
@@ -43,12 +43,21 @@ export function groupReviewedItems(items: ReviewedItem[]): ReviewedItem[][] {
   const groups = new Map<string, ReviewedItem[]>()
   for (const item of items) {
     // Group for display only. Each review and source detection remains distinct.
-    const key = [item.name.trim().toLocaleLowerCase(), item.material.trim().toLocaleLowerCase(), item.status, item.componentRelation ?? ''].join('|')
+    const normalized = item.name.trim().toLocaleLowerCase().replace(/[\s-]+/g, '_').replace(/s$/, '')
+    const identity = ['plastic_bag', 'plastic_film'].includes(normalized) ? 'plastic_bag_film' : item.ruleId ?? normalized
+    const key = [identity, item.material.trim().toLocaleLowerCase(), item.category,
+      item.status, item.confirmationReason ?? '', JSON.stringify(Object.entries(item.condition_answers ?? {}).sort()),
+      item.componentRelation ?? ''].join('|')
     const group = groups.get(key) ?? []
     group.push(item)
     groups.set(key, group)
   }
   return [...groups.values()]
+}
+
+export function groupDisplayName(group: ReviewedItem[]): string {
+  const names = group.map((item) => item.name.trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/s$/, ''))
+  return names.some((name) => name === 'plastic_bag' || name === 'plastic_film') ? 'Plastic Bags / Film' : group[0]?.name || 'Unidentified waste'
 }
 
 export function categoriesForItems(items: ReviewedItem[]): CampusWasteCategory[] {

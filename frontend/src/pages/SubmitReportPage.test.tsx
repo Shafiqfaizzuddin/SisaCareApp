@@ -27,8 +27,9 @@ const food = { ...bottle, id: 'det-1', label: 'food scraps', name: 'food_waste',
   bounding_box: { x1: 210, y1: 10, x2: 300, y2: 90 }, suggested_category: 'Non-Recyclable Waste',
   material: 'Organic Material', station_material_key: null }
 const uncertain = { ...bottle, id: 'det-2', label: 'bottle', name: 'bottle', display_name: 'Bottle',
-  suggested_category: null, review_status: 'needs_confirmation', material: 'Unknown',
-  confirmation_question: 'What material is the bottle made from?', station_material_key: null }
+  suggested_category: 'Recyclable Waste', review_status: 'likely_waste', material: 'Plastic',
+  classification_source: 'vision', needs_confirmation: true,
+  confirmation_reason: 'Bottle material is visually uncertain.', station_material_key: 'Plastic' }
 const analysis = { success: true, analysis_id: 'analysis-1', original_image: '/api/waste/uploads/photo.jpg',
   display_image: 'blob:aligned', image_width: 400, image_height: 200, provider: 'florence2',
   model_id: 'microsoft/Florence-2-base', model_revision: 'pinned', processing_time_ms: 30,
@@ -67,14 +68,30 @@ describe('streamlined waste report', () => {
     expect(screen.queryByRole('button', { name: 'Confirm reviewed items' })).toBeNull()
     expect(screen.getAllByText(/AI-generated details may contain errors/).length).toBeGreaterThan(0)
     expect(mocks.submit).not.toHaveBeenCalled()
+    expect(screen.queryByText('Editable preview')).toBeNull()
+  })
+
+  it('shows one compact group for ten detections while retaining ten outlines', async () => {
+    mocks.analyze.mockResolvedValue({ ...analysis, detections: Array.from({ length: 10 }, (_, index) => ({
+      ...uncertain, id: `det-${index}`, label: index % 2 ? 'plastic bag' : 'plastic film',
+      name: index % 2 ? 'plastic_bag' : 'plastic_film', display_name: index % 2 ? 'Plastic Bag' : 'Plastic Film',
+      material: 'Soft Plastic', suggested_category: 'Non-Recyclable Waste', review_status: 'likely_waste',
+      rule_id: index % 2 ? 'COMMUNITY-PLASTIC_BAG-v1' : 'COMMUNITY-PLASTIC_FILM-v1',
+      confirmation_question: null, confirmation_reason: null, needs_confirmation: false,
+    })) })
+    await start()
+    expect(screen.getAllByText('10 detections')).toHaveLength(1)
+    expect(document.querySelectorAll('svg[aria-label="Detected object outlines"] rect')).toHaveLength(10)
+    expect(screen.getAllByText('Plastic Bags / Film').length).toBeGreaterThan(0)
+    expect(screen.queryByText('10 items')).toBeNull()
   })
 
   it('keeps uncertain items and drafts without location', async () => {
     mocks.analyze.mockResolvedValue({ ...analysis, detections: [uncertain] })
     await start()
     expect(mocks.draft.mock.calls[0][0].confirmed_address).toBe('')
-    expect(mocks.draft.mock.calls[0][0].confirmed_items[0].category).toBeNull()
-    expect(screen.getAllByText(/Material unclear/).length).toBeGreaterThan(0)
+    expect(mocks.draft.mock.calls[0][0].confirmed_items[0].category).toBe('Recyclable Waste')
+    expect(screen.getByText(/AI note: Bottle material is visually uncertain/)).toBeTruthy()
     expect(screen.queryByTestId('incident-map')).toBeNull()
   })
 
@@ -95,6 +112,8 @@ describe('streamlined waste report', () => {
     await waitFor(() => expect(screen.getByText(/Photo analysis failed/)).toBeTruthy())
     expect(screen.getByAltText('Selected waste')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Retry analysis' })).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'Title' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Write a manual report instead' }))
     expect(screen.getByRole('textbox', { name: 'Title' })).toBeTruthy()
     expect(mocks.draft).not.toHaveBeenCalled()
   })
@@ -122,6 +141,21 @@ describe('streamlined waste report', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Regenerate report draft' }))
     await waitFor(() => expect(mocks.draft).toHaveBeenCalledTimes(2))
     expect((title as HTMLInputElement).value).toBe('My own report title')
+    await userEvent.click(screen.getByText('View generated suggestion'))
+    await screen.findByText('New AI title')
+    await userEvent.click(screen.getByRole('button', { name: 'Use suggested title' }))
+    expect((title as HTMLInputElement).value).toBe('New AI title')
+  })
+
+  it('keeps a user-written description on regeneration', async () => {
+    mocks.draft.mockResolvedValueOnce(draft).mockResolvedValueOnce({ ...draft, summary: 'Replacement suggestion' })
+    await start()
+    const description = screen.getByRole('textbox', { name: 'Report description' }) as HTMLTextAreaElement
+    await userEvent.clear(description)
+    await userEvent.type(description, 'My own description of the waste.')
+    await userEvent.click(screen.getByRole('button', { name: 'Regenerate report draft' }))
+    await waitFor(() => expect(mocks.draft).toHaveBeenCalledTimes(2))
+    expect(description.value).toBe('My own description of the waste.')
   })
 
   it('requires one location before submission and retains categories', async () => {

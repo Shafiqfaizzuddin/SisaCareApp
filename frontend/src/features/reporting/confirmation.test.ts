@@ -27,4 +27,23 @@ describe('item confirmation', () => {
     ]
     expect(categoriesForItems(items)).toEqual(['Hazardous Waste', 'Recyclable Waste'])
   })
+
+  it('groups ten rule-equivalent detections without changing their IDs or boxes', () => {
+    const items = Array.from({ length: 10 }, (_, index) => ({
+      ...initialItem(detection(`det-${index}`, index % 2 ? 'Plastic Bag' : 'Plastic Film')),
+      ruleId: index % 2 ? 'COMMUNITY-PLASTIC_BAG-v1' : 'COMMUNITY-PLASTIC_FILM-v1',
+      category: 'Non-Recyclable Waste' as const, status: 'waste' as const,
+    }))
+    const groups = groupReviewedItems(items)
+    expect(groups).toHaveLength(1)
+    expect(groups[0]).toHaveLength(10)
+    expect(groups[0].map((item) => item.sourceDetectionId)).toEqual(items.map((item) => item.id))
+  })
+
+  it('does not merge hazardous or materially different observations', () => {
+    const ordinary = { ...initialItem(detection('ordinary', 'Can')), ruleId: 'can', category: 'Recyclable Waste' as const }
+    const hazardous = { ...ordinary, id: 'hazard', sourceDetectionId: 'hazard', ruleId: 'aerosol_can', category: 'Hazardous Waste' as const }
+    const glass = { ...ordinary, id: 'glass', sourceDetectionId: 'glass', material: 'Glass' }
+    expect(groupReviewedItems([ordinary, hazardous, glass])).toHaveLength(3)
+  })
 })

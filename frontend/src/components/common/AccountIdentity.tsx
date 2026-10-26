@@ -125,7 +125,7 @@ export function AccountIdentity() {
       <button className="button button--primary" type="button" onClick={() => void requestEMerit()} disabled={busy || changedVerifiedNumber || identity.e_merit_available_points < 50}>Request E-Merit eligibility</button>
     </div>}
     {claim === 'staff' && <p>Staff participants are not eligible for E-Merit.</p>}
-    {!identity?.google_sub && <div><p>Connect a verified UiTM Google account to this signed-in website account.</p><GoogleIdentityButton onCredential={connect} onError={error} text="continue_with" /></div>}
+    {!identity?.google_sub && <div><p>Connect a verified Google account to this signed-in website account.</p><GoogleIdentityButton onCredential={connect} onError={error} text="continue_with" /></div>}
     {message && <p role="status">{message}</p>}
   </section>
 }

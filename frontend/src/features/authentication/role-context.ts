@@ -20,6 +20,7 @@ export interface RoleContextValue {
     password: string,
   ) => Promise<SignUpResult>
   signOut: () => Promise<void>
+  syncBrowserSession: () => Promise<void>
   memberReports: MemberReportSummary[]
   isMemberDataLoading: boolean
   memberDataError: string

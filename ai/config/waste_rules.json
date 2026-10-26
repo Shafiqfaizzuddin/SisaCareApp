@@ -1,39 +1,6 @@
 {
-  "version": "1.2.0",
+  "version": "2.0.0",
   "rules": {
-    "plastic_bag_film": {
-      "display_name": "Plastic Bag / Film",
-      "aliases": [
-        "plastic bag film",
-        "plastic bag",
-        "plastic film",
-        "soft plastic bag"
-      ],
-      "material": "Soft Plastic",
-      "category": null,
-      "questions": [{"key": "packaging_type", "prompt": "Confirm the bag material, condition and supported local disposal stream."}],
-      "handling_guidance": "Confirm the material and local collection stream before choosing a disposal route.",
-      "station_material_key": null,
-      "rule_id": "WASTE-PLASTIC_BAG_FILM-v2",
-      "bulky": false,
-      "guidance_source": "existing_project_mapping_v1"
-    },
-    "cigarette": {
-      "display_name": "Cigarette Waste",
-      "aliases": [
-        "cigarette",
-        "cigarette butt",
-        "cigarette waste"
-      ],
-      "material": "Mixed Material",
-      "category": "Non-Recyclable Waste",
-      "questions": [],
-      "handling_guidance": "Ensure the cigarette is fully extinguished and dispose of it securely in the general-waste stream.",
-      "station_material_key": null,
-      "rule_id": "WASTE-CIGARETTE-v1",
-      "bulky": false,
-      "guidance_source": "existing_project_mapping_v1"
-    },
     "small_accessory": {
       "display_name": "Small Waste Accessory",
       "aliases": [
@@ -67,58 +34,16 @@
     "plastic_bottle": {
       "display_name": "Plastic Bottle",
       "aliases": [
-        "plastic bottle",
-        "plastic_bottle",
         "pet bottle"
       ],
       "material": "Plastic",
       "category": "Recyclable Waste",
-      "questions": [
-        {
-          "key": "hazardous_contents",
-          "prompt": "Did this item contain chemicals or another hazardous substance?"
-        },
-        {
-          "key": "empty_and_clean",
-          "prompt": "Is the item empty and clean?"
-        }
-      ],
-      "handling_guidance": "Keep separate from general waste. Confirm the item condition and that the selected station accepts plastic before recycling.",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
       "station_material_key": "Plastic",
-      "rule_id": "WASTE-PLASTIC_BOTTLE-v1",
+      "rule_id": "COMMUNITY-PLASTIC_BOTTLE-v1",
       "bulky": false,
-      "guidance_source": "https://www.epa.gov/recycle/how-do-i-recycle-common-recyclables",
-      "hazardous_handling_guidance": "Keep separate from general waste and ordinary recycling stations. Contact an appropriate hazardous-waste collector for the confirmed contents.",
-      "hazardous_guidance_source": "https://www.epa.gov/hw/household-hazardous-waste-hhw"
-    },
-    "metal_can": {
-      "display_name": "Metal Can",
-      "aliases": [
-        "tin can",
-        "aluminum can",
-        "aluminium can",
-        "soda can",
-        "food can",
-        "drink can",
-        "metal drink can",
-        "beverage can",
-        "aluminium drink can",
-        "aluminum drink can",
-        "metal_can"
-      ],
-      "material": "Metal",
-      "category": "Recyclable Waste",
-      "questions": [
-        {
-          "key": "empty_and_clean",
-          "prompt": "Is the item empty and clean?"
-        }
-      ],
-      "handling_guidance": "Keep separate from general waste. Confirm the item condition and that the selected station accepts metal before recycling.",
-      "station_material_key": "Metal",
-      "rule_id": "WASTE-DRINK_CAN-v1",
-      "bulky": false,
-      "guidance_source": "https://www.epa.gov/recycle/how-do-i-recycle-common-recyclables"
+      "guidance_source": "community_application_policy_v1"
     },
     "other_plastic": {
       "display_name": "Other Plastic",
@@ -138,138 +63,6 @@
       "rule_id": "WASTE-OTHER_PLASTIC-v1",
       "bulky": false,
       "guidance_source": "https://www.epa.gov/recycle/how-do-i-recycle-common-recyclables"
-    },
-    "paper": {
-      "display_name": "Paper",
-      "aliases": [
-        "paper",
-        "paper waste",
-        "newspaper",
-        "magazine"
-      ],
-      "material": "Paper",
-      "category": "Recyclable Waste",
-      "questions": [
-        {
-          "key": "clean_and_dry",
-          "prompt": "Is the item clean and dry?"
-        }
-      ],
-      "handling_guidance": "Keep separate from general waste. Confirm the item condition and that the selected station accepts paper before recycling.",
-      "station_material_key": "Paper",
-      "rule_id": "WASTE-PAPER-v1",
-      "bulky": false,
-      "guidance_source": "https://www.epa.gov/recycle/how-do-i-recycle-common-recyclables"
-    },
-    "glass_container": {
-      "display_name": "Glass Container",
-      "aliases": [
-        "glass",
-        "glass waste",
-        "glass bottle",
-        "glass jar"
-      ],
-      "material": "Glass",
-      "category": "Recyclable Waste",
-      "questions": [
-        {
-          "key": "hazardous_contents",
-          "prompt": "Did this item contain chemicals or another hazardous substance?"
-        },
-        {
-          "key": "empty_and_clean",
-          "prompt": "Is the item empty and clean?"
-        }
-      ],
-      "handling_guidance": "Keep separate from general waste. Confirm the item condition and that the selected station accepts glass before recycling.",
-      "station_material_key": "Glass",
-      "rule_id": "WASTE-GLASS-v1",
-      "bulky": false,
-      "guidance_source": "https://www.epa.gov/recycle/how-do-i-recycle-common-recyclables",
-      "hazardous_handling_guidance": "Keep separate from general waste and ordinary recycling stations. Contact an appropriate hazardous-waste collector for the confirmed contents.",
-      "hazardous_guidance_source": "https://www.epa.gov/hw/household-hazardous-waste-hhw"
-    },
-    "cardboard": {
-      "display_name": "Cardboard",
-      "aliases": [
-        "cardboard carton",
-        "cardboard",
-        "cardboard box",
-        "cardboard packaging"
-      ],
-      "material": "Paper and Cardboard",
-      "category": "Recyclable Waste",
-      "questions": [
-        {
-          "key": "clean_and_dry",
-          "prompt": "Is the item clean and dry?"
-        }
-      ],
-      "handling_guidance": "Keep separate from general waste. Confirm the item condition and that the selected station accepts paper and cardboard before recycling.",
-      "station_material_key": "Paper and Cardboard",
-      "rule_id": "WASTE-CARDBOARD_CARTON-v1",
-      "bulky": false,
-      "guidance_source": "https://www.epa.gov/recycle/how-do-i-recycle-common-recyclables"
-    },
-    "disposable_utensils_straw": {
-      "display_name": "Disposable Utensils / Straw",
-      "aliases": [
-        "disposable utensils straw",
-        "disposable utensils and straw"
-      ],
-      "material": null,
-      "category": "Non-Recyclable Waste",
-      "questions": [],
-      "handling_guidance": "Place used disposable utensils and straws in the appropriate general-waste stream.",
-      "station_material_key": null,
-      "rule_id": "WASTE-DISPOSABLE_UTENSILS_STRAW-v1",
-      "bulky": false,
-      "guidance_source": "existing_project_mapping_v1"
-    },
-    "disposable_plastic_container": {
-      "display_name": "Plastic Container",
-      "aliases": [
-        "disposable plastic container",
-        "plastic container",
-        "plastic food container"
-      ],
-      "material": "Plastic",
-      "category": "Recyclable Waste",
-      "questions": [
-        {
-          "key": "hazardous_contents",
-          "prompt": "Did this item contain chemicals or another hazardous substance?"
-        },
-        {
-          "key": "empty_and_clean",
-          "prompt": "Is the item empty and clean?"
-        }
-      ],
-      "handling_guidance": "Keep separate from general waste. Confirm the item condition and that the selected station accepts plastic before recycling.",
-      "station_material_key": "Plastic",
-      "rule_id": "WASTE-DISPOSABLE_PLASTIC_CONTAINER-v1",
-      "bulky": false,
-      "guidance_source": "https://www.epa.gov/recycle/how-do-i-recycle-common-recyclables",
-      "hazardous_handling_guidance": "Keep separate from general waste and ordinary recycling stations. Contact an appropriate hazardous-waste collector for the confirmed contents.",
-      "hazardous_guidance_source": "https://www.epa.gov/hw/household-hazardous-waste-hhw"
-    },
-    "foam_styrofoam": {
-      "display_name": "Foam / Styrofoam",
-      "aliases": [
-        "foam styrofoam",
-        "styrofoam",
-        "polystyrene",
-        "polystyrene foam",
-        "foam packaging"
-      ],
-      "material": "Expanded Plastic Foam",
-      "category": null,
-      "questions": [{"key": "packaging_type", "prompt": "Confirm the foam type, condition and supported local disposal stream."}],
-      "handling_guidance": "Check the local disposal stream; ordinary recycling stations may not accept this packaging.",
-      "station_material_key": null,
-      "rule_id": "WASTE-FOAM_STYROFOAM-v2",
-      "bulky": false,
-      "guidance_source": "existing_project_mapping_v1"
     },
     "general_waste": {
       "display_name": "General Waste",
@@ -304,7 +97,6 @@
     "food_waste": {
       "display_name": "Food Waste",
       "aliases": [
-        "food waste",
         "food scraps",
         "leftover food",
         "fruit peel",
@@ -313,11 +105,11 @@
       "material": "Organic Material",
       "category": "Non-Recyclable Waste",
       "questions": [],
-      "handling_guidance": "Keep separate from recyclable materials. Use composting or an organic-waste collection stream where available; otherwise use the appropriate general-waste stream.",
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
       "station_material_key": null,
-      "rule_id": "WASTE-FOOD_WASTE-v1",
+      "rule_id": "COMMUNITY-FOOD_WASTE-v1",
       "bulky": false,
-      "guidance_source": "existing_project_mapping_v1"
+      "guidance_source": "community_application_policy_v1"
     },
     "food_wrapper": {
       "display_name": "Food Wrapper",
@@ -332,41 +124,6 @@
       "handling_guidance": "Place the wrapper in the appropriate general-waste stream unless its material is specifically accepted by a local recycling facility.",
       "station_material_key": null,
       "rule_id": "WASTE-FOOD_WRAPPER-v1",
-      "bulky": false,
-      "guidance_source": "existing_project_mapping_v1"
-    },
-    "dirty_tissue": {
-      "display_name": "Dirty Tissue",
-      "aliases": [
-        "dirty tissue",
-        "used tissue",
-        "soiled tissue"
-      ],
-      "material": "Contaminated Paper",
-      "category": "Non-Recyclable Waste",
-      "questions": [],
-      "handling_guidance": "Bag securely and place in the appropriate general-waste stream.",
-      "station_material_key": null,
-      "rule_id": "WASTE-DIRTY_TISSUE-v1",
-      "bulky": false,
-      "guidance_source": "existing_project_mapping_v1"
-    },
-    "used_diaper": {
-      "display_name": "Used Diaper",
-      "aliases": [
-        "used diaper",
-        "used nappy",
-        "diaper",
-        "nappy",
-        "soiled diaper",
-        "soiled nappy"
-      ],
-      "material": "Contaminated Mixed Material",
-      "category": "Non-Recyclable Waste",
-      "questions": [],
-      "handling_guidance": "Bag securely and place in the appropriate general-waste stream.",
-      "station_material_key": null,
-      "rule_id": "WASTE-USED_DIAPER-v1",
       "bulky": false,
       "guidance_source": "existing_project_mapping_v1"
     },
@@ -387,54 +144,38 @@
     },
     "sanitary_pad": {
       "display_name": "Sanitary Pad",
-      "aliases": ["sanitary pad", "used sanitary pad"],
+      "aliases": [
+        "used sanitary pad"
+      ],
       "material": "Mixed Material",
       "category": "Non-Recyclable Waste",
       "questions": [],
-      "handling_guidance": "Contain securely and use the appropriate sanitary or general-waste collection stream.",
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
       "station_material_key": null,
-      "rule_id": "WASTE-SANITARY_PAD-v1",
+      "rule_id": "COMMUNITY-SANITARY_PAD-v1",
       "bulky": false,
-      "guidance_source": "existing_project_mapping_v1"
-    },
-    "electronic_waste": {
-      "display_name": "Electronic Waste",
-      "aliases": [
-        "electronic waste",
-        "discarded electronics",
-        "circuit board",
-        "discarded phone",
-        "discarded laptop",
-        "e waste",
-        "e-waste"
-      ],
-      "material": "Electronic Components",
-      "category": "Hazardous Waste",
-      "questions": [],
-      "handling_guidance": "Do not place electronic waste in normal recycling bins. Keep it dry and intact and deliver it to an authorised electronic-waste collection or recovery facility.",
-      "station_material_key": null,
-      "rule_id": "WASTE-ELECTRONIC_WASTE-v1",
-      "bulky": false,
-      "guidance_source": "https://ewaste.doe.gov.my/index.php/about/where-can-i-discharge-recycle-e-waste/"
+      "guidance_source": "community_application_policy_v1"
     },
     "battery": {
       "display_name": "Battery",
       "aliases": [
-        "battery",
         "batteries"
       ],
       "material": null,
       "category": "Hazardous Waste",
       "questions": [],
-      "handling_guidance": "Do not place batteries in household recycling or general-waste bins. Keep terminals protected where appropriate and deliver them to an authorised battery or electronic-waste collection point.",
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
       "station_material_key": null,
-      "rule_id": "WASTE-BATTERY-v1",
+      "rule_id": "COMMUNITY-BATTERY-v1",
       "bulky": false,
-      "guidance_source": "https://www.epa.gov/recycle/used-household-batteries"
+      "guidance_source": "community_application_policy_v1"
     },
     "power_bank": {
       "display_name": "Power Bank",
-      "aliases": ["power bank", "discarded power bank"],
+      "aliases": [
+        "power bank",
+        "discarded power bank"
+      ],
       "material": "Electronic Components",
       "category": "Hazardous Waste",
       "questions": [],
@@ -447,54 +188,46 @@
     "sofa": {
       "display_name": "Sofa",
       "aliases": [
-        "sofa",
         "couch",
         "discarded sofa",
         "discarded couch"
       ],
       "material": "Mixed Furniture Material",
       "category": "Bulky Waste",
-      "questions": [{"key": "discarded", "prompt": "Is this furniture discarded waste?"}],
-      "handling_guidance": "Arrange collection through an appropriate bulky-waste or furniture recovery service.",
+      "questions": [
+        {
+          "key": "discarded",
+          "prompt": "Is this item discarded waste rather than in ordinary use?"
+        }
+      ],
+      "handling_guidance": "Request appropriate collection. Do not move a heavy or unstable item yourself.",
       "station_material_key": null,
-      "rule_id": "WASTE-SOFA-v2",
+      "rule_id": "COMMUNITY-SOFA-v1",
       "bulky": true,
-      "guidance_source": "existing_project_mapping_v1"
+      "guidance_source": "community_application_policy_v1"
     },
     "mattress": {
       "display_name": "Mattress",
       "aliases": [
-        "mattress",
         "discarded mattress"
       ],
       "material": "Mixed Bedding Material",
       "category": "Bulky Waste",
-      "questions": [{"key": "discarded", "prompt": "Is this mattress discarded waste?"}],
-      "handling_guidance": "Arrange collection through an appropriate bulky-waste or mattress recovery service.",
-      "station_material_key": null,
-      "rule_id": "WASTE-MATTRESS-v2",
-      "bulky": true,
-      "guidance_source": "existing_project_mapping_v1"
-    },
-    "large_table": {
-      "display_name": "Large Table",
-      "aliases": [
-        "large table",
-        "discarded large table"
+      "questions": [
+        {
+          "key": "discarded",
+          "prompt": "Is this item discarded waste rather than in ordinary use?"
+        }
       ],
-      "material": "Mixed Furniture Material",
-      "category": "Bulky Waste",
-      "questions": [{"key": "discarded", "prompt": "Is this furniture discarded waste?"}],
-      "handling_guidance": "Arrange collection through an appropriate bulky-waste or furniture recovery service.",
+      "handling_guidance": "Request appropriate collection. Do not move a heavy or unstable item yourself.",
       "station_material_key": null,
-      "rule_id": "WASTE-LARGE_TABLE-v2",
+      "rule_id": "COMMUNITY-MATTRESS-v1",
       "bulky": true,
-      "guidance_source": "existing_project_mapping_v1"
+      "guidance_source": "community_application_policy_v1"
     },
     "refrigerator": {
       "display_name": "Refrigerator",
       "aliases": [
-        "refrigerator",
         "fridge",
         "discarded refrigerator",
         "discarded fridge"
@@ -502,26 +235,25 @@
       "material": null,
       "category": "Hazardous Waste",
       "questions": [],
-      "handling_guidance": "Keep intact and arrange collection through a Department of Environment registered e-waste collector or licensed recovery facility; do not use ordinary recycling bins.",
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
       "station_material_key": null,
-      "rule_id": "WASTE-REFRIGERATOR-v1",
+      "rule_id": "COMMUNITY-REFRIGERATOR-v1",
       "bulky": true,
-      "guidance_source": "https://ewaste.doe.gov.my/index.php/about/where-can-i-discharge-recycle-e-waste/"
+      "guidance_source": "community_application_policy_v1"
     },
     "washing_machine": {
       "display_name": "Washing Machine",
       "aliases": [
-        "washing machine",
         "discarded washing machine"
       ],
       "material": null,
       "category": "Hazardous Waste",
       "questions": [],
-      "handling_guidance": "Keep intact and arrange collection through a Department of Environment registered e-waste collector or licensed recovery facility; do not use ordinary recycling bins.",
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
       "station_material_key": null,
-      "rule_id": "WASTE-WASHING_MACHINE-v1",
+      "rule_id": "COMMUNITY-WASHING_MACHINE-v1",
       "bulky": true,
-      "guidance_source": "https://ewaste.doe.gov.my/index.php/about/where-can-i-discharge-recycle-e-waste/"
+      "guidance_source": "community_application_policy_v1"
     },
     "large_appliance": {
       "display_name": "Large Appliance",
@@ -541,31 +273,39 @@
     },
     "lighter": {
       "display_name": "Lighter",
-      "aliases": ["lighter", "cigarette lighter", "disposable lighter"],
+      "aliases": [
+        "cigarette lighter",
+        "disposable lighter"
+      ],
       "material": "Mixed Material",
       "category": "Hazardous Waste",
       "questions": [],
-      "handling_guidance": "Do not place in an ordinary recycling bin. Leave the lighter intact and report it for appropriate collection; do not release fuel yourself.",
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
       "station_material_key": null,
-      "rule_id": "WASTE-LIGHTER-v1",
+      "rule_id": "COMMUNITY-LIGHTER-v1",
       "bulky": false,
-      "guidance_source": "https://www.cornwall.gov.uk/rubbish-recycling-and-waste/recycling/recycling-items/lighters/"
+      "guidance_source": "community_application_policy_v1"
     },
     "aerosol_can": {
       "display_name": "Aerosol Can",
-      "aliases": ["aerosol can", "spray can", "aerosol container"],
+      "aliases": [
+        "spray can",
+        "aerosol container"
+      ],
       "material": "Metal",
       "category": "Hazardous Waste",
       "questions": [],
-      "handling_guidance": "Do not puncture, empty, or dismantle the can. Keep it out of ordinary recycling and report it for an appropriate collection route.",
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
       "station_material_key": null,
-      "rule_id": "WASTE-AEROSOL_CAN-v1",
+      "rule_id": "COMMUNITY-AEROSOL_CAN-v1",
       "bulky": false,
-      "guidance_source": "https://www.epa.gov/recycle/frequent-questions-recycling"
+      "guidance_source": "community_application_policy_v1"
     },
     "gas_cartridge": {
       "display_name": "Gas Cartridge",
-      "aliases": ["gas cartridge"],
+      "aliases": [
+        "gas cartridge"
+      ],
       "material": "Metal",
       "category": "Hazardous Waste",
       "questions": [],
@@ -575,36 +315,38 @@
       "bulky": false,
       "guidance_source": "https://www.epa.gov/hw/household-hazardous-waste-hhw"
     },
-    "wardrobe": {
-      "display_name": "Wardrobe",
-      "aliases": ["wardrobe", "discarded wardrobe"],
-      "material": "Mixed Furniture Material",
-      "category": "Bulky Waste",
-      "questions": [{"key": "discarded", "prompt": "Is this furniture discarded waste?"}],
-      "handling_guidance": "Arrange an appropriate bulky-waste collection; do not assume furniture in use is waste.",
-      "station_material_key": null,
-      "rule_id": "WASTE-WARDROBE-v1",
-      "bulky": true,
-      "guidance_source": "existing_project_mapping_v1"
-    },
     "bed_frame": {
       "display_name": "Bed Frame",
-      "aliases": ["bed frame", "discarded bed frame"],
+      "aliases": [
+        "discarded bed frame"
+      ],
       "material": "Mixed Furniture Material",
       "category": "Bulky Waste",
-      "questions": [{"key": "discarded", "prompt": "Is this furniture discarded waste?"}],
-      "handling_guidance": "Arrange an appropriate bulky-waste collection; do not assume furniture in use is waste.",
+      "questions": [
+        {
+          "key": "discarded",
+          "prompt": "Is this item discarded waste rather than in ordinary use?"
+        }
+      ],
+      "handling_guidance": "Request appropriate collection. Do not move a heavy or unstable item yourself.",
       "station_material_key": null,
-      "rule_id": "WASTE-BED_FRAME-v1",
+      "rule_id": "COMMUNITY-BED_FRAME-v1",
       "bulky": true,
-      "guidance_source": "existing_project_mapping_v1"
+      "guidance_source": "community_application_policy_v1"
     },
     "can": {
       "display_name": "Can",
-      "aliases": ["can"],
+      "aliases": [
+        "can"
+      ],
       "material": null,
       "category": null,
-      "questions": [{"key": "packaging_type", "prompt": "Is this ordinary food or beverage packaging, or an aerosol or chemical container?"}],
+      "questions": [
+        {
+          "key": "packaging_type",
+          "prompt": "Is this ordinary food or beverage packaging, or an aerosol or chemical container?"
+        }
+      ],
       "handling_guidance": "Confirm the can type and any known contents before choosing a disposal route.",
       "station_material_key": null,
       "rule_id": "WASTE-CAN-v1",
@@ -613,10 +355,17 @@
     },
     "container": {
       "display_name": "Container",
-      "aliases": ["container"],
+      "aliases": [
+        "container"
+      ],
       "material": null,
       "category": null,
-      "questions": [{"key": "material", "prompt": "What material is this container made from, and what did it contain if known?"}],
+      "questions": [
+        {
+          "key": "material",
+          "prompt": "What material is this container made from, and what did it contain if known?"
+        }
+      ],
       "handling_guidance": "Confirm material and known contents before choosing a disposal route.",
       "station_material_key": null,
       "rule_id": "WASTE-CONTAINER-v1",
@@ -625,10 +374,20 @@
     },
     "packaging": {
       "display_name": "Packaging",
-      "aliases": ["packaging", "bag", "wrapper", "takeaway packaging"],
+      "aliases": [
+        "packaging",
+        "bag",
+        "wrapper",
+        "takeaway packaging"
+      ],
       "material": null,
       "category": null,
-      "questions": [{"key": "packaging_type", "prompt": "Confirm the packaging material, condition and supported local disposal stream."}],
+      "questions": [
+        {
+          "key": "packaging_type",
+          "prompt": "Confirm the packaging material, condition and supported local disposal stream."
+        }
+      ],
       "handling_guidance": "Confirm packaging material and condition before choosing a disposal route.",
       "station_material_key": null,
       "rule_id": "WASTE-PACKAGING-v1",
@@ -663,6 +422,695 @@
       "guidance_source": "https://www.epa.gov/recycle/how-do-i-recycle-common-recyclables",
       "hazardous_handling_guidance": "Keep separate from general waste and ordinary recycling stations. Contact an appropriate hazardous-waste collector for the confirmed contents.",
       "hazardous_guidance_source": "https://www.epa.gov/hw/household-hazardous-waste-hhw"
+    },
+    "plastic_container": {
+      "display_name": "Plastic Container",
+      "aliases": [
+        "disposable plastic container",
+        "plastic food container"
+      ],
+      "material": "Plastic",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Plastic",
+      "rule_id": "COMMUNITY-PLASTIC_CONTAINER-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "detergent_bottle": {
+      "display_name": "Detergent Bottle",
+      "aliases": [
+        "laundry detergent bottle"
+      ],
+      "material": "Plastic",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Plastic",
+      "rule_id": "COMMUNITY-DETERGENT_BOTTLE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "shampoo_bottle": {
+      "display_name": "Shampoo Bottle",
+      "aliases": [],
+      "material": "Plastic",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Plastic",
+      "rule_id": "COMMUNITY-SHAMPOO_BOTTLE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "aluminium_can": {
+      "display_name": "Aluminium Can",
+      "aliases": [
+        "aluminum can",
+        "soda can",
+        "beverage can",
+        "drink can",
+        "aluminium drink can",
+        "aluminum drink can"
+      ],
+      "material": "Metal",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Metal",
+      "rule_id": "COMMUNITY-ALUMINIUM_CAN-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "food_can": {
+      "display_name": "Food Can",
+      "aliases": [
+        "tin can",
+        "metal can"
+      ],
+      "material": "Metal",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Metal",
+      "rule_id": "COMMUNITY-FOOD_CAN-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "glass_bottle": {
+      "display_name": "Glass Bottle",
+      "aliases": [],
+      "material": "Glass",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Glass",
+      "rule_id": "COMMUNITY-GLASS_BOTTLE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "glass_jar": {
+      "display_name": "Glass Jar",
+      "aliases": [],
+      "material": "Glass",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Glass",
+      "rule_id": "COMMUNITY-GLASS_JAR-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "newspaper": {
+      "display_name": "Newspaper",
+      "aliases": [],
+      "material": "Paper",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Paper",
+      "rule_id": "COMMUNITY-NEWSPAPER-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "magazine": {
+      "display_name": "Magazine",
+      "aliases": [],
+      "material": "Paper",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Paper",
+      "rule_id": "COMMUNITY-MAGAZINE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "office_paper": {
+      "display_name": "Office Paper",
+      "aliases": [
+        "paper",
+        "paper waste",
+        "printer paper"
+      ],
+      "material": "Paper",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Paper",
+      "rule_id": "COMMUNITY-OFFICE_PAPER-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "cardboard_box": {
+      "display_name": "Cardboard Box",
+      "aliases": [
+        "cardboard",
+        "cardboard packaging",
+        "cardboard carton"
+      ],
+      "material": "Paper and Cardboard",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Paper and Cardboard",
+      "rule_id": "COMMUNITY-CARDBOARD_BOX-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "paper_bag": {
+      "display_name": "Paper Bag",
+      "aliases": [],
+      "material": "Paper",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Paper",
+      "rule_id": "COMMUNITY-PAPER_BAG-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "beverage_carton": {
+      "display_name": "Beverage Carton",
+      "aliases": [
+        "drink carton",
+        "milk carton"
+      ],
+      "material": "Composite Carton",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Carton",
+      "rule_id": "COMMUNITY-BEVERAGE_CARTON-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "clothing": {
+      "display_name": "Clothing",
+      "aliases": [
+        "clothes",
+        "garment"
+      ],
+      "material": "Textile",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Textile",
+      "rule_id": "COMMUNITY-CLOTHING-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "shoes": {
+      "display_name": "Shoes",
+      "aliases": [
+        "shoe"
+      ],
+      "material": "Mixed Material",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Textile",
+      "rule_id": "COMMUNITY-SHOES-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "fabric": {
+      "display_name": "Fabric",
+      "aliases": [
+        "textile",
+        "cloth"
+      ],
+      "material": "Textile",
+      "category": "Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from general waste. Check condition and the selected station’s accepted materials before recycling.",
+      "station_material_key": "Textile",
+      "rule_id": "COMMUNITY-FABRIC-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "styrofoam_container": {
+      "display_name": "Styrofoam Container",
+      "aliases": [
+        "foam food container",
+        "polystyrene food container"
+      ],
+      "material": "Expanded Plastic Foam",
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-STYROFOAM_CONTAINER-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "dirty_food_container": {
+      "display_name": "Dirty Food Container",
+      "aliases": [
+        "soiled food container"
+      ],
+      "material": null,
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-DIRTY_FOOD_CONTAINER-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "plastic_straw": {
+      "display_name": "Plastic Straw",
+      "aliases": [
+        "straw"
+      ],
+      "material": "Plastic",
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-PLASTIC_STRAW-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "disposable_cutlery": {
+      "display_name": "Disposable Cutlery",
+      "aliases": [
+        "plastic cutlery",
+        "disposable utensils"
+      ],
+      "material": null,
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-DISPOSABLE_CUTLERY-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "tissue": {
+      "display_name": "Tissue",
+      "aliases": [
+        "used tissue",
+        "soiled tissue",
+        "dirty tissue"
+      ],
+      "material": "Paper",
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-TISSUE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "wet_wipes": {
+      "display_name": "Wet Wipes",
+      "aliases": [
+        "wet wipe"
+      ],
+      "material": "Mixed Material",
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-WET_WIPES-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "diaper": {
+      "display_name": "Diaper",
+      "aliases": [
+        "nappy",
+        "used diaper",
+        "used nappy"
+      ],
+      "material": "Mixed Material",
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-DIAPER-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "cigarette_butt": {
+      "display_name": "Cigarette Butt",
+      "aliases": [
+        "cigarette waste"
+      ],
+      "material": "Mixed Material",
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-CIGARETTE_BUTT-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "ceramic_plate": {
+      "display_name": "Ceramic Plate",
+      "aliases": [],
+      "material": "Ceramic",
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-CERAMIC_PLATE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "broken_ceramic": {
+      "display_name": "Broken Ceramic",
+      "aliases": [],
+      "material": "Ceramic",
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-BROKEN_CERAMIC-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "rubber_glove": {
+      "display_name": "Rubber Glove",
+      "aliases": [],
+      "material": "Rubber",
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-RUBBER_GLOVE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "plastic_bag": {
+      "display_name": "Plastic Bag",
+      "aliases": [
+        "plastic shopping bag",
+        "soft plastic bag"
+      ],
+      "material": "Soft Plastic",
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-PLASTIC_BAG-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "plastic_film": {
+      "display_name": "Plastic Film",
+      "aliases": [
+        "plastic bag film",
+        "soft plastic film"
+      ],
+      "material": "Soft Plastic",
+      "category": "Non-Recyclable Waste",
+      "questions": [],
+      "handling_guidance": "Use the local residual-waste collection stream. Other specialist collection programmes may have different acceptance rules.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-PLASTIC_FILM-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "chair": {
+      "display_name": "Chair",
+      "aliases": [
+        "discarded chair"
+      ],
+      "material": null,
+      "category": "Bulky Waste",
+      "questions": [
+        {
+          "key": "discarded",
+          "prompt": "Is this item discarded waste rather than in ordinary use?"
+        }
+      ],
+      "handling_guidance": "Request appropriate collection. Do not move a heavy or unstable item yourself.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-CHAIR-v1",
+      "bulky": true,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "table": {
+      "display_name": "Table",
+      "aliases": [
+        "large table",
+        "discarded table",
+        "discarded large table"
+      ],
+      "material": null,
+      "category": "Bulky Waste",
+      "questions": [
+        {
+          "key": "discarded",
+          "prompt": "Is this item discarded waste rather than in ordinary use?"
+        }
+      ],
+      "handling_guidance": "Request appropriate collection. Do not move a heavy or unstable item yourself.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-TABLE-v1",
+      "bulky": true,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "cabinet": {
+      "display_name": "Cabinet",
+      "aliases": [
+        "wardrobe",
+        "discarded wardrobe",
+        "discarded cabinet"
+      ],
+      "material": null,
+      "category": "Bulky Waste",
+      "questions": [
+        {
+          "key": "discarded",
+          "prompt": "Is this item discarded waste rather than in ordinary use?"
+        }
+      ],
+      "handling_guidance": "Request appropriate collection. Do not move a heavy or unstable item yourself.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-CABINET-v1",
+      "bulky": true,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "bicycle": {
+      "display_name": "Bicycle",
+      "aliases": [
+        "discarded bicycle",
+        "bike"
+      ],
+      "material": null,
+      "category": "Bulky Waste",
+      "questions": [
+        {
+          "key": "discarded",
+          "prompt": "Is this item discarded waste rather than in ordinary use?"
+        }
+      ],
+      "handling_guidance": "Request appropriate collection. Do not move a heavy or unstable item yourself.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-BICYCLE-v1",
+      "bulky": true,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "tree_branch": {
+      "display_name": "Tree Branch",
+      "aliases": [
+        "fallen tree branch"
+      ],
+      "material": null,
+      "category": "Bulky Waste",
+      "questions": [],
+      "handling_guidance": "Request appropriate collection. Do not move a heavy or unstable item yourself.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-TREE_BRANCH-v1",
+      "bulky": true,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "television": {
+      "display_name": "Television",
+      "aliases": [
+        "tv",
+        "discarded television"
+      ],
+      "material": null,
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-TELEVISION-v1",
+      "bulky": true,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "air_conditioner": {
+      "display_name": "Air Conditioner",
+      "aliases": [
+        "air conditioner",
+        "aircon"
+      ],
+      "material": null,
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-AIR_CONDITIONER-v1",
+      "bulky": true,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "car_battery": {
+      "display_name": "Car Battery",
+      "aliases": [
+        "vehicle battery"
+      ],
+      "material": null,
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-CAR_BATTERY-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "mobile_phone": {
+      "display_name": "Mobile Phone",
+      "aliases": [
+        "cell phone",
+        "cellphone",
+        "discarded phone",
+        "smartphone"
+      ],
+      "material": null,
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-MOBILE_PHONE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "laptop": {
+      "display_name": "Laptop",
+      "aliases": [
+        "discarded laptop"
+      ],
+      "material": null,
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-LAPTOP-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "circuit_board": {
+      "display_name": "Circuit Board",
+      "aliases": [
+        "pcb"
+      ],
+      "material": null,
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-CIRCUIT_BOARD-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "fluorescent_tube": {
+      "display_name": "Fluorescent Tube",
+      "aliases": [
+        "fluorescent lamp"
+      ],
+      "material": null,
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-FLUORESCENT_TUBE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "paint_can": {
+      "display_name": "Paint Can",
+      "aliases": [],
+      "material": null,
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-PAINT_CAN-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "chemical_container": {
+      "display_name": "Chemical Container",
+      "aliases": [],
+      "material": null,
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-CHEMICAL_CONTAINER-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "pesticide_bottle": {
+      "display_name": "Pesticide Bottle",
+      "aliases": [],
+      "material": null,
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-PESTICIDE_BOTTLE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "syringe": {
+      "display_name": "Syringe",
+      "aliases": [
+        "needle"
+      ],
+      "material": null,
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-SYRINGE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "printer_cartridge": {
+      "display_name": "Printer Cartridge",
+      "aliases": [
+        "ink cartridge",
+        "toner cartridge"
+      ],
+      "material": null,
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-PRINTER_CARTRIDGE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
+    },
+    "electronic_waste": {
+      "display_name": "Electronic Waste",
+      "aliases": [
+        "e waste",
+        "e-waste",
+        "discarded electronics"
+      ],
+      "material": "Electronic Components",
+      "category": "Hazardous Waste",
+      "questions": [],
+      "handling_guidance": "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it.",
+      "station_material_key": null,
+      "rule_id": "COMMUNITY-ELECTRONIC_WASTE-v1",
+      "bulky": false,
+      "guidance_source": "community_application_policy_v1"
     }
   }
 }

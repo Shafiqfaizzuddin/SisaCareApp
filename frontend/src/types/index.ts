@@ -103,7 +103,7 @@ export interface FlorenceDetection {
     waste_category?: CampusWasteCategory | null
     needs_confirmation?: boolean
     confirmation_question?: string | null
-    classification_source?: 'rule' | 'user_confirmed'
+      classification_source?: 'rule' | 'vision' | 'user_confirmed'
   material: string
   recommended_handling: string
   confirmation_reason?: string | null
@@ -208,7 +208,7 @@ export type WasteAnalysisResponse = WasteAnalysisSuccess | WasteAnalysisFailure
 
 export interface ReportSubmissionPayload {
   analysis_id?: string
-  rule_version?: '1.0.0' | '1.1.0' | '1.2.0'
+  rule_version?: '1.0.0' | '1.1.0' | '1.2.0' | '2.0.0'
   reporter_role: 'guest' | 'user'
   user_id?: string
   guest_name?: string
@@ -285,6 +285,7 @@ export interface AdminReportDetail {
   finalCategories: FinalWasteCategory[]
   aiAnalysis: Record<string, unknown> | null
   confirmedItems: Array<{ name: string; category: CampusWasteCategory | null; material: string; classification_source?: 'rule' | 'user_confirmed' }>
+  groupedReportItems: Array<{ canonical_name: string; display_name: string; material: string; category: CampusWasteCategory | null; uncertainty_reason: string | null; detection_count: number; detection_ids: string[] }>
   originalImage: string
   annotatedImage: string
   createdAt: string

@@ -316,13 +316,15 @@ export function AdminReportDetailPage() {
               <p>Overall category: {persistedReport.category}</p>
               {persistedReport.confirmedItems.some((item) => item.category === 'Hazardous Waste') &&
                 <p className="review-hazard" role="status">Hazardous item confirmed. Review handling and arrange an appropriate response team.</p>}
-              <ul>
-                {persistedReport.confirmedItems.map((item, index) => (
-                  <li key={`${item.name}-${index}`}>
-                    {item.name} — {item.category ?? 'Needs Confirmation'} ({item.material}) · {item.classification_source === 'user_confirmed' ? 'User edited' : 'AI/rule suggestion'}
-                  </li>
-                ))}
-              </ul>
+              {persistedReport.groupedReportItems.length > 0 && <ul>{persistedReport.groupedReportItems.map((group, index) => <li key={`${group.canonical_name}-${index}`}>
+                {group.display_name} — {group.category ?? 'Needs assessment'} ({group.material}) · {group.detection_count} detections
+                {group.uncertainty_reason && <small> · {group.uncertainty_reason}</small>}
+              </li>)}</ul>}
+              <details><summary>Individual detection and correction audit</summary><ul>
+                {persistedReport.confirmedItems.map((item, index) => <li key={`${item.name}-${index}`}>
+                  {item.name} — {item.category ?? 'Needs Confirmation'} ({item.material}) · {item.classification_source === 'user_confirmed' ? 'User edited' : 'AI/rule suggestion'}
+                </li>)}
+              </ul></details>
             </section>
           )}
 

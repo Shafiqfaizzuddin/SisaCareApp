@@ -6,6 +6,7 @@ import pytest
 from app.services.ai.grouping_service import (
     GroupingInputError,
     group_fused_objects,
+    group_report_observations,
     load_group_labels,
 )
 from app.services.ai.object_normalization import load_object_name_mapping
@@ -167,3 +168,41 @@ def test_conflicting_categories_are_rejected() -> None:
 
     with pytest.raises(GroupingInputError, match="conflicting final categories"):
         group_fused_objects([first, second])
+
+
+def test_ten_florence_aliases_make_one_group_without_object_quantity() -> None:
+    raw = [{"name": "plastic bag" if index % 2 else "plastic film", "material": "Soft Plastic",
+            "category": None, "source_detection_id": f"det-{index}"} for index in range(10)]
+    original = deepcopy(raw)
+    groups = group_report_observations(raw)
+    assert len(groups) == 1
+    assert groups[0]["display_name"] == "Plastic Bags / Film"
+    assert groups[0]["detection_count"] == 10
+    assert groups[0]["confirmed_quantities"] == []
+    assert groups[0]["detection_ids"] == [f"det-{index}" for index in range(10)]
+    assert raw == original
+
+
+def test_mixed_material_category_and_hazardous_conditions_stay_separate() -> None:
+    groups = group_report_observations([
+        {"name": "tin can", "material": "Metal", "category": "Recyclable Waste", "source_detection_id": "det-1"},
+        {"name": "aluminium can", "material": "Metal", "category": "Recyclable Waste", "source_detection_id": "det-2"},
+        {"name": "aerosol can", "material": "Metal", "category": "Hazardous Waste", "source_detection_id": "det-3"},
+        {"name": "food scraps", "material": "Organic Material", "category": "Non-Recyclable Waste", "source_detection_id": "det-4"},
+    ])
+    assert len(groups) == 4
+    assert groups[0]["detection_ids"] == ["det-1"]
+    assert groups[1]["detection_ids"] == ["det-2"]
+    assert {group["category"] for group in groups} == {"Recyclable Waste", "Hazardous Waste", "Non-Recyclable Waste"}
+
+
+def test_conflicting_handling_answers_do_not_merge() -> None:
+    groups = group_report_observations([
+        {"name": "plastic bottle", "material": "Plastic", "category": "Recyclable Waste",
+         "condition_answers": {"hazardous_contents": False}, "source_detection_id": "det-1"},
+        {"name": "plastic bottle", "material": "Plastic", "category": "Hazardous Waste",
+         "condition_answers": {"hazardous_contents": True}, "source_detection_id": "det-2"},
+    ])
+    assert len(groups) == 2
+    assert groups[0]["detection_ids"] == ["det-1"]
+    assert groups[1]["detection_ids"] == ["det-2"]

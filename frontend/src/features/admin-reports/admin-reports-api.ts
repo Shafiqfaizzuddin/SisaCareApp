@@ -234,6 +234,13 @@ export async function fetchPersistedReport(
           typeof item.material === 'string' &&
           (item.category === null || ['Recyclable Waste', 'Non-Recyclable Waste', 'Bulky Waste', 'Hazardous Waste'].includes(item.category as string)),
         ) as AdminReportDetail['confirmedItems'],
+    groupedReportItems: Array.isArray(value.grouped_report_items)
+      ? value.grouped_report_items.filter((item: unknown) => isObject(item) &&
+          typeof item.canonical_name === 'string' && typeof item.display_name === 'string' &&
+          typeof item.material === 'string' && typeof item.detection_count === 'number' &&
+          Array.isArray(item.detection_ids) &&
+          (item.category === null || ['Recyclable Waste', 'Non-Recyclable Waste', 'Bulky Waste', 'Hazardous Waste'].includes(item.category as string))) as AdminReportDetail['groupedReportItems']
+      : [],
     originalImage:
       typeof value.original_image === 'string' ? value.original_image : '',
     annotatedImage:

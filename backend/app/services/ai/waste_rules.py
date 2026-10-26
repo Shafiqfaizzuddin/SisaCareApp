@@ -48,6 +48,11 @@ def _key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", value.strip().casefold().replace("&", " ")).strip("_")
 
 
+def normalize_label(value: str) -> str:
+    """Public, exact-match key shared by detection and rule lookup."""
+    return _key(value)
+
+
 def _forms(value: str) -> set[str]:
     """Only ordinary final-word inflections, never fuzzy or substring matches."""
     key = _key(value)
@@ -186,10 +191,10 @@ def classify_item(
 
     # A user-confirmed hazardous content or property overrides recyclable and
     # bulky handling. A bare detection label never supplies this fact.
-    if "hazardous_contents" in question_keys and facts.get("hazardous_contents") is True:
+    if facts.get("hazardous_contents") is True:
         category = "Hazardous Waste"
         station_key = None
-        guidance = rule["hazardous_handling_guidance"]
+        guidance = rule.get("hazardous_handling_guidance") or "Keep separate from ordinary recycling. Ask the relevant collection team for safe handling; do not open, puncture, empty or dismantle it."
     elif category == "Recyclable Waste":
         missing = [question["prompt"] for question in questions
                    if question["key"] in RECYCLING_QUESTION_KEYS and facts.get(question["key"]) is None]
@@ -213,11 +218,9 @@ def classify_item(
         if category != "Hazardous Waste":
             category = None
         reason = (reason + " " if reason else "") + "The confirmed material conflicts with the item label."
-    if material is None and category not in {"Hazardous Waste", "Bulky Waste"}:
-        category = None
     if category is None and reason is None:
         reason = "Confirm the item material and an appropriate disposal route."
-    if material is None and category not in {"Hazardous Waste", "Bulky Waste"} and (reason is None or "material" not in reason.casefold()):
+    if material is None and category is None and (reason is None or "material" not in reason.casefold()):
         reason = (reason + " " if reason else "") + "Confirm the item's material."
     return RuleResult(
         original_label=label, canonical_name=canonical, canonical_item=canonical,
@@ -231,4 +234,4 @@ def classify_item(
     )
 
 
-__all__ = ["FINAL_CATEGORIES", "RULES_PATH", "WasteRuleError", "RuleResult", "classify_item", "load_rules"]
+__all__ = ["FINAL_CATEGORIES", "RULES_PATH", "WasteRuleError", "RuleResult", "classify_item", "load_rules", "normalize_label"]
