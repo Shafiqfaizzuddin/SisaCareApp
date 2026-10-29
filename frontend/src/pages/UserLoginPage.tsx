@@ -2,6 +2,7 @@ import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from 'lucide-react'
 import { useCallback, useRef, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Brand } from '../components/common/Brand'
+import { ThemeToggle } from '../components/common/ThemeToggle'
 import { GoogleIdentityButton } from '../components/common/GoogleIdentityButton'
 import { signInWithGoogle } from '../features/authentication/google'
 import { useRole } from '../features/authentication/useRole'
@@ -174,6 +175,7 @@ export function UserLoginPage() {
           </p>
         </section>
       </div>
+      <ThemeToggle compact />
     </main>
   )
 }

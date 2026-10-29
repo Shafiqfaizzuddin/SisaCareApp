@@ -6,6 +6,7 @@ import { AdminDashboardPage } from '../pages/AdminDashboardPage'
 import { AdminLoginPage } from '../pages/AdminLoginPage'
 import { AdminReportDetailPage } from '../pages/AdminReportDetailPage'
 import { AdminRecyclingPointsPage } from '../pages/AdminRecyclingPointsPage'
+import { AdminLearnPage } from '../pages/AdminLearnPage'
 import { EducationPage } from '../pages/EducationPage'
 import { HomePage } from '../pages/HomePage'
 import { MemberDashboardPage } from '../pages/MemberDashboardPage'
@@ -58,6 +59,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <AdminDashboardPage /> },
       { path: 'recycling-points', element: <AdminRecyclingPointsPage /> },
+      { path: 'learn', element: <AdminLearnPage /> },
       { path: 'reports/:reportId', element: <AdminReportDetailPage /> },
     ],
   },

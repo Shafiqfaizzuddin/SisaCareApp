@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 const { signUp, resend } = vi.hoisted(() => ({ signUp: vi.fn(), resend: vi.fn() }))
 vi.mock('../features/authentication/useRole', () => ({ useRole: () => ({ signUp }) }))
 vi.mock('../lib/supabase', () => ({ supabaseClient: { auth: { resend } } }))
+vi.mock('../features/theme/useTheme', () => ({ useTheme: () => ({ theme: 'light', toggleTheme: () => {} }) }))
 
 import { UserSignupPage } from './UserSignupPage'
 

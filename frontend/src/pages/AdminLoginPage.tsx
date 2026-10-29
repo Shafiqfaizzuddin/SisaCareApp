@@ -2,6 +2,7 @@ import { ArrowLeft, LockKeyhole, ShieldCheck } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Brand } from '../components/common/Brand'
+import { ThemeToggle } from '../components/common/ThemeToggle'
 import { useRole } from '../features/authentication/useRole'
 import {
   emptyAdminCredentials,
@@ -123,6 +124,7 @@ export function AdminLoginPage() {
           </p>
         </div>
       </section>
+      <ThemeToggle compact />
     </main>
   )
 }

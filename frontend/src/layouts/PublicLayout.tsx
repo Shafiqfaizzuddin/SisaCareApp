@@ -11,6 +11,8 @@ import { useState } from 'react'
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { Brand } from '../components/common/Brand'
 import { useRole } from '../features/authentication/useRole'
+import { displayInitials } from '../lib/display-initials'
+import { ThemeToggle } from '../components/common/ThemeToggle'
 
 const navigation = [
   { label: 'Home', to: '/' },
@@ -55,7 +57,7 @@ export function PublicLayout() {
                   to="/account"
                   onClick={() => setMenuOpen(false)}
                 >
-                  <span>{user.name.split(' ').map((part) => part[0]).join('')}</span>
+                  <span>{displayInitials(user.name)}</span>
                   <strong>{user.name}</strong>
                 </Link>
                 <button
@@ -110,6 +112,7 @@ export function PublicLayout() {
               </>
             )}
           </nav>
+          <ThemeToggle compact />
           <button
             className="icon-button public-header__menu"
             type="button"

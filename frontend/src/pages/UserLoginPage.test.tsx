@@ -19,6 +19,7 @@ vi.mock('../components/common/GoogleIdentityButton', () => ({
   ),
 }))
 vi.mock('../lib/supabase', () => ({ supabaseClient: null }))
+vi.mock('../features/theme/useTheme', () => ({ useTheme: () => ({ theme: 'light', toggleTheme: () => {} }) }))
 
 import { UserLoginPage } from './UserLoginPage'
 

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { supabaseClient } from '../lib/supabase'
+import { ThemeToggle } from '../components/common/ThemeToggle'
 
 export function PasswordResetPage() {
   const [email, setEmail] = useState('')
@@ -34,5 +35,5 @@ export function PasswordResetPage() {
       <button className="button button--primary button--full" type="submit">{recovery ? 'Update password' : 'Send reset link'}</button>
     </form>}
     {message && <p role="status">{message}</p>}
-  </div></section></main>
+  </div></section><ThemeToggle compact /></main>
 }

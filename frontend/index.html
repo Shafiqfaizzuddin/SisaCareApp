@@ -8,6 +8,14 @@
       content="SisaCare.AI helps residents report waste and supports municipal review and response."
     />
     <meta name="theme-color" content="#0f2a1e" />
+    <script>
+      try {
+        if (localStorage.getItem('sisacare-theme') === 'dark') {
+          document.documentElement.dataset.theme = 'dark'
+          document.documentElement.style.colorScheme = 'dark'
+        }
+      } catch (_) { /* Light mode remains the default. */ }
+    </script>
     <title>SisaCare.AI | Community Waste Reporting</title>
   </head>
   <body>

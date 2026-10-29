@@ -2,6 +2,7 @@ import { ArrowLeft, MailCheck, UserPlus } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Brand } from '../components/common/Brand'
+import { ThemeToggle } from '../components/common/ThemeToggle'
 import { useRole } from '../features/authentication/useRole'
 import { supabaseClient } from '../lib/supabase'
 
@@ -207,6 +208,7 @@ export function UserSignupPage() {
           )}
         </div>
       </section>
+      <ThemeToggle compact />
     </main>
   )
 }

@@ -9,6 +9,8 @@ SisaCare.AI is an AI assisted community waste reporting prototype for residents 
 - The user can optionally expand **Edit analysis / Add details** to correct detections, materials, categories, or quantities. Uncertain items remain marked **Needs Confirmation** and can be sent for admin assessment. The user then confirms one incident pin, reviews the draft, and submits it. Submission does not independently verify AI details; admin verification is separate.
 - Equivalent detections are grouped for the analysis summary and report draft using canonical rule identity, material, category, uncertainty, and handling answers. The displayed detection count is model output, not a verified object quantity. Raw detections, source IDs, boxes, and optional user-provided quantities remain separate in the audit record.
 - Admin review follows Submitted → Verified → Assigned/In Progress → Resolved, or Rejected with a reason. Status changes have an audit trail. Historical records retain their original status and category.
+- Authorized administrators manage the public Learn page at `/admin/learn`. They can create, edit, order, publish or hide solid waste and recycling articles and upload JPG, PNG or WEBP images up to 5 MB. Images use responsive layouts and descriptive alt text. Existing guide topics seed the new `education_articles` table once; later edits are never overwritten. Hiding an article removes it from the public page without deleting the record or stored image.
+- The frontend starts in light mode. Use the sun/moon control in the public header, administrator header, or sign-in pages to switch themes. The browser saves this display preference locally and restores it on later visits; it is independent of the login session.
 
 ## Local setup
 

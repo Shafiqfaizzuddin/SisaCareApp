@@ -9,6 +9,7 @@ from app.api.waste_analysis import router as waste_analysis_router
 from app.api.florence_detection import router as florence_detection_router
 from app.api.florence_analysis import router as florence_analysis_router
 from app.api.recycling import router as recycling_router
+from app.api.education import router as education_router
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -32,4 +33,5 @@ app.include_router(florence_analysis_router, prefix="/api/waste", tags=["waste-a
 app.include_router(waste_analysis_router, prefix="/api/waste", tags=["legacy-waste-analysis"])
 app.include_router(florence_detection_router, prefix="/api/waste/florence", tags=["florence-detection"])
 app.include_router(recycling_router, prefix="/api/recycling", tags=["recycling"])
+app.include_router(education_router, prefix="/api/education", tags=["education"])
 app.include_router(reports_router, prefix="/api/reports", tags=["reports"])

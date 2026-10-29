@@ -4,6 +4,7 @@ import { PageIntro } from '../components/common/PageIntro'
 import { useRole } from '../features/authentication/useRole'
 import { memberTitleForPoints } from '../features/authentication/member-data'
 import type { LeaderboardEntry } from '../types'
+import { displayInitials } from '../lib/display-initials'
 
 type RankedEntry = LeaderboardEntry & { rank: number }
 
@@ -50,13 +51,13 @@ export function LeaderboardPage() {
       entries.length === 0 ? <p className="empty-state">No eligible verified activity yet.</p> : <>
       {page === 0 && <div className="leaderboard-podium">{entries.slice(0, 3).map(entry => <article className={`podium-card podium-card--${entry.rank}`} key={entry.id}>
         <span className="podium-card__rank">{entry.rank === 1 ? <Crown size={21} /> : <Medal size={20} />}</span>
-        <div className="podium-card__avatar">{entry.name.split(' ').map(part => part[0]).join('')}</div>
+        <div className="podium-card__avatar">{displayInitials(entry.name)}</div>
         <span>#{entry.rank}</span><h2>{entry.name}</h2><p><Award size={14} /> {entry.title}</p>
         <strong>{entry.points} points</strong></article>)}</div>}
       <section className="leaderboard-table-panel"><header><div><h2>Community ranking</h2><p>Verified lifetime contributions; ties share a rank.</p></div><span>{total} participants</span></header>
         <div className="leaderboard-table-wrap"><table className="leaderboard-table"><thead><tr><th>Rank</th><th>Member</th><th>Title</th><th>Valid reports</th><th>Points</th></tr></thead>
           <tbody>{entries.map(entry => <tr className={entry.id === user?.id ? 'leaderboard-table__current' : ''} key={entry.id}>
-            <td><strong>#{entry.rank}</strong></td><td><span className="leaderboard-member"><span>{entry.name.split(' ').map(part => part[0]).join('')}</span><strong>{entry.name}</strong>{entry.id === user?.id && <small>You</small>}</span></td>
+            <td><strong>#{entry.rank}</strong></td><td><span className="leaderboard-member"><span>{displayInitials(entry.name)}</span><strong>{entry.name}</strong>{entry.id === user?.id && <small>You</small>}</span></td>
             <td>{entry.title}</td><td>{entry.validReports}</td><td><strong>{entry.points}</strong></td></tr>)}</tbody></table></div>
         <div className="form-actions">{page > 0 && <button type="button" className="button button--secondary" onClick={() => setPage(value => value - 1)}>Previous</button>}
           {(page + 1) * 50 < total && <button type="button" className="button button--secondary" onClick={() => setPage(value => value + 1)}>Next</button>}</div>

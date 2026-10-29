@@ -117,7 +117,7 @@ export function AdminDashboardPage() {
         />
       </section>
 
-      <section className="admin-panel report-list">
+      <section className="admin-panel report-list" id="reports">
         <header className="admin-panel__heading">
           <div>
             <h2>Recent reports</h2>
@@ -158,7 +158,8 @@ export function AdminDashboardPage() {
           </div>
         </header>
 
-        <div className="report-table-wrap">
+        <p className="report-table-hint">Swipe horizontally to view all report columns.</p>
+        <div className="report-table-wrap" role="region" aria-label="Recent reports table" tabIndex={0}>
           <table className="report-table">
             <thead>
               <tr>
