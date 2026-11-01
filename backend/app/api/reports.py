@@ -8,12 +8,13 @@ import sqlite3
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from app.api.waste_analysis import UPLOAD_DIR
+from app.core.config import get_settings
 from app.core.auth import (
     AuthenticatedUser,
     get_optional_authenticated_user,
@@ -47,6 +48,7 @@ from app.services.image_uploads import (
     upload_size_limit_message,
     validate_image_upload_metadata,
 )
+from app.services.report_email import channel_ready, dispatch_pending_report_emails
 
 
 logger = logging.getLogger(__name__)
@@ -226,11 +228,12 @@ class ReportAssignment(BaseModel):
 async def submit_report(
     submission: ReportSubmission,
     user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
+    background_tasks: BackgroundTasks,
 ) -> dict[str, str]:
     if submission.analysis_id is None:
         raise HTTPException(status_code=422, detail="Analyze a photo before submitting, or upload a photo with the manual report form.")
     submission_data = _authorize_submission(submission, user)
-    return await _create_report(submission_data)
+    return await _create_report(submission_data, background_tasks)
 
 
 def _authorize_submission(
@@ -260,15 +263,20 @@ def _authorize_submission(
     submission_data["guest_name"] = None
     submission_data["guest_email"] = None
     submission_data["activity_affiliation"] = "unknown"
+    settings = get_settings()
+    submission_data["notification_email"] = user.get("email") if user.get("email_verified") is True else None
+    submission_data["admin_notification_email"] = settings.admin_notification_email if channel_ready(settings, "admin") else None
     return submission_data
 
 
-async def _create_report(submission: dict[str, object]) -> dict[str, str]:
+async def _create_report(submission: dict[str, object], background_tasks: BackgroundTasks) -> dict[str, str]:
     try:
-        return await run_in_threadpool(
+        result = await run_in_threadpool(
             create_report,
             submission,
         )
+        background_tasks.add_task(dispatch_pending_report_emails)
+        return result
     except DraftNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except DraftAlreadySubmittedError as exc:
@@ -289,6 +297,7 @@ async def _create_report(submission: dict[str, object]) -> dict[str, str]:
 @router.post("/with-image", status_code=status.HTTP_201_CREATED)
 async def submit_report_with_image(
     user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
+    background_tasks: BackgroundTasks,
     payload: str = Form(...),
     image: UploadFile = File(...),
 ) -> dict[str, str]:
@@ -334,7 +343,7 @@ async def submit_report_with_image(
         await save_image_upload(image, destination)
         await run_in_threadpool(validate_image, destination)
         submission_data["uploaded_image_path"] = str(destination)
-        return await _create_report(submission_data)
+        return await _create_report(submission_data, background_tasks)
     except ImageValidationError as exc:
         raise HTTPException(status_code=400, detail=exc.public_message) from exc
     except ValueError as exc:
@@ -396,11 +405,15 @@ async def assign_report(
     report_id: str,
     assignment: ReportAssignment,
     admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
+    background_tasks: BackgroundTasks,
 ) -> dict[str, object]:
     try:
-        return await run_in_threadpool(
+        result = await run_in_threadpool(
             transition_report, report_id, "assign", admin["id"], assigned_team=assignment.team,
+            notify_user=channel_ready(get_settings(), "user"),
         )
+        background_tasks.add_task(dispatch_pending_report_emails)
+        return result
     except ReportNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValidationAlreadyDecidedError as exc:
@@ -413,6 +426,7 @@ async def assign_report(
 async def resolve_report(
     report_id: str,
     admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
+    background_tasks: BackgroundTasks,
     details: str = Form(..., min_length=1, max_length=2000),
     image: UploadFile | None = File(default=None),
 ) -> dict[str, object]:
@@ -426,10 +440,13 @@ async def resolve_report(
             destination = create_unique_upload_path(UPLOAD_DIR, prefix="after", extension=extension)
             await save_image_upload(image, destination)
             await run_in_threadpool(validate_image, destination)
-        return await run_in_threadpool(
+        result = await run_in_threadpool(
             transition_report, report_id, "resolve", admin["id"],
             resolution_details=details, after_photo_source=destination,
+            notify_user=channel_ready(get_settings(), "user"),
         )
+        background_tasks.add_task(dispatch_pending_report_emails)
+        return result
     except ImageValidationError as exc:
         raise HTTPException(status_code=400, detail=exc.public_message) from exc
     except ValueError as exc:

@@ -1,3 +1,7 @@
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -13,11 +17,36 @@ from app.api.education import router as education_router
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.services.report_email import dispatch_pending_report_emails
 
 settings = get_settings()
 configure_logging(settings.log_level)
 
-app = FastAPI(title=settings.app_name)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    async def email_worker() -> None:
+        while True:
+            try:
+                await asyncio.to_thread(dispatch_pending_report_emails)
+            except Exception as exc:
+                logger.warning("report_email_worker_failed error_type=%s", type(exc).__name__)
+            await asyncio.sleep(60)
+
+    worker = asyncio.create_task(email_worker())
+    try:
+        yield
+    finally:
+        worker.cancel()
+        try:
+            await worker
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_cors_origins,

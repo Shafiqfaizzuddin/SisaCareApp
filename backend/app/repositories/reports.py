@@ -7,7 +7,7 @@ import hashlib
 import shutil
 import sqlite3
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
@@ -57,6 +57,15 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _queue_email(database: sqlite3.Connection, report_id: str, event_type: str, recipient: str, now: str) -> None:
+    database.execute(
+        """INSERT OR IGNORE INTO report_email_outbox
+           (event_key, report_id, event_type, recipient_email, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (f"{report_id}:{event_type}", report_id, event_type, recipient, now),
+    )
+
+
 def _connect() -> sqlite3.Connection:
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DATABASE_PATH, timeout=10)
@@ -92,6 +101,7 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
                 user_id TEXT,
                 guest_name TEXT,
                 guest_email TEXT,
+                notification_email TEXT,
                 original_image TEXT,
                 annotated_image TEXT,
                 title TEXT NOT NULL,
@@ -164,6 +174,22 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_report_status_events_report
                 ON report_status_events(report_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS report_email_outbox (
+                event_key TEXT PRIMARY KEY,
+                report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE RESTRICT,
+                event_type TEXT NOT NULL CHECK (event_type IN ('submitted', 'in_progress', 'resolved')),
+                recipient_email TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                sent_at TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                claimed_at TEXT,
+                claim_token TEXT,
+                next_attempt_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_report_email_outbox_pending
+                ON report_email_outbox(sent_at, created_at);
 
             CREATE TABLE IF NOT EXISTS recycling_points (
                 id TEXT PRIMARY KEY,
@@ -282,6 +308,8 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
             database.execute("ALTER TABLE analysis_drafts ADD COLUMN split_recycling_ids_json TEXT")
         _ensure_report_validation_columns(database)
         _ensure_report_location_columns(database)
+        if "notification_email" not in {row["name"] for row in database.execute("PRAGMA table_info(reports)")}:
+            database.execute("ALTER TABLE reports ADD COLUMN notification_email TEXT")
         _ensure_community_report_columns(database)
         _ensure_report_ai_columns(database)
         _ensure_campus_columns(database)
@@ -1060,7 +1088,7 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
             """
             INSERT INTO reports (
                 id, reference, analysis_id, reporter_role, user_id,
-                guest_name, guest_email, original_image, annotated_image,
+                guest_name, guest_email, notification_email, original_image, annotated_image,
                 title, summary, waste_identified, recommended_action,
                 environmental_concern, category, final_categories_json,
                 ai_analysis_json, location, latitude, longitude,
@@ -1069,7 +1097,7 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 status, validation_status, activity_affiliation, activity_key,
                 confirmed_ai_result_json, data_origin, created_at, updated_at
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """,
@@ -1081,6 +1109,7 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 submission.get("user_id"),
                 submission.get("guest_name"),
                 submission.get("guest_email"),
+                submission.get("notification_email"),
                 original_image,
                 annotated_image,
                 submission["title"],
@@ -1151,6 +1180,8 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                VALUES (?, ?, ?, '', 'submitted', ?)""",
             (uuid4().hex, report_id, submission.get("user_id") or "guest", now),
         )
+        if admin_email := submission.get("admin_notification_email"):
+            _queue_email(database, report_id, "submitted", str(admin_email), now)
         database.commit()
     except Exception:
         database.rollback()
@@ -1175,6 +1206,66 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
         "original_image": original_image or "",
         "annotated_image": annotated_image or "",
     }
+
+
+def claim_pending_report_emails(
+    limit: int = 10, *, include_admin: bool = True, include_user: bool = True,
+) -> list[dict[str, Any]]:
+    """Lease queued messages so concurrent API workers do not send duplicates."""
+    now = _utc_now()
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    token = uuid4().hex
+    with _connect() as database:
+        initialize_database(database)
+        database.execute("BEGIN IMMEDIATE")
+        rows = database.execute(
+            """SELECT o.event_key, o.event_type, o.recipient_email,
+                      r.id AS report_id, r.reference, r.title, r.location,
+                      r.assigned_team, r.resolution_details
+               FROM report_email_outbox o JOIN reports r ON r.id = o.report_id
+               WHERE o.sent_at IS NULL AND o.attempts < 5
+                 AND ((o.event_type = 'submitted' AND ?)
+                      OR (o.event_type IN ('in_progress', 'resolved') AND ?))
+                 AND (o.claimed_at IS NULL OR o.claimed_at < ?)
+                 AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= ?)
+               ORDER BY o.created_at LIMIT ?""",
+            (int(include_admin), int(include_user), stale, now, max(1, min(limit, 50))),
+        ).fetchall()
+        for row in rows:
+            database.execute(
+                "UPDATE report_email_outbox SET claimed_at = ?, claim_token = ? WHERE event_key = ?",
+                (now, token, row["event_key"]),
+            )
+        database.commit()
+    return [{**dict(row), "claim_token": token} for row in rows]
+
+
+def finish_report_email(event_key: str, claim_token: str, *, error_type: str | None = None) -> None:
+    """Record SMTP outcome without storing message contents or credentials."""
+    with _connect() as database:
+        if error_type is None:
+            database.execute(
+                """UPDATE report_email_outbox SET sent_at = ?, attempts = attempts + 1,
+                   last_error = NULL, claimed_at = NULL, claim_token = NULL
+                   WHERE event_key = ? AND claim_token = ? AND sent_at IS NULL""",
+                (_utc_now(), event_key, claim_token),
+            )
+        else:
+            row = database.execute(
+                "SELECT attempts FROM report_email_outbox WHERE event_key = ? AND claim_token = ?",
+                (event_key, claim_token),
+            ).fetchone()
+            if row is not None:
+                next_attempt = (datetime.now(timezone.utc) + timedelta(
+                    seconds=min(60 * (2 ** row["attempts"]), 3600),
+                )).isoformat()
+                database.execute(
+                    """UPDATE report_email_outbox SET attempts = attempts + 1,
+                       last_error = ?, next_attempt_at = ?, claimed_at = NULL,
+                       claim_token = NULL WHERE event_key = ? AND claim_token = ?""",
+                    (error_type[:100], next_attempt, event_key, claim_token),
+                )
+        database.commit()
 
 
 def list_reports() -> list[dict[str, Any]]:
@@ -1623,6 +1714,7 @@ def validate_report(
 def transition_report(
     report_id: str, action: str, actor_id: str, *, assigned_team: str = "",
     resolution_details: str = "", after_photo_source: Path | None = None,
+    notify_user: bool = False,
 ) -> dict[str, Any]:
     """Assign or resolve a verified report with an immutable status audit."""
     if action not in {"assign", "resolve"}:
@@ -1639,7 +1731,7 @@ def transition_report(
         initialize_database(database)
         database.execute("BEGIN IMMEDIATE")
         row = database.execute(
-            "SELECT status, validation_status, assigned_team FROM reports WHERE id = ?", (report_id,),
+            "SELECT status, validation_status, assigned_team, notification_email FROM reports WHERE id = ?", (report_id,),
         ).fetchone()
         if row is None:
             raise ReportNotFoundError("Report not found.")
@@ -1681,6 +1773,8 @@ def transition_report(
              team if action == "assign" else None, details if action == "resolve" else None,
              after_photo, now),
         )
+        if notify_user and row["notification_email"] and row["status"] != new_status:
+            _queue_email(database, report_id, new_status, row["notification_email"], now)
         database.commit()
         return {"report_id": report_id, "status": new_status, "assigned_team": team or row["assigned_team"],
                 "resolution_details": details or None, "after_photo": after_photo}

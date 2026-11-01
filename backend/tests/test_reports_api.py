@@ -13,6 +13,7 @@ from app.core.config import Settings
 from app.core.auth import get_optional_authenticated_user, require_admin_user
 from app.repositories import reports as report_repository
 from app.repositories import identities as identity_repository
+from app.services import report_email
 
 
 client = TestClient(app)
@@ -1034,3 +1035,41 @@ def test_database_initialization_allows_vlm_detection_rows(
     assert "source" in columns
     assert migrated["source"] == "yolo"
     assert migrated["confidence"] == pytest.approx(0.9)
+
+
+def test_report_api_queues_admin_and_user_status_emails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    configure_report_storage(monkeypatch, tmp_path)
+    monkeypatch.setattr(reports_api, "UPLOAD_DIR", tmp_path / "uploads")
+    settings = Settings(
+        _env_file=None,
+        admin_notification_email="admin@example.com",
+        admin_smtp_host="sandbox.smtp.mailtrap.io",
+        admin_smtp_from="alerts@example.com",
+        user_smtp_host="smtp.example.com",
+        user_smtp_from="updates@example.com",
+    )
+    monkeypatch.setattr(reports_api, "get_settings", lambda: settings)
+    monkeypatch.setattr(report_email, "get_settings", lambda: settings)
+    delivered = []
+    monkeypatch.setattr(report_email, "_send", lambda message, _settings, channel: delivered.append((channel, message["To"])))
+
+    payload = submission_payload(None)
+    payload.update(rule_version="1.0.0",
+                   confirmed_items=[{"review_id": "manual-1", "name": "Plastic Bottle",
+                                     "category": "Recyclable Waste", "material": "Plastic"}],
+                   reviewed_detections=[{"id": "manual-1", "source_detection_id": None,
+                                         "disposition": "waste", "corrected_label": "Plastic Bottle",
+                                         "category": "Recyclable Waste", "material": "Plastic"}])
+    created = client.post("/api/reports/with-image", data={"payload": json.dumps(payload)},
+                          files={"image": ("photo.png", VALID_PNG, "image/png")})
+    assert created.status_code == 201, created.text
+    report_id = created.json()["id"]
+    assert client.post(f"/api/reports/{report_id}/validation", json={"validation_status": "valid"}).status_code == 200
+    assert client.post(f"/api/reports/{report_id}/assignment", json={"team": "Team A"}).status_code == 200
+    assert client.post(f"/api/reports/{report_id}/assignment", json={"team": "Team B"}).status_code == 200
+    assert client.post(f"/api/reports/{report_id}/resolution", data={"details": "Collected"}).status_code == 200
+    assert delivered == [("admin", "admin@example.com"), ("user", MEMBER_USER["email"]),
+                         ("user", MEMBER_USER["email"])]
+    with sqlite3.connect(tmp_path / "reports.db") as database:
+        assert database.execute("SELECT notification_email FROM reports WHERE id = ?", (report_id,)).fetchone()[0] == MEMBER_USER["email"]
+        assert database.execute("SELECT COUNT(*) FROM report_email_outbox").fetchone()[0] == 3

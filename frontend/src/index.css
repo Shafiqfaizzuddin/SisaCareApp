@@ -345,9 +345,16 @@ a:focus-visible {
 }
 
 .public-nav {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.public-nav__member-login,
+.public-nav__admin,
+.public-nav > a.member-profile-link {
+  margin-left: auto;
 }
 
 .public-nav > a:not(.button) {
@@ -393,10 +400,6 @@ a:focus-visible {
   color: #ffffff;
   background: #183829;
   border-color: #42614f;
-}
-
-.public-nav__admin {
-  margin-left: 8px;
 }
 
 .public-header__menu {
@@ -3705,6 +3708,12 @@ a:focus-visible {
     display: flex;
   }
 
+  .public-nav__member-login,
+  .public-nav__admin,
+  .public-nav > a.member-profile-link {
+    margin-left: 0;
+  }
+
   .public-nav > a.member-points,
   .public-nav > a.member-profile-link {
     justify-content: flex-start;
@@ -3720,6 +3729,10 @@ a:focus-visible {
 
   .public-nav__admin {
     margin: 6px 0 0;
+  }
+
+  .public-nav__admin-login {
+    margin-top: 6px;
   }
 
   .home-hero {
@@ -4689,7 +4702,7 @@ a:focus-visible {
 .theme-toggle:hover { background: var(--hover-bg); }
 .theme-toggle:focus-visible { outline: 3px solid var(--green); outline-offset: 2px; }
 .theme-toggle--compact { width: 42px; padding: 8px; }
-.public-header__inner > .theme-toggle { color: #eef5f0; background: #183829; border-color: #42614f; margin-left: auto; }
+.public-header__inner > .theme-toggle { color: #eef5f0; background: #183829; border-color: #42614f; margin-left: 0; }
 .admin-topbar > .theme-toggle { margin-left: auto; margin-right: 14px; }
 .login-page { position: relative; }
 .login-page > .theme-toggle { position: absolute; z-index: 3; top: 18px; right: 18px; }

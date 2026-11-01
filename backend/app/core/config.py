@@ -70,6 +70,23 @@ class Settings(BaseSettings):
     session_absolute_seconds: int = Field(default=43200, ge=300, le=2592000)
     session_cookie_secure: bool = False
 
+    # Separate SMTP accounts allow the admin mock inbox to use Mailtrap while
+    # residents receive mail from an approved sender configured for delivery.
+    admin_notification_email: str = ""
+    admin_smtp_host: str = ""
+    admin_smtp_port: int = Field(default=587, ge=1, le=65535)
+    admin_smtp_username: str = ""
+    admin_smtp_password: SecretStr = SecretStr("")
+    admin_smtp_from: str = ""
+    admin_smtp_security: str = "starttls"
+    user_smtp_host: str = ""
+    user_smtp_port: int = Field(default=587, ge=1, le=65535)
+    user_smtp_username: str = ""
+    user_smtp_password: SecretStr = SecretStr("")
+    user_smtp_from: str = ""
+    user_smtp_security: str = "starttls"
+    email_public_base_url: str = "http://localhost:5173"
+
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_ROOT / ".env",
@@ -124,6 +141,23 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_service_configuration(self) -> "Settings":
+        for channel in ("admin", "user"):
+            if getattr(self, f"{channel}_smtp_security") not in {"starttls", "ssl", "none"}:
+                raise ValueError(f"{channel.upper()}_SMTP_SECURITY must be starttls, ssl, or none.")
+        if self.app_env.lower() == "production" and any(
+            getattr(self, f"{channel}_smtp_host") and getattr(self, f"{channel}_smtp_security") == "none"
+            for channel in ("admin", "user")
+        ):
+            raise ValueError("SMTP encryption is required in production.")
+        public_url = urlparse(self.email_public_base_url)
+        if (public_url.scheme not in {"http", "https"} or not public_url.hostname
+                or public_url.username or public_url.password or public_url.query
+                or public_url.fragment or public_url.path not in {"", "/"}):
+            raise ValueError("EMAIL_PUBLIC_BASE_URL must be an HTTP or HTTPS site origin.")
+        if self.app_env.lower() == "production" and any(
+            getattr(self, f"{channel}_smtp_host") for channel in ("admin", "user")
+        ) and public_url.scheme != "https":
+            raise ValueError("EMAIL_PUBLIC_BASE_URL must use HTTPS when email is enabled in production.")
         if self.app_env.lower() == "production" and not self.session_cookie_secure:
             raise ValueError("SESSION_COOKIE_SECURE must be true in production.")
         parsed_florence_url = urlparse(self.florence_service_url)

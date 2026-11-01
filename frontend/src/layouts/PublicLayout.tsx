@@ -101,13 +101,13 @@ export function PublicLayout() {
                   Sign in
                 </Link>
                 <Link
-                  className="icon-button public-nav__admin"
+                  className="button button--quiet public-nav__admin-login"
                   to="/admin/login"
                   aria-label="Administrator sign in"
-                  title="Administrator sign in"
                   onClick={() => setMenuOpen(false)}
                 >
                   <ShieldCheck size={17} />
+                  Administrator sign in
                 </Link>
               </>
             )}
