@@ -24,8 +24,10 @@ export class MemberDashboardRequestError extends Error {
 const REPORT_STATUSES = new Set<ReportStatus>([
   'submitted',
   'verified',
+  'assigned',
   'processing',
   'in_progress',
+  'pending_verification',
   'resolved',
   'rejected',
   'completed',

@@ -3,6 +3,7 @@ import { cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const fake = vi.hoisted(() => ({ removed: 0, failNext: false, maps: [] as Array<{ options: Record<string, unknown>; listeners: Record<string, (event: unknown) => void> }>,
+  tiles: [] as Array<{ options: Record<string, unknown>; map: unknown }>,
   markers: [] as Array<{ position: { lat: number; lng: number }; options: Record<string, unknown>;
     listeners: Record<string, () => void>; map: unknown }> }))
 
@@ -10,7 +11,11 @@ vi.mock('../../features/location/google-maps', () => ({
   googleMapId: 'test-map-id',
   loadGoogleMaps: async () => { if (fake.failNext) { fake.failNext = false; throw new Error('offline') }
     return { importLibrary: async (name: string) => name === 'maps'
-    ? { Map: class {
+    ? { Rectangle: class {
+      options: Record<string, unknown>; map: unknown
+      constructor(options: Record<string, unknown>) { this.options = options; this.map = options.map; fake.tiles.push(this) }
+      setMap(value: unknown) { this.map = value }
+    }, Map: class {
       options: Record<string, unknown>
       listeners: Record<string, (event: unknown) => void> = {}
       constructor(_element: HTMLElement, options: Record<string, unknown>) { this.options = options; fake.maps.push(this) }
@@ -41,7 +46,7 @@ vi.mock('../../features/location/google-maps', () => ({
 
 import { GoogleMap } from './GoogleMap'
 
-afterEach(() => { cleanup(); fake.maps.length = 0; fake.markers.length = 0; fake.removed = 0; fake.failNext = false })
+afterEach(() => { cleanup(); fake.maps.length = 0; fake.markers.length = 0; fake.tiles.length = 0; fake.removed = 0; fake.failNext = false })
 
 it('keeps the default centre unselected and reports deliberate clicks and completed drags', async () => {
   const selected = vi.fn()
@@ -70,4 +75,20 @@ it('offers retry after a map load failure', async () => {
   await waitFor(() => expect(view.getByRole('alert').textContent).toContain('could not load'))
   view.getByRole('button', { name: 'Retry map' }).click()
   await waitFor(() => expect(fake.maps).toHaveLength(1))
+})
+
+it('draws aggregated density cells and replaces the overlay when the layer changes', async () => {
+  const point = [{ latitude: 3.075, longitude: 101.525, weight: 4 }]
+  const view = render(<GoogleMap location={null} heatPoints={point} heatTone="observed" />)
+  await waitFor(() => expect(fake.tiles).toHaveLength(1))
+  expect(fake.tiles[0].options.fillColor).toBe('#d75036')
+  const bounds = fake.tiles[0].options.bounds as { south: number; north: number; west: number; east: number }
+  expect(bounds.south).toBeCloseTo(3.05)
+  expect(bounds.north).toBeCloseTo(3.1)
+  expect(bounds.west).toBeCloseTo(101.5)
+  expect(bounds.east).toBeCloseTo(101.55)
+  view.rerender(<GoogleMap location={null} heatPoints={point} heatTone="forecast" />)
+  await waitFor(() => expect(fake.tiles).toHaveLength(2))
+  expect(fake.tiles[0].map).toBeNull()
+  expect(fake.tiles[1].options.fillColor).toBe('#3769b0')
 })

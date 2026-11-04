@@ -37,3 +37,4 @@ supabase/.temp/
 
 # Local backend-generated images
 backend/.runtime/
+backend/hotspot-artifacts/

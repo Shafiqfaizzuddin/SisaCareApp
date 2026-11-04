@@ -12,13 +12,15 @@ import {
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ReportStatus } from '../components/reports/ReportStatus'
+import { ClassificationSummaryPanel } from '../components/reports/ClassificationSummaryPanel'
+import { validSummary } from '../features/reporting/waste-analysis'
 import { GoogleMap } from '../components/location/GoogleMap'
 import {
   assignPersistedReport,
   fetchPersistedReport,
-  resolvePersistedReport,
   validatePersistedReport,
 } from '../features/admin-reports/admin-reports-api'
+import { listStaff, reviewTask, type StaffGrant } from '../features/collection/collection-api'
 import { wasteCategoryOptions } from '../features/reporting/categories'
 import type {
   AdminReportDetail,
@@ -143,8 +145,11 @@ export function AdminReportDetailPage() {
   const [validationError, setValidationError] = useState('')
   const [rejectionReason, setRejectionReason] = useState('')
   const [assignedTeam, setAssignedTeam] = useState('')
-  const [resolutionDetails, setResolutionDetails] = useState('')
-  const [afterPhoto, setAfterPhoto] = useState<File | null>(null)
+  const [assigneeId, setAssigneeId] = useState('')
+  const [staffGrants, setStaffGrants] = useState<StaffGrant[]>([])
+  const [workflowReason, setWorkflowReason] = useState('')
+
+  useEffect(() => { void listStaff().then(setStaffGrants).catch(() => undefined) }, [])
 
   useEffect(() => {
     if (!reportId) return
@@ -196,13 +201,13 @@ export function AdminReportDetailPage() {
     }
   }
 
-  async function handleWorkflow(action: 'assign' | 'resolve') {
+  async function handleWorkflow(action: 'assign' | 'verify' | 'rework' | 'reject') {
     if (!report || isValidating) return
     setIsValidating(true)
     setValidationError('')
     try {
-      if (action === 'assign') await assignPersistedReport(report.id, assignedTeam)
-      else await resolvePersistedReport(report.id, resolutionDetails, afterPhoto)
+      if (action === 'assign') await assignPersistedReport(report.id, assignedTeam, assigneeId, workflowReason)
+      else await reviewTask(report.id, action, workflowReason)
       setPersistedReport(await fetchPersistedReport(report.id))
     } catch (error) {
       setValidationError(error instanceof Error ? error.message : 'The status update failed.')
@@ -328,11 +333,14 @@ export function AdminReportDetailPage() {
             </section>
           )}
 
+          {persistedReport && validSummary(persistedReport.aiAnalysis?.classification_summary) &&
+            <section className="admin-panel"><ClassificationSummaryPanel summary={persistedReport.aiAnalysis.classification_summary} /></section>}
+
           {persistedReport && persistedReport.detections.length > 0 && (
             <section className="admin-panel ai-detection-detail">
               <header className="admin-panel__heading">
                 <div>
-                  <h2>Original AI detections</h2>
+                  <h2>AI and rule suggestions</h2>
                   {typeof persistedReport.aiAnalysis?.model_id === 'string' && (
                     <p>Inference: {String(persistedReport.aiAnalysis.provider)} · {persistedReport.aiAnalysis.model_id}</p>
                   )}
@@ -408,6 +416,12 @@ export function AdminReportDetailPage() {
                   </article>
                 ))}
               </div>
+              {Array.isArray(persistedReport.aiAnalysis?.model_detections) && <details>
+                <summary>Unchanged Florence-2 labels and boxes</summary><ol>
+                  {persistedReport.aiAnalysis.model_detections.map((raw, index) =>
+                    raw && typeof raw === 'object' && 'label' in raw && typeof raw.label === 'string'
+                      ? <li key={index}>{raw.label} · Detector confidence unavailable</li> : null)}
+                </ol></details>}
             </section>
           )}
 
@@ -539,21 +553,29 @@ export function AdminReportDetailPage() {
             )}
           </section>
 
-          {validationStatus === 'valid' && status !== 'resolved' && <section className="admin-panel validation-panel">
+          {validationStatus === 'valid' && status !== 'resolved' && status !== 'rejected' && <section className="admin-panel validation-panel">
             <h2>Municipal response</h2>
-            {status === 'verified' && <div className="field"><label htmlFor="assigned-team">Assign to team</label>
+            {(status === 'verified' || status === 'assigned' || status === 'in_progress') && <div className="field"><label htmlFor="assigned-team">Assign to team</label>
               <input id="assigned-team" value={assignedTeam} maxLength={120} onChange={event => setAssignedTeam(event.target.value)} />
-              <button className="button button--primary" type="button" disabled={isValidating || !assignedTeam.trim()} onClick={() => void handleWorkflow('assign')}>Assign report</button></div>}
-            {status === 'in_progress' && <div className="field"><p>Assigned team: {persistedReport?.assignedTeam}</p>
-              <label htmlFor="resolution-details">Resolution details</label>
-              <textarea id="resolution-details" value={resolutionDetails} maxLength={2000} onChange={event => setResolutionDetails(event.target.value)} />
-              <label htmlFor="after-photo">After-photo (optional)</label>
-              <input id="after-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={event => setAfterPhoto(event.target.files?.[0] ?? null)} />
-              <button className="button button--primary" type="button" disabled={isValidating || !resolutionDetails.trim()} onClick={() => void handleWorkflow('resolve')}>Mark resolved</button></div>}
+              <label htmlFor="assignee">Staff or driver</label><select id="assignee" value={assigneeId} onChange={event => setAssigneeId(event.target.value)}>
+                <option value="">Select staff account</option>{staffGrants.filter(grant => !grant.revoked_at).map(grant =>
+                  <option key={`${grant.user_id}:${grant.role}`} value={grant.user_id}>{grant.role} · {grant.user_id}</option>)}</select>
+              <label htmlFor="assignment-reason">Reason {status !== 'verified' ? '(required for reassignment)' : '(optional)'}</label>
+              <textarea id="assignment-reason" value={workflowReason} maxLength={2000} onChange={event => setWorkflowReason(event.target.value)} />
+              <button className="button button--primary" type="button" disabled={isValidating || !assignedTeam.trim() || !assigneeId || (status !== 'verified' && !workflowReason.trim())} onClick={() => void handleWorkflow('assign')}>{status === 'verified' ? 'Assign report' : 'Reassign report'}</button></div>}
+            {status === 'in_progress' && <p>Collection in progress with {persistedReport?.assignedTeam}.</p>}
+            {status === 'pending_verification' && <div className="field"><p>Review the cleanup proof and collection note in the history below.</p>
+              {persistedReport?.afterPhoto && <img className="staff-proof" src={persistedReport.afterPhoto} alt="Cleanup proof awaiting verification" />}
+              <label htmlFor="review-reason">Verification note or rework reason</label>
+              <textarea id="review-reason" value={workflowReason} maxLength={2000} onChange={event => setWorkflowReason(event.target.value)} />
+              <div className="staff-review-actions"><button className="button button--primary" type="button" disabled={isValidating} onClick={() => void handleWorkflow('verify')}>Verify resolution</button>
+                <button className="button button--secondary" type="button" disabled={isValidating || !workflowReason.trim()} onClick={() => void handleWorkflow('rework')}>Request rework</button>
+                <button className="button button--secondary" type="button" disabled={isValidating || !workflowReason.trim()} onClick={() => void handleWorkflow('reject')}>Reject task</button></div></div>}
             {validationError && <p role="alert">{validationError}</p>}
           </section>}
-          {persistedReport?.resolutionDetails && <section className="admin-panel"><h2>Resolution</h2><p>{persistedReport.resolutionDetails}</p>
-            {persistedReport.afterPhoto && <img src={persistedReport.afterPhoto} alt="After-photo supplied by the municipal administrator" />}
+          {status === 'resolved' && <section className="admin-panel"><h2>Resolution</h2><p>{persistedReport?.resolutionDetails}</p>
+            {persistedReport?.resolutionSeconds != null && <p>Time from report to verified resolution: {Math.floor(persistedReport.resolutionSeconds / 3600)}h {Math.floor((persistedReport.resolutionSeconds % 3600) / 60)}m</p>}
+            {persistedReport?.afterPhoto && <img src={persistedReport.afterPhoto} alt="Verified cleanup photo" />}
           </section>}
 
           <section className="admin-panel detail-list">
@@ -597,7 +619,7 @@ export function AdminReportDetailPage() {
               </li>
               {persistedReport?.statusEvents?.map((event, index) => <li key={`${event.createdAt}-${index}`}>
                 <span><CheckCircle2 size={15} /></span><div><strong>{event.newStatus.replace('_', ' ')}</strong>
-                <small>{event.createdAt}{event.reason ? ` · ${event.reason}` : ''}{event.assignedTeam ? ` · ${event.assignedTeam}` : ''}</small></div>
+                <small>{event.createdAt}{event.actorId ? ` · Actor ${event.actorId}` : ''}{event.reason ? ` · ${event.reason}` : ''}{event.assignedTeam ? ` · ${event.assignedTeam}` : ''}</small></div>
               </li>)}
             </ol>
           </section>

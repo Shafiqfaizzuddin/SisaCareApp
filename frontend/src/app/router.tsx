@@ -17,6 +17,11 @@ import { UserLoginPage } from '../pages/UserLoginPage'
 import { UserSignupPage } from '../pages/UserSignupPage'
 import { PasswordResetPage } from '../pages/PasswordResetPage'
 import { PrivacyPage } from '../pages/PrivacyPage'
+import { StaffLoginPage } from '../pages/StaffLoginPage'
+import { StaffLayout } from '../layouts/StaffLayout'
+import { StaffDashboardPage } from '../pages/StaffDashboardPage'
+import { StaffTaskDetailPage } from '../pages/StaffTaskDetailPage'
+import { AdminStaffPage } from '../pages/AdminStaffPage'
 
 export const router = createBrowserRouter([
   {
@@ -47,6 +52,9 @@ export const router = createBrowserRouter([
     element: <UserSignupPage />,
   },
   { path: 'password-reset', element: <PasswordResetPage /> },
+  { path: 'staff/login', element: <StaffLoginPage /> },
+  { path: 'staff', element: <RoleGuard allow={['staff']} redirectTo="/staff/login"><StaffLayout /></RoleGuard>,
+    children: [{ index: true, element: <StaffDashboardPage /> }, { path: 'tasks/:reportId', element: <StaffTaskDetailPage /> }] },
   {
     path: 'admin/login',
     element: <AdminLoginPage />,
@@ -62,6 +70,7 @@ export const router = createBrowserRouter([
       { index: true, element: <AdminDashboardPage /> },
       { path: 'recycling-points', element: <AdminRecyclingPointsPage /> },
       { path: 'learn', element: <AdminLearnPage /> },
+      { path: 'staff', element: <AdminStaffPage /> },
       { path: 'reports/:reportId', element: <AdminReportDetailPage /> },
     ],
   },

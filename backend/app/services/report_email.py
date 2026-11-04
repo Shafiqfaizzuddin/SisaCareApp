@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import html
+import hashlib
 import logging
+import re
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -36,43 +38,48 @@ def build_report_message(event: dict[str, str], settings: Settings) -> EmailMess
     """Build a restrained, escaped HTML email with an equivalent text part."""
     kind = event["event_type"]
     recipient = event["recipient_email"]
-    if kind not in {"submitted", "in_progress", "resolved"} or not _valid_address(recipient):
+    if kind not in {"submitted", "assigned", "in_progress", "pending_verification", "resolved"} or not _valid_address(recipient):
         raise ValueError("Invalid report email event.")
     channel = "admin" if kind == "submitted" else "user"
     sender = getattr(settings, f"{channel}_smtp_from").strip()
     if not _valid_address(sender):
         raise ValueError("Invalid SMTP sender.")
 
-    reference = event["reference"]
+    reference = re.sub(r"[\r\n]+", " ", event["reference"]).strip()
     title = event["title"]
     location = event["location"]
+    status_label = kind.replace("_", " ").title()
     if kind == "submitted":
         subject = f"New waste report {reference}"
         heading = "A new report is ready for review"
         lead = "A community member has submitted a waste report. Review the report in the administrator dashboard."
-        url = f"{settings.email_public_base_url.rstrip('/')}/admin/reports/{quote(event['report_id'])}"
+        url = f"{settings.email_public_base_url.rstrip('/')}/admin/reports/{quote(event['report_id'], safe='')}"
         button = "Review report"
         extra = ""
-    elif kind == "in_progress":
-        subject = f"Report {reference} is in progress"
-        heading = "Your report is in progress"
-        lead = "The report has been assigned for municipal follow-up. You can track its status in your account."
-        url = f"{settings.email_public_base_url.rstrip('/')}/account/reports/{quote(event['report_id'])}"
+    elif kind in {"assigned", "in_progress", "pending_verification"}:
+        subject = f"Report {reference}: {status_label}"
+        heading = f"Your report is {status_label.lower()}"
+        lead = {"assigned": "A collection team has been assigned to your report.",
+                "in_progress": "The collection team has started work on your report.",
+                "pending_verification": "The collection team submitted cleanup proof for administrator review."}[kind]
+        url = f"{settings.email_public_base_url.rstrip('/')}/account/reports/{quote(event['report_id'], safe='')}"
         button = "View report"
-        extra = f"Assigned team: {event['assigned_team']}" if event.get("assigned_team") else ""
+        extra = ""
     else:
         subject = f"Report {reference} has been resolved"
         heading = "Your report has been resolved"
         lead = "An administrator has marked this report as resolved and recorded the follow-up details."
-        url = f"{settings.email_public_base_url.rstrip('/')}/account/reports/{quote(event['report_id'])}"
+        url = f"{settings.email_public_base_url.rstrip('/')}/account/reports/{quote(event['report_id'], safe='')}"
         button = "View resolution"
         extra = f"Resolution details: {event['resolution_details']}" if event.get("resolution_details") else ""
 
     safe = {key: html.escape(str(value), quote=True) for key, value in {
         "heading": heading, "lead": lead, "reference": reference, "title": title,
         "location": location, "extra": extra, "url": url, "button": button,
+        "status": status_label,
     }.items()}
     extra_html = f'<tr><td style="padding:8px 0;color:#46564d">{safe["extra"]}</td></tr>' if extra else ""
+    location_html = f'<tr><td style="padding:8px 0;color:#46564d">Location: {safe["location"]}</td></tr>' if kind == "submitted" else ""
     body = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:28px 12px;background:#f2f6f3;font-family:Arial,sans-serif;color:#173327">
 <table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;max-width:600px;margin:auto;background:#ffffff;border:1px solid #d9e5db;border-radius:12px">
@@ -81,12 +88,14 @@ def build_report_message(event: dict[str, str], settings: Settings) -> EmailMess
 <p style="margin:0 0 22px;color:#46564d;line-height:1.6">{safe['lead']}</p>
 <table role="presentation" cellspacing="0" cellpadding="0" style="width:100%;border-top:1px solid #e3eae4;border-bottom:1px solid #e3eae4;padding:10px 0">
 <tr><td style="padding:8px 0;color:#46564d">Reference: <strong style="color:#173327">{safe['reference']}</strong></td></tr>
+<tr><td style="padding:8px 0;color:#46564d">Current status: <strong style="color:#173327">{safe['status']}</strong></td></tr>
 <tr><td style="padding:8px 0;color:#46564d">Report: <strong style="color:#173327">{safe['title']}</strong></td></tr>
-<tr><td style="padding:8px 0;color:#46564d">Location: {safe['location']}</td></tr>{extra_html}</table>
+{location_html}{extra_html}</table>
 <p style="margin:28px 0"><a href="{safe['url']}" style="display:inline-block;padding:13px 20px;border-radius:7px;background:#276747;color:#ffffff;text-decoration:none;font-weight:bold">{safe['button']}</a></p>
 <p style="margin:0;color:#6a7b70;font-size:13px;line-height:1.5">This is an update about a report submitted through SisaCare.AI. Sign in to view the latest status.</p>
 </td></tr></table></body></html>"""
-    text = f"SisaCare.AI\n\n{heading}\n\n{lead}\n\nReference: {reference}\nReport: {title}\nLocation: {location}"
+    text = f"SisaCare.AI\n\n{heading}\n\n{lead}\n\nReference: {reference}\nCurrent status: {status_label}\nReport: {title}"
+    if kind == "submitted": text += f"\nLocation: {location}"
     if extra:
         text += f"\n{extra}"
     text += f"\n\n{button}: {url}\n"
@@ -94,6 +103,9 @@ def build_report_message(event: dict[str, str], settings: Settings) -> EmailMess
     message["From"] = sender
     message["To"] = recipient
     message["Subject"] = subject
+    stable_key = event.get("event_key") or f"{event['report_id']}:{kind}"
+    sender_domain = parseaddr(sender)[1].rsplit("@", 1)[1]
+    message["Message-ID"] = f"<sisacare-{hashlib.sha256(stable_key.encode()).hexdigest()[:32]}@{sender_domain}>"
     message.set_content(text)
     message.add_alternative(body, subtype="html")
     return message

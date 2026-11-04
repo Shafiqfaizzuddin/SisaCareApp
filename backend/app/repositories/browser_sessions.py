@@ -13,6 +13,10 @@ from app.core.config import get_settings
 
 
 def _connect() -> sqlite3.Connection:
+    if getattr(get_settings(), "persistence_backend", "sqlite") == "postgres":
+        from app.repositories.postgres_compat import connect
+
+        return connect()
     path = get_settings().database_path
     path.parent.mkdir(parents=True, exist_ok=True)
     database = sqlite3.connect(path, timeout=10)
@@ -21,6 +25,8 @@ def _connect() -> sqlite3.Connection:
 
 
 def _initialize(database: sqlite3.Connection) -> None:
+    if getattr(get_settings(), "persistence_backend", "sqlite") == "postgres":
+        return
     database.execute("""CREATE TABLE IF NOT EXISTS browser_sessions (
         token_hash TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,

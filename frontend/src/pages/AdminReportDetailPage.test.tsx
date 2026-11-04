@@ -123,7 +123,7 @@ describe('AdminReportDetailPage', () => {
     expect(screen.getByAltText('Analysis evidence preview')).toBeTruthy()
     expect(screen.getByText('Reported analysis items')).toBeTruthy()
     expect(screen.getByText(/AI\/rule suggestion/)).toBeTruthy()
-    expect(screen.getByText('Original AI detections')).toBeTruthy()
+    expect(screen.getByText('AI and rule suggestions')).toBeTruthy()
     expect(screen.getAllByText('Plastic Bottle').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Recyclable Waste').length).toBeGreaterThan(0)
     expect(screen.getByText('YOLO + VLM')).toBeTruthy()

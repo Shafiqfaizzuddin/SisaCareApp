@@ -56,13 +56,14 @@ def test_supabase_token_returns_trusted_user_identity() -> None:
     }
 
 
-def test_invalid_supabase_token_is_rejected_without_provider_detail() -> None:
+@pytest.mark.parametrize("provider_message", ["token detail", "JWT has expired"])
+def test_invalid_supabase_token_is_rejected_without_provider_detail(provider_message: str) -> None:
     async def authenticate() -> None:
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(
                 lambda _request: httpx.Response(
                     401,
-                    json={"message": "token detail"},
+                    json={"message": provider_message},
                 )
             )
         ) as client:

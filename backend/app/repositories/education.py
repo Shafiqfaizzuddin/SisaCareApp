@@ -112,3 +112,19 @@ def set_image(article_id: str, filename: str | None, alt: str = "") -> str | Non
                    (filename, alt, reports._utc_now(), article_id))
         db.commit()
         return row["image_filename"]
+
+
+def set_storage_image(article_id: str, filename: str, alt: str,
+                      content_type: str, digest: str, byte_size: int) -> None:
+    """Update the article and image metadata in one PostgreSQL transaction."""
+    with reports._connect() as db:
+        if db.execute("SELECT 1 FROM education_articles WHERE id = ?", (article_id,)).fetchone() is None:
+            raise LookupError("Article not found.")
+        db.execute("UPDATE education_articles SET image_filename = ?, image_alt = ?, updated_at = ? WHERE id = ?",
+                   (filename, alt, reports._utc_now(), article_id))
+        db.execute(
+            """INSERT INTO article_images
+               (article_id, object_key, content_type, sha256, byte_size)
+               VALUES (?, ?, ?, ?, ?) ON CONFLICT (object_key) DO NOTHING""",
+            (article_id, f"articles/{filename}", content_type, digest, byte_size),
+        )

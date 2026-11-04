@@ -141,6 +141,8 @@ def test_visual_service_failure_keeps_partial_analysis_without_a_fake_category(t
     assert response.status_code == 503
     assert response.json()["code"] == "VISION_UNAVAILABLE"
     assert response.json()["analysis_id"] == "partial-draft"
+    assert response.json()["classification_summary"]["unknown_count"] == 1
+    assert response.json()["classification_summary"]["severity"]["level"] == "Unknown"
     assert captured["detection"]["raw_detections"][0]["suggested_category"] is None
     assert captured["original_image_path"].exists()
 

@@ -10,7 +10,8 @@ import { ReportSubmissionRequestError, submitWasteReport } from '../features/rep
 import { generateReportDraft, type ReportDraftResult } from '../features/reporting/report-draft'
 import { classifyConfirmedItem } from '../features/reporting/waste-rules'
 import { analyzeWasteImage, WasteAnalysisRequestError } from '../features/reporting/waste-analysis'
-import type { CampusWasteCategory, FlorenceAnalysisSuccess, ReportLocation, ReportWasteCategory, WasteAnalysisReport } from '../types'
+import { ClassificationSummaryPanel } from '../components/reports/ClassificationSummaryPanel'
+import type { CampusWasteCategory, ClassificationSummary, FlorenceAnalysisSuccess, ReportLocation, ReportWasteCategory, WasteAnalysisReport } from '../types'
 
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
@@ -53,6 +54,7 @@ export function SubmitReportPage() {
   const [analysis, setAnalysis] = useState<FlorenceAnalysisSuccess | null>(null)
   const [analyzedFile, setAnalyzedFile] = useState<File | null>(null)
   const [analysisError, setAnalysisError] = useState('')
+  const [partialSummary, setPartialSummary] = useState<ClassificationSummary | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [displayImageError, setDisplayImageError] = useState(false)
   const [showBoxes, setShowBoxes] = useState(true)
@@ -142,6 +144,7 @@ export function SubmitReportPage() {
     setSiteNotes('')
     setDraftNote('')
     setAnalysisError('')
+    setPartialSummary(null)
     setSubmissionError('')
     void handleAnalyze(file)
   }
@@ -158,6 +161,7 @@ export function SubmitReportPage() {
     try {
       const result = await analyzeWasteImage(file, controller.signal)
       if (!controller.signal.aborted) {
+        setPartialSummary(null)
         const detectedItems = result.detections.map(initialItem)
         setAnalysis(result)
         setAnalyzedFile(file)
@@ -191,6 +195,7 @@ export function SubmitReportPage() {
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
       setAnalysisError(error instanceof WasteAnalysisRequestError ? error.message : 'Photo analysis failed. You can identify items manually.')
+      if (!hasCurrentAnalysis) setPartialSummary(error instanceof WasteAnalysisRequestError ? error.partialSummary ?? null : null)
     } finally {
       if (analysisRequest.current === controller) { analysisRequest.current = null; setIsAnalyzing(false) }
     }
@@ -199,7 +204,9 @@ export function SubmitReportPage() {
   function updateItem(id: string, patch: Partial<ReviewedItem>) {
     draftRequest.current?.abort()
     if (generatedDraft) setDraftNeedsRefresh(true)
-    setReviewedItems((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item))
+    setReviewedItems((items) => items.map((item) => item.id === id ? { ...item, ...patch,
+      classificationSource: ['name', 'material', 'category', 'condition_answers', 'status', 'quantity'].some(key => key in patch)
+        ? 'user_confirmed' : item.classificationSource } : item))
   }
 
   function addItem() {
@@ -313,6 +320,7 @@ export function SubmitReportPage() {
         </div>
         {isAnalyzing && <div className="analysis-processing" role="status"><LoaderCircle className="spin" size={20} /> Detecting objects locally. This may take a moment.</div>}
         {analysisError && <div className="analysis-error" role="alert"><AlertCircle size={19} /><div><strong>Analysis could not be completed</strong><p>{analysisError}</p><p>Your photo and entered details are still here. Retry analysis when local inference is ready.</p></div></div>}
+        {partialSummary && !hasCurrentAnalysis && <ClassificationSummaryPanel summary={partialSummary} />}
         {selectedFile && !hasCurrentAnalysis && <button type="button" className="button button--secondary" onClick={() => canUseAi ? setManualMode(true) : navigate('/login', { state: { returnTo: '/report' } })}>{canUseAi ? 'Write a manual report instead' : 'Sign in to report waste'}</button>}
         {hasCurrentAnalysis && analysis && <div className="analysis-results" aria-live="polite"><div className="analysis-results__grid">
           <figure className="florence-photo"><div className="florence-photo__frame">
@@ -326,9 +334,11 @@ export function SubmitReportPage() {
             <details className="analysis-technical"><summary>Technical details</summary><p>Model: {analysis.model_id}</p><p>Inference: {analysis.processing_time_ms} ms</p><p>Raw detections: {analysis.detections.length}</p></details>
           </figure>
           <div className="detection-panel"><h3>Analysis summary</h3><p>AI-generated details may contain errors. You can edit them before submitting.</p>
+            {analysis.classification_summary && <ClassificationSummaryPanel summary={analysis.classification_summary} />}
             <div className="waste-group-list">{reportGroups.map((group) => <div className="waste-group-card" key={group[0].id}>
               <div className="waste-group-card__heading"><strong>{groupDisplayName(group)}</strong><span>{group.some((item) => item.sourceDetectionId) ? `${group.filter((item) => item.sourceDetectionId).length} detections` : 'Added by you'}</span></div>
               <p>{group[0].material === 'Unknown' ? 'Material unclear' : group[0].material} · {group[0].category || 'Needs assessment'}</p>
+              <p className="field__hint">{group[0].sourceDetectionId ? `Florence label · ${group[0].classificationSource === 'vision' ? 'local visual suggestion' : group[0].classificationSource === 'user_confirmed' ? 'citizen correction' : 'waste rule suggestion'}` : 'Citizen-added item'} · Administrator verification pending</p>
               {group[0].confirmationReason && <p className="field__hint">{group[0].category ? 'AI note: ' : ''}{group[0].confirmationReason}</p>}
             </div>)}</div>
             {analysis.detections.length === 0 && <p>No objects were detected. Try another photo, add details, or submit for admin assessment.</p>}

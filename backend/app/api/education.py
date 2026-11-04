@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.auth import AuthenticatedUser, require_admin_user
@@ -98,17 +98,36 @@ async def upload_article_image(
         await image.close()
         raise HTTPException(status_code=415, detail="Use a JPG, PNG or WEBP image with a matching filename.") from exc
     destination = create_unique_upload_path(_image_dir(), prefix="learn", extension=extension)
+    uploaded_storage_key: str | None = None
     try:
         await save_image_upload(image, destination, max_size=IMAGE_LIMIT)
         await run_in_threadpool(validate_image, destination)
-        # Old images are retained on disk for audit and rollback.
-        await run_in_threadpool(education.set_image, article_id, destination.name,
-                                (await run_in_threadpool(education.get_article, article_id))["image_alt"])
+        article = await run_in_threadpool(education.get_article, article_id)
+        if get_settings().persistence_backend == "postgres":
+            from app.services.supabase_storage import EDUCATION_BUCKET, put_file
+
+            object_key = f"articles/{destination.name}"
+            content_type, digest, byte_size = await run_in_threadpool(
+                put_file, object_key, destination, bucket=EDUCATION_BUCKET,
+            )
+            uploaded_storage_key = object_key
+            await run_in_threadpool(education.set_storage_image, article_id, destination.name,
+                                    article["image_alt"], content_type, digest, byte_size)
+        else:
+            # Old images are retained on disk for audit and rollback.
+            await run_in_threadpool(education.set_image, article_id, destination.name, article["image_alt"])
     except (ValueError, ImageValidationError) as exc:
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=413 if str(exc) == "IMAGE_TOO_LARGE" else 400,
                             detail="The image must be a valid JPG, PNG or WEBP file of at most 5 MB.") from exc
     except Exception:
+        if uploaded_storage_key:
+            from app.services.supabase_storage import EDUCATION_BUCKET, delete_file
+
+            try:
+                await run_in_threadpool(delete_file, uploaded_storage_key, bucket=EDUCATION_BUCKET)
+            except Exception:
+                pass
         destination.unlink(missing_ok=True)
         raise
     return {"image_url": f"/api/education/articles/{article_id}/image"}
@@ -145,7 +164,18 @@ async def admin_article_image(
     return _image_response(article["image_filename"])
 
 
-def _image_response(filename: str) -> FileResponse:
+def _image_response(filename: str) -> Response:
+    if get_settings().persistence_backend == "postgres":
+        from app.services.supabase_storage import EDUCATION_BUCKET, get_file
+
+        if Path(filename).name != filename or Path(filename).suffix.lower() not in IMAGE_TYPES:
+            raise HTTPException(status_code=404, detail="Image not found.")
+        try:
+            data = get_file(f"articles/{filename}", bucket=EDUCATION_BUCKET)
+        except Exception as exc:
+            raise HTTPException(status_code=404, detail="Image not found.") from exc
+        return Response(data, media_type=IMAGE_TYPES[Path(filename).suffix.lower()],
+                        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
     path = (_image_dir() / filename).resolve()
     if path.parent != _image_dir().resolve() or path.suffix.lower() not in IMAGE_TYPES or not path.is_file():
         raise HTTPException(status_code=404, detail="Image not found.")

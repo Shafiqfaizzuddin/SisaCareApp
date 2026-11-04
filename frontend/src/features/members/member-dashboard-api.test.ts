@@ -38,7 +38,7 @@ it('labels a missing legacy report date without accepting an invalid date', asyn
 })
 
 it('accepts the municipal status progression without accepting arbitrary statuses', async () => {
-  const statuses = ['verified', 'in_progress', 'resolved', 'rejected']
+  const statuses = ['verified', 'assigned', 'in_progress', 'pending_verification', 'resolved', 'rejected']
   authenticatedFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({
     points: 0, valid_reports: 0, rank: null,
     reports: statuses.map((status, index) => ({ id: String(index), reference: `SCA-${index}`,

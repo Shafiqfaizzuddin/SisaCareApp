@@ -27,6 +27,7 @@ from app.services.ai.image_validation import ImageValidationError, validate_imag
 from app.services.ai.waste_rules import classify_item
 from app.services.ai.visual_fallback import VisualFallbackError, resolve_detection, resolve_batch
 from app.services.ai.grouping_service import group_report_observations
+from app.services.ai.classification_summary import summarize_detections
 from app.services.image_uploads import (
     MAX_UPLOAD_SIZE,
     UploadMetadataError,
@@ -260,6 +261,7 @@ async def analyze_uploaded_waste(
             return _error(502, "FLORENCE_DIMENSION_MISMATCH", "Photo dimensions did not match local analysis.")
 
         visual_failure = await _resolve_visual_candidates(preview_path, raw_detections)
+        classification_summary = summarize_detections(raw_detections)
         groups = group_report_observations([{
             "name": item["name"], "material": item["material"],
             "category": item["suggested_category"], "source_detection_id": item["id"],
@@ -279,6 +281,7 @@ async def analyze_uploaded_waste(
             "model_detections": result["detections"],
             "raw_detections": raw_detections,
             "grouped_waste": groups,
+            "classification_summary": classification_summary,
             "visual_failure": {"code": visual_failure.code, "message": str(visual_failure)} if visual_failure else None,
             "detections": [{
                 "class_name": item["name"], "display_name": item["display_name"],
@@ -296,6 +299,7 @@ async def analyze_uploaded_waste(
                     item["suggested_category"] for item in raw_detections
                     if item["suggested_category"] is not None
                 )),
+                "classification_summary": classification_summary,
             },
         }
         analysis_id = await run_in_threadpool(
@@ -311,6 +315,7 @@ async def analyze_uploaded_waste(
             return JSONResponse(status_code=503, content={
                 "success": False, "code": visual_failure.code, "message": str(visual_failure),
                 "analysis_id": analysis_id, "completed_detections": raw_detections,
+                "classification_summary": classification_summary,
             })
         log.info("florence_analysis_completed analysis_id=%s count=%d duration_ms=%d",
                  analysis_id, len(raw_detections), round((perf_counter() - started) * 1000))
@@ -323,6 +328,7 @@ async def analyze_uploaded_waste(
             "model_revision": result["model_revision"],
             "detections": raw_detections,
             "groups": groups,
+            "classification_summary": classification_summary,
             "processing_time_ms": result["processing_time_ms"],
             "warnings": result.get("warnings", []),
         }

@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from app.core.auth import AuthenticatedUser, require_admin_user, require_authenticated_user
@@ -323,13 +323,36 @@ async def read_action_photo(
     action_id: str,
     filename: str,
     user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
-) -> FileResponse:
+) -> Response:
     if not ACTION_ID.fullmatch(action_id) or not ACTION_IMAGE.fullmatch(filename):
         raise HTTPException(status_code=404, detail="Photo not found.")
     try:
         await run_in_threadpool(get_action, action_id, user["id"], admin=user["role"] == "admin")
     except ActionNotFound as exc:
         raise HTTPException(status_code=404, detail="Photo not found.") from exc
+    if get_settings().persistence_backend == "postgres":
+        from app.services.supabase_storage import get_file
+
+        def read_private_image() -> bytes | None:
+            with reports._connect() as database:
+                image = database.execute(
+                    "SELECT object_key FROM recycling_images WHERE action_id = ? AND object_key = ?",
+                    (action_id, f"recycling/{action_id}/{filename}"),
+                ).fetchone()
+                return get_file(image["object_key"]) if image else None
+
+        try:
+            image_bytes = await run_in_threadpool(read_private_image)
+        except Exception as exc:
+            import httpx
+
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 404:
+                raise HTTPException(status_code=404, detail="Photo not found.") from exc
+            raise HTTPException(status_code=503, detail="Image storage is unavailable.") from exc
+        if image_bytes is None:
+            raise HTTPException(status_code=404, detail="Photo not found.")
+        return Response(image_bytes, media_type=MEDIA_TYPES[Path(filename).suffix.lower()],
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
     root = (reports.REPORT_ASSETS_DIR / "recycling").resolve()
     photo_path = (root / action_id / filename).resolve()
     if not photo_path.is_relative_to(root) or not photo_path.is_file():

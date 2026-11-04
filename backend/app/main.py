@@ -11,6 +11,10 @@ from app.api.identity import router as identity_router
 from app.api.members import router as members_router
 from app.api.browser_session import router as browser_session_router
 from app.api.reports import router as reports_router
+from app.api.collection import router as collection_router
+from app.api.hotspots import router as hotspots_router
+from app.api.admin_analytics import router as admin_analytics_router
+from app.api.notifications import router as notifications_router
 from app.api.waste_analysis import router as waste_analysis_router
 from app.api.florence_detection import router as florence_detection_router
 from app.api.florence_analysis import router as florence_analysis_router
@@ -53,7 +57,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_cors_origins,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 app.include_router(api_router, prefix=settings.api_v1_prefix)
@@ -66,6 +70,10 @@ app.include_router(florence_detection_router, prefix="/api/waste/florence", tags
 app.include_router(recycling_router, prefix="/api/recycling", tags=["recycling"])
 app.include_router(education_router, prefix="/api/education", tags=["education"])
 app.include_router(reports_router, prefix="/api/reports", tags=["reports"])
+app.include_router(collection_router, prefix="/api/collection", tags=["collection"])
+app.include_router(hotspots_router, prefix="/api/admin/hotspots", tags=["hotspots"])
+app.include_router(admin_analytics_router, prefix="/api/admin/analytics", tags=["admin-analytics"])
+app.include_router(notifications_router, prefix="/api/admin/notifications", tags=["admin-notifications"])
 
 
 class FrontendFiles(StaticFiles):

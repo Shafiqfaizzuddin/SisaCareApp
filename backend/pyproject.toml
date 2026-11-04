@@ -14,6 +14,8 @@ dependencies = [
     "pillow>=12,<13",
     "pydantic-settings>=2.7,<3.0",
     "python-multipart>=0.0.20,<1.0",
+    "reportlab>=4.2,<5.0",
+    "psycopg[binary]>=3.2,<4.0",
     "uvicorn[standard]>=0.34,<1.0",
 ]
 
@@ -21,7 +23,13 @@ dependencies = [
 legacy-ai = ["ultralytics>=8.4,<9.0"]
 dev = [
     "pytest>=8.3,<10.0",
+    "pypdf>=6,<7",
 ]
+analytics = ["pandas>=2.2,<3.0", "scikit-learn>=1.5,<2.0", "joblib>=1.4,<2.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["storage*", "datasets*"]

@@ -26,7 +26,7 @@ async def start_session(
     user = await authenticate_access_token(credentials.credentials, settings)
     if not user["email_verified"]:
         raise HTTPException(status_code=403, detail="Confirm your email before signing in.")
-    register_public_participant(user["id"], user["role"], user["email"])
+    register_public_participant(user["id"], "user" if user["role"] == "staff" else user["role"], user["email"])
     token = browser_sessions.create(user)
     response.set_cookie(COOKIE, token, httponly=True, secure=settings.session_cookie_secure,
                         samesite="lax", path="/")
@@ -41,6 +41,9 @@ async def current_session(request: Request, response: Response) -> dict[str, str
     user: AuthenticatedUser | None = browser_sessions.read(token) if token else None
     if user is None:
         raise HTTPException(status_code=401, detail="Your session has expired. Sign in again.")
+    from app.repositories.staff import active_role
+    if user["role"] != "admin":
+        user["role"] = "staff" if active_role(user["id"]) else "user"
     return {"user_id": user["id"], "role": user["role"], "email": user["email"],
             "display_name": user.get("display_name") or user["email"].split("@")[0] or "Member"}
 

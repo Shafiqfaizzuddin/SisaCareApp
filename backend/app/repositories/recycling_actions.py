@@ -55,6 +55,7 @@ def create_action(submission: Mapping[str, Any], proof_source: Path) -> dict[str
     action_id = uuid4().hex
     now = reports._utc_now()
     directory: Path | None = None
+    uploaded_keys: list[str] = []
     draft_paths: tuple[Path, Path] | None = None
     database = reports._connect()
     try:
@@ -120,12 +121,20 @@ def create_action(submission: Mapping[str, Any], proof_source: Path) -> dict[str
         draft_paths = (original_source, annotated_source)
         if not original_source.is_file() or not annotated_source.is_file():
             raise reports.DraftAssetError("The original analysis photo is no longer available. Analyze it again.")
-        directory = reports.REPORT_ASSETS_DIR / "recycling" / action_id
-        directory.mkdir(parents=True, exist_ok=False)
         original_name = f"original{reports._asset_suffix(original_source)}"
         proof_name = f"proof{reports._asset_suffix(proof_source)}"
-        shutil.copy2(original_source, directory / original_name)
-        shutil.copy2(proof_source, directory / proof_name)
+        if reports.get_settings().persistence_backend == "postgres":
+            from app.services.supabase_storage import put_file
+
+            for name, source in ((original_name, original_source), (proof_name, proof_source)):
+                key = f"recycling/{action_id}/{name}"
+                put_file(key, source)
+                uploaded_keys.append(key)
+        else:
+            directory = reports.REPORT_ASSETS_DIR / "recycling" / action_id
+            directory.mkdir(parents=True, exist_ok=False)
+            shutil.copy2(original_source, directory / original_name)
+            shutil.copy2(proof_source, directory / proof_name)
         activity_key = "sha256:" + hashlib.sha256(original_source.read_bytes()).hexdigest()
         if split_ids:
             activity_key += ":recycling"
@@ -144,11 +153,32 @@ def create_action(submission: Mapping[str, Any], proof_source: Path) -> dict[str
              submission["proof_location_source"], activity_key,
              submission["activity_affiliation"], now, now),
         )
+        if uploaded_keys:
+            from app.services.supabase_storage import BUCKET, MEDIA_TYPES
+
+            for image_kind, source, key in (("original", original_source, uploaded_keys[0]),
+                                            ("proof", proof_source, uploaded_keys[1])):
+                data = source.read_bytes()
+                database.execute(
+                    """INSERT INTO recycling_images
+                       (action_id, image_kind, bucket_id, object_key, content_type, sha256, byte_size)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (action_id, image_kind, BUCKET, key, MEDIA_TYPES[source.suffix.lower()],
+                     hashlib.sha256(data).hexdigest(), len(data)),
+                )
         database.execute("UPDATE analysis_drafts SET consumed_at = ? WHERE id = ?", (now, draft["id"]))
         result = _action(_select_action(database, action_id))
         database.commit()
     except Exception:
         database.rollback()
+        if uploaded_keys:
+            from app.services.supabase_storage import delete_file
+
+            for key in uploaded_keys:
+                try:
+                    delete_file(key)
+                except Exception:
+                    pass
         if directory is not None:
             shutil.rmtree(directory, ignore_errors=True)
         raise

@@ -12,9 +12,9 @@ export type WasteCategory =
 export type CampusWasteCategory = 'Recyclable Waste' | 'Non-Recyclable Waste' | 'Bulky Waste' | 'Hazardous Waste'
 export type ReportWasteCategory = CampusWasteCategory | 'Needs Confirmation'
 
-export type ReportStatus = 'submitted' | 'verified' | 'in_progress' | 'resolved' | 'rejected' | 'processing' | 'completed'
+export type ReportStatus = 'submitted' | 'verified' | 'assigned' | 'in_progress' | 'pending_verification' | 'resolved' | 'rejected' | 'processing' | 'completed'
 
-export type UserRole = 'guest' | 'user' | 'admin'
+export type UserRole = 'guest' | 'user' | 'staff' | 'admin'
 
 export type ValidationStatus = 'pending' | 'valid' | 'invalid'
 
@@ -88,6 +88,24 @@ export interface WasteBoundingBox {
 }
 
 export type DetectionReviewStatus = 'likely_waste' | 'background' | 'needs_confirmation'
+export type NormalizedWasteCategory = 'Organic' | 'Plastic' | 'Paper' | 'Glass' | 'Metal' | 'Electronic' | 'Hazardous' | 'Other' | 'Unknown'
+
+export interface ClassificationSummary {
+  version: string
+  source: 'florence2_detections_plus_rules'
+  denominator_definition: string
+  total_detections: number
+  background_excluded: number
+  denominator: number
+  unknown_count: number
+  uncertain_count: number
+  distribution: Array<{ category: NormalizedWasteCategory; count: number; percentage: number }>
+  dominant_category: NormalizedWasteCategory
+  dominant_reason: string
+  severity: { level: 'Low' | 'Medium' | 'High' | 'Unknown'; method: string; reason: string; is_physical_measurement: false }
+  confidence: { florence_detection_score: null; category_probability: null; explanation: string }
+  limitations: string[]
+}
 
 export interface FlorenceDetection {
   id: string
@@ -111,6 +129,9 @@ export interface FlorenceDetection {
   station_material_key?: string | null
     rule_id?: string | null
   bulky?: boolean
+  normalized_category?: NormalizedWasteCategory | null
+  normalized_basis?: string
+  normalized_uncertainty?: string | null
 }
 
 export interface FlorenceAnalysisSuccess {
@@ -126,6 +147,7 @@ export interface FlorenceAnalysisSuccess {
   detections: FlorenceDetection[]
   processing_time_ms: number
   warnings: string[]
+  classification_summary?: ClassificationSummary
 }
 
 export interface WasteDetection {
@@ -272,8 +294,9 @@ export interface AdminReportDetail {
   rewardPoints: number
   assignedTeam?: string | null
   resolutionDetails?: string | null
+  resolutionSeconds?: number | null
   afterPhoto?: string | null
-  statusEvents?: Array<{ previousStatus: string; newStatus: string; reason: string | null; assignedTeam: string | null; resolutionDetails: string | null; createdAt: string }>
+  statusEvents?: Array<{ actorId: string; previousStatus: string; newStatus: string; reason: string | null; assignedTeam: string | null; resolutionDetails: string | null; createdAt: string }>
   reporterRole: 'guest' | 'user'
   reporter: string
   title: string

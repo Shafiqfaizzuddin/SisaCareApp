@@ -1,4 +1,5 @@
 import base64
+import copy
 import json
 import sqlite3
 from pathlib import Path
@@ -11,9 +12,14 @@ from app.main import app
 from app.api import reports as reports_api
 from app.core.config import Settings
 from app.core.auth import get_optional_authenticated_user, require_admin_user
+from app.core.auth import require_staff_user
+from app.repositories import staff as staff_repository
+from uuid import uuid4
 from app.repositories import reports as report_repository
 from app.repositories import identities as identity_repository
 from app.services import report_email
+from app.services import collection_workflow
+from app.services.ai.classification_summary import summarize_detections
 
 
 client = TestClient(app)
@@ -186,14 +192,17 @@ def create_florence_draft(tmp_path: Path) -> str:
          "material": "Unknown", "review_status": "needs_confirmation",
          "bounding_box": {"x1": 2, "y1": 3, "x2": 10, "y2": 12}},
     ]
+    original_summary = summarize_detections(copy.deepcopy(detections))
     return report_repository.create_analysis_draft(
         original_image_path=original, annotated_image_path=preview,
         detection={"provider": "florence2", "model_id": "microsoft/Florence-2-base",
                    "model_revision": "pinned", "model_detections": detections,
                    "raw_detections": detections, "detections": [],
+                   "classification_summary": original_summary,
                    "analysis": {"mode": "florence2", "provider": "florence2",
                                 "model_id": "microsoft/Florence-2-base",
-                                "model_revision": "pinned", "categories_detected": []}},
+                                "model_revision": "pinned", "categories_detected": [],
+                                "classification_summary": original_summary}},
         report=None, user_id=MEMBER_USER["id"],
     )
 
@@ -237,6 +246,12 @@ def test_florence_review_persists_raw_corrections_and_mixed_final_items(
     assert [entry["disposition"] for entry in confirmation["user_corrections"]] == ["waste", "removed", "attached_component", "waste"]
     assert [entry["review_id"] for entry in confirmation["final_confirmed_items"]] == ["det-0", "manual-battery"]
     assert len(confirmation["applied_classification_rules"]) == 2
+    original = json.loads(saved["ai_analysis_json"])["classification_summary"]
+    assert original["dominant_category"] == "Unknown"  # Plastic and Unknown tie.
+    assert original["denominator"] == 2
+    assert original["unknown_count"] == 1
+    assert original["severity"]["level"] == "Unknown"
+    assert confirmation["final_confirmed_items"][-1]["name"] == "Battery"
 
 
 def test_florence_review_rejects_unresolved_or_unmatched_detections(
@@ -1047,9 +1062,11 @@ def test_report_api_queues_admin_and_user_status_emails(monkeypatch: pytest.Monk
         admin_smtp_from="alerts@example.com",
         user_smtp_host="smtp.example.com",
         user_smtp_from="updates@example.com",
+        notify_citizen_on_progress=True,
     )
     monkeypatch.setattr(reports_api, "get_settings", lambda: settings)
     monkeypatch.setattr(report_email, "get_settings", lambda: settings)
+    monkeypatch.setattr(collection_workflow, "get_settings", lambda: settings)
     delivered = []
     monkeypatch.setattr(report_email, "_send", lambda message, _settings, channel: delivered.append((channel, message["To"])))
 
@@ -1065,11 +1082,19 @@ def test_report_api_queues_admin_and_user_status_emails(monkeypatch: pytest.Monk
     assert created.status_code == 201, created.text
     report_id = created.json()["id"]
     assert client.post(f"/api/reports/{report_id}/validation", json={"validation_status": "valid"}).status_code == 200
-    assert client.post(f"/api/reports/{report_id}/assignment", json={"team": "Team A"}).status_code == 200
-    assert client.post(f"/api/reports/{report_id}/assignment", json={"team": "Team B"}).status_code == 200
-    assert client.post(f"/api/reports/{report_id}/resolution", data={"details": "Collected"}).status_code == 200
+    worker_id = str(uuid4())
+    staff_repository.set_grant(worker_id, "staff", str(uuid4()))
+    app.dependency_overrides[require_staff_user] = lambda: {"id": worker_id, "role": "staff"}
+    assert client.post(f"/api/reports/{report_id}/assignment", json={"team": "Team A", "assignee_id": worker_id}).status_code == 200
+    assert client.post(f"/api/collection/tasks/{report_id}/start").status_code == 200
+    report_email.dispatch_pending_report_emails(settings)
+    assert client.post(f"/api/collection/tasks/{report_id}/submit", data={"note": "Collected"},
+                       files={"image": ("proof.png", VALID_PNG, "image/png")}).status_code == 200
+    assert client.post(f"/api/collection/admin/tasks/{report_id}/verify", json={"reason": "Verified"}).status_code == 200
+    report_email.dispatch_pending_report_emails(settings)
+    assert client.post(f"/api/reports/{report_id}/resolution", data={"details": "Collected"}).status_code == 410
     assert delivered == [("admin", "admin@example.com"), ("user", MEMBER_USER["email"]),
-                         ("user", MEMBER_USER["email"])]
+                         ("user", MEMBER_USER["email"]), ("user", MEMBER_USER["email"])]
     with sqlite3.connect(tmp_path / "reports.db") as database:
         assert database.execute("SELECT notification_email FROM reports WHERE id = ?", (report_id,)).fetchone()[0] == MEMBER_USER["email"]
-        assert database.execute("SELECT COUNT(*) FROM report_email_outbox").fetchone()[0] == 3
+        assert database.execute("SELECT COUNT(*) FROM report_email_outbox").fetchone()[0] == 4

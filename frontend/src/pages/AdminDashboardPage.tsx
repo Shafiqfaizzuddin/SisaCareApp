@@ -2,7 +2,11 @@ import { ArrowUpRight, CheckCircle2, Clock3, Download, Search, TriangleAlert } f
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MetricCard } from '../components/admin/MetricCard'
+import { EmailDeliveryPanel } from '../components/admin/EmailDeliveryPanel'
+import { GoogleMap } from '../components/location/GoogleMap'
 import { ReportStatus } from '../components/reports/ReportStatus'
+import { downloadAnalytics, fetchAnalytics, fetchForecast } from '../features/admin-analytics/admin-analytics-api'
+import type { Analytics, AnalyticsFilters, Forecast } from '../features/admin-analytics/admin-analytics-api'
 import { fetchPersistedReports } from '../features/admin-reports/admin-reports-api'
 import { wasteCategoryOptions } from '../features/reporting/categories'
 import type { ReportStatus as ReportStatusValue, ReportSummary, WasteCategory } from '../types'
@@ -22,6 +26,40 @@ export function AdminDashboardPage() {
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshVersion, setRefreshVersion] = useState(0)
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
+  const [area, setArea] = useState('')
+  const [provenance, setProvenance] = useState<AnalyticsFilters['provenance']>('production')
+  const [analytics, setAnalytics] = useState<Analytics | null>(null)
+  const [analyticsError, setAnalyticsError] = useState('')
+  const [areaOptions, setAreaOptions] = useState<string[]>([])
+  const [forecast, setForecast] = useState<Forecast | null>(null)
+  const [layer, setLayer] = useState<'observed' | 'forecast'>('observed')
+  const [periodIndex, setPeriodIndex] = useState(0)
+  const [exportError, setExportError] = useState('')
+
+  const filters = useMemo<AnalyticsFilters>(() => ({ start, end,
+    category: category === 'all' ? '' : category, status: status === 'all' ? '' : status,
+    area, provenance }), [start, end, category, status, area, provenance])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setAnalytics(null)
+    fetchAnalytics(filters, controller.signal)
+      .then(result => { setAnalytics(result); setAnalyticsError('')
+        if (!area) setAreaOptions(result.observed_heatmap.map(cell => cell.cell_key)) })
+      .catch(error => { if (!controller.signal.aborted) setAnalyticsError(error instanceof Error ? error.message : 'Analytics unavailable.') })
+    return () => controller.abort()
+  }, [filters, area])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setForecast(null)
+    if (provenance === 'legacy_unknown') { setForecast(null); return () => controller.abort() }
+    fetchForecast(provenance === 'demo' ? 'synthetic_demo' : 'production', controller.signal)
+      .then(setForecast).catch(() => { if (!controller.signal.aborted) setForecast(null) })
+    return () => controller.abort()
+  }, [provenance])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -52,25 +90,19 @@ export function AdminDashboardPage() {
     })
   }, [availableReports, search, status, category])
 
-  function downloadCsv() {
-    const header = ['Reference', 'Category', 'Location', 'Submitted', 'Status']
-    const rows = filteredReports.map((report) => [
-      report.reference,
-      categoryLabels[report.category] ?? report.category,
-      report.location,
-      report.submittedAt,
-      report.status,
-    ])
-    const csv = [header, ...rows]
-      .map((row) => row.map((value) => `"${value.replaceAll('"', '""')}"`).join(','))
-      .join('\n')
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = 'sisacare-reports.csv'
-    anchor.click()
-    URL.revokeObjectURL(url)
+  async function exportFile(format: 'csv' | 'pdf') {
+    try { await downloadAnalytics(format, filters); setExportError('') }
+    catch (error) { setExportError(error instanceof Error ? error.message : 'Export unavailable.') }
   }
+
+  const metrics = analytics?.metrics
+  const forecastPeriod = forecast?.periods[periodIndex]
+  const heatPoints = layer === 'observed'
+    ? (analytics?.observed_heatmap ?? []).map(cell => ({ latitude: cell.center_latitude, longitude: cell.center_longitude, weight: cell.count }))
+    : (forecastPeriod?.cells ?? []).filter(cell => !area || cell.cell_key === area)
+      .map(cell => ({ latitude: cell.center_latitude, longitude: cell.center_longitude, weight: cell.predicted_count }))
+  const displayCount = (value: number | null | undefined, suffix = '') => value == null ? 'Unavailable' : `${value}${suffix}`
+  const trendPeak = Math.max(1, ...(analytics?.trends ?? []).slice(-30).flatMap(day => [day.reported, day.resolved]))
 
   return (
     <>
@@ -80,48 +112,115 @@ export function AdminDashboardPage() {
           <h1>Operations overview</h1>
           <p>Review new reports and monitor active response work.</p>
         </div>
-        <button className="button button--secondary" type="button" onClick={downloadCsv}>
-          <Download size={17} />
-          Export CSV
-        </button>
+        <div className="analytics-actions">
+          <button className="button button--secondary" type="button" onClick={() => void exportFile('csv')}><Download size={17} /> Export CSV</button>
+          <button className="button button--secondary" type="button" onClick={() => void exportFile('pdf')}><Download size={17} /> Export PDF</button>
+        </div>
       </header>
+
+      <section className="admin-panel analytics-panel" aria-label="Analytics filters">
+        <div className="analytics-filters">
+          <label>From (UTC)<input type="date" value={start} onChange={event => setStart(event.target.value)} /></label>
+          <label>To (UTC)<input type="date" value={end} onChange={event => setEnd(event.target.value)} /></label>
+          <label>Filter by category<select aria-label="Filter by category" value={category} onChange={event => setCategory(event.target.value as CategoryFilter)}>
+            <option value="all">All categories</option>{wasteCategoryOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label>Filter by status<select aria-label="Filter by status" value={status} onChange={event => setStatus(event.target.value as StatusFilter)}>
+            <option value="all">All statuses</option>{['submitted', 'verified', 'assigned', 'processing', 'in_progress', 'pending_verification', 'resolved', 'rejected', 'completed'].map(option =>
+              <option key={option} value={option}>{option.replaceAll('_', ' ')}</option>)}</select></label>
+          <label>Data source<select value={provenance} onChange={event => { setProvenance(event.target.value as AnalyticsFilters['provenance']); setArea(''); setLayer('observed') }}>
+            <option value="production">Observed production reports</option><option value="legacy_unknown">Legacy, provenance unknown</option><option value="demo">Demonstration reports</option>
+          </select></label>
+          <label>Grid area<select value={area} onChange={event => setArea(event.target.value)}><option value="">All areas</option>
+            {areaOptions.map(key => <option key={key} value={key}>{key}</option>)}</select></label>
+        </div>
+        <p>These filters apply to analytics, the observed map, and exports. Category and status also filter the review list below.</p>
+        {analytics?.generated_at && <p>Calculated {new Date(analytics.generated_at).toLocaleString()} from {analytics.filters.provenance} reports.</p>}
+        {analyticsError && <p role="alert">{analyticsError}</p>}
+        {exportError && <p role="alert">{exportError}</p>}
+      </section>
 
       <section className="metric-grid" aria-label="Report metrics">
         <MetricCard
-          label="New reports"
-          value={String(availableReports.filter(report => report.status === 'submitted').length)}
-          detail="Awaiting verification"
+          label="Submitted reports"
+          value={displayCount(metrics?.total_submitted)}
+          detail="Selected submission cohort"
           icon={TriangleAlert}
           tone="coral"
         />
         <MetricCard
-          label="In progress"
-          value={String(availableReports.filter(report => report.status === 'in_progress').length)}
-          detail="Assigned reports"
+          label="Resolution rate"
+          value={displayCount(metrics?.resolution_rate_percent, '%')}
+          detail="Currently resolved / submitted"
           icon={Clock3}
           tone="amber"
         />
         <MetricCard
           label="Resolved reports"
-          value={String(availableReports.filter(report => report.status === 'resolved').length)}
-          detail="All time"
+          value={displayCount(metrics?.resolved_current)}
+          detail="Current status is resolved"
           icon={CheckCircle2}
           tone="green"
         />
         <MetricCard
-          label="Verified reports"
-          value={String(availableReports.filter(report => report.status === 'verified').length)}
-          detail="Ready for assignment"
+          label="Median resolution"
+          value={displayCount(metrics?.median_resolution_hours, ' h')}
+          detail={`Average ${displayCount(metrics?.average_resolution_hours, ' h')} · ${metrics?.verified_resolution_count ?? 0} verified`}
           icon={ArrowUpRight}
           tone="blue"
         />
       </section>
 
+      <section className="analytics-grid">
+        <div className="admin-panel"><h2>Report breakdown</h2>
+          <h3>By status</h3><ul>{Object.entries(metrics?.by_status ?? {}).map(([name, count]) => <li key={name}>{name.replaceAll('_', ' ')}: <strong>{count}</strong></li>)}</ul>
+          <h3>By waste category</h3><ul>{Object.entries(metrics?.by_category ?? {}).map(([name, count]) => <li key={name}>{name}: <strong>{count}</strong></li>)}</ul>
+          {!metrics?.total_submitted && <p>No reports match these filters.</p>}
+        </div>
+        <div className="admin-panel"><h2>Staff collection</h2>
+          <p>Assignments: <strong>{metrics?.staff.task_assignments ?? 0}</strong></p>
+          <p>Active: <strong>{metrics?.staff.active_assignments ?? 0}</strong></p>
+          <p>Verified completions with cleanup proof: <strong>{metrics?.staff.verified_completions_with_proof ?? 0}</strong></p>
+          <div className="report-table-wrap"><table className="report-table"><thead><tr><th>Staff ID</th><th>Assigned</th><th>Active</th><th>Completed</th></tr></thead>
+            <tbody>{(metrics?.staff.by_staff ?? []).map(item => <tr key={item.staff_id}><td>{item.staff_id.slice(0, 8)}…</td><td>{item.assigned}</td><td>{item.active}</td><td>{item.verified_completions}</td></tr>)}</tbody></table></div>
+        </div>
+      </section>
+
+      <section className="admin-panel analytics-panel"><h2>Reported vs. verified resolved</h2>
+        <p>Dates use UTC. Resolutions for the selected submission cohort may occur after the selected end date.</p>
+        <p>Green: reported · Orange: verified resolved · Chart maximum: {trendPeak} reports</p>
+        <div className="analytics-trend" role="img" aria-label="Daily reported and verified resolved counts">
+          {(analytics?.trends ?? []).slice(-30).map(day => <div key={day.date} className="analytics-trend__day" title={`${day.date}: ${day.reported} reported, ${day.resolved} resolved`}>
+            <span style={{ height: `${day.reported ? Math.max(3, 80 * day.reported / trendPeak) : 0}px` }} /><span style={{ height: `${day.resolved ? Math.max(3, 80 * day.resolved / trendPeak) : 0}px` }} /><small>{day.date.slice(5)}</small>
+          </div>)}
+        </div>
+        {!analytics?.trends.length && <p>No trend data for these filters.</p>}
+      </section>
+
+      <section className="admin-panel analytics-panel"><header className="admin-panel__heading"><div><h2>Waste density map</h2>
+        <p>{layer === 'observed' ? `Observed ${provenance === 'production' ? 'production' : provenance} report counts` : `Modeled ${provenance === 'demo' ? 'synthetic demonstration' : 'production'} report counts`}</p></div>
+        <div className="analytics-actions"><button type="button" className="button button--secondary" onClick={() => setLayer('observed')}>Observed</button>
+          <button type="button" className="button button--secondary" disabled={provenance === 'legacy_unknown'} onClick={() => setLayer('forecast')}>Forecast</button></div></header>
+        {layer === 'forecast' && <><p>Forecasts are trained on all report categories; category, status, and submission date filters do not apply to this layer.</p>
+          {provenance === 'demo' && <p>The synthetic forecast uses its own reproducible demonstration dataset; it is not derived from the observed demonstration reports on this page.</p>}
+          {forecast?.status === 'available' ? <label>Forecast week <select value={periodIndex} onChange={event => setPeriodIndex(Number(event.target.value))}>
+            {forecast.periods.map((period, index) => <option key={period.start} value={index}>{period.start.slice(0, 10)} to {period.end.slice(0, 10)}</option>)}</select></label>
+            : <p role="status">{forecast?.status === 'insufficient_data' ? 'Forecast unavailable: insufficient training history.' : forecast?.reason ?? 'No forecast is available.'}</p>}</>}
+        <GoogleMap location={null} heatPoints={heatPoints} heatTone={layer === 'observed' ? provenance === 'demo' ? 'demo' : 'observed' : provenance === 'demo' ? 'demo' : 'forecast'}
+          ariaLabel={`${layer === 'observed' ? 'Observed report density' : 'Forecast report counts'} map`} />
+        <p>Shaded 0.05° grid cells show {layer === 'observed' ? 'observed' : 'predicted'} report counts; darker cells have higher counts. Exact report locations and reporter details are hidden. {metrics?.missing_coordinates ?? 0} selected reports have no usable coordinates.</p>
+        <div className="report-table-wrap"><table className="report-table"><thead><tr><th>Grid area</th><th>{layer === 'observed' ? 'Observed reports' : 'Predicted reports'}</th></tr></thead>
+          <tbody>{(layer === 'observed' ? (analytics?.observed_heatmap ?? []).map(cell => ({ key: cell.cell_key, count: cell.count }))
+            : (forecastPeriod?.cells ?? []).filter(cell => !area || cell.cell_key === area).map(cell => ({ key: cell.cell_key, count: cell.predicted_count })))
+            .sort((a, b) => b.count - a.count).slice(0, 20).map(cell => <tr key={cell.key}><td>{cell.key}</td><td>{cell.count}</td></tr>)}</tbody></table></div>
+      </section>
+
+      <EmailDeliveryPanel />
+
       <section className="admin-panel report-list" id="reports">
         <header className="admin-panel__heading">
           <div>
-            <h2>Recent reports</h2>
-            <p>{filteredReports.length} reports shown</p>
+            <h2>Review queue</h2>
+            <p>{filteredReports.length} production or legacy reports shown. Date, area and source analytics filters do not apply to this queue.</p>
           </div>
           <div className="report-filters">
             <label className="search-field">
@@ -133,28 +232,6 @@ export function AdminDashboardPage() {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </label>
-            <select
-              aria-label="Filter by category"
-              value={category}
-              onChange={(event) => setCategory(event.target.value as CategoryFilter)}
-            >
-              <option value="all">All categories</option>
-              {wasteCategoryOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-            <select
-              aria-label="Filter by status"
-              value={status}
-              onChange={(event) => setStatus(event.target.value as StatusFilter)}
-            >
-              <option value="all">All statuses</option>
-              <option value="submitted">Submitted</option>
-              <option value="verified">Verified</option>
-              <option value="processing">Processing</option>
-              <option value="in_progress">In progress</option>
-              <option value="resolved">Resolved</option>
-              <option value="rejected">Rejected</option>
-              <option value="completed">Completed</option>
-            </select>
           </div>
         </header>
 

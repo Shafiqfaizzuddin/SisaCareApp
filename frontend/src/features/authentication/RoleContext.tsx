@@ -45,8 +45,9 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     })
     const recheck = () => { void loadBrowserSession().then((profile) => {
       if (!active) return
-      setUser(current => profile && current?.id === profile.id ? { ...profile, points: current.points,
-        title: current.title, rank: current.rank, validReports: current.validReports } : profile)
+      setUser(current => profile && current?.id === profile.id && current.role === profile.role
+        ? { ...profile, points: current.points, title: current.title, rank: current.rank,
+            validReports: current.validReports } : profile)
       setIsAuthLoading(false)
     }).catch(() => { if (active) setUser(null) }) }
     window.addEventListener('focus', recheck)
@@ -82,6 +83,10 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         if (!profile || profile.id !== signedInUserId) {
           setUser((current) => current?.id === signedInUserId ? null : current)
           setMemberReports([])
+        } else {
+          setUser(current => current?.id === profile.id && current.role === profile.role
+            ? { ...profile, points: current.points, title: current.title, rank: current.rank,
+                validReports: current.validReports } : profile)
         }
       }).catch(() => undefined).finally(() => { heartbeatInFlight = false })
     }
@@ -152,7 +157,7 @@ export function RoleProvider({ children }: { children: ReactNode }) {
     async (
       email: string,
       password: string,
-      expectedRole: 'user' | 'admin',
+      expectedRole: 'user' | 'staff' | 'admin',
     ) => {
       if (!supabaseClient) {
         throw new AuthenticationError(
@@ -175,19 +180,27 @@ export function RoleProvider({ children }: { children: ReactNode }) {
         throw new AuthenticationError('Confirm your email before signing in.')
       }
 
-      const profile = profileFromAuthUser(data.user)
+      let profile: UserProfile
+      try {
+        await createBrowserSession(false)
+        const serverProfile = await loadBrowserSession()
+        if (!serverProfile) throw new Error('The server session could not be verified.')
+        profile = serverProfile
+      } catch (error) {
+        await supabaseClient.auth.signOut()
+        throw new AuthenticationError(error instanceof Error ? error.message : 'Browser session could not be started.')
+      }
       if (profile.role !== expectedRole) {
+        await revokeBrowserSession().catch(() => undefined)
         await supabaseClient.auth.signOut()
         throw new AuthenticationError(
           expectedRole === 'admin'
             ? 'This account does not have administrator access.'
-            : 'Administrator accounts must use the administrator sign-in page.',
+            : expectedRole === 'staff' ? 'This account does not have a staff or driver grant.'
+              : 'Use the sign-in page for your assigned role.',
         )
       }
-      try { await createBrowserSession() } catch (error) {
-        await supabaseClient.auth.signOut()
-        throw new AuthenticationError(error instanceof Error ? error.message : 'Browser session could not be started.')
-      }
+      window.dispatchEvent(new Event('sisacare:session-created'))
       setUser(profile)
     },
     [],

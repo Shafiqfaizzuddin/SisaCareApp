@@ -14,7 +14,7 @@ from app.core.config import Settings, get_settings
 class AuthenticatedUser(TypedDict):
     id: str
     email: str
-    role: Literal["user", "admin"]
+    role: Literal["user", "staff", "admin"]
     email_verified: bool
     google_sub: str | None
     google_email: str | None
@@ -98,6 +98,10 @@ async def authenticate_access_token(
         if isinstance(app_metadata, dict) and app_metadata.get("role") == "admin"
         else "user"
     )
+    if role != "admin":
+        from app.repositories.staff import active_role
+        if active_role(payload["id"]) is not None:
+            role = "staff"
     email = payload.get("email")
     verified = bool(payload.get("email_confirmed_at"))
     identities = payload.get("identities")
@@ -169,6 +173,9 @@ async def get_optional_authenticated_user(
         user = read(cookie)
         if user is None:
             raise HTTPException(status_code=401, detail="Your session has expired. Sign in again.")
+        from app.repositories.staff import active_role
+        if user["role"] != "admin":
+            user["role"] = "staff" if active_role(user["id"]) else "user"
         return user
     if credentials is None:
         return None
@@ -209,10 +216,19 @@ async def require_admin_user(
     return user
 
 
+async def require_staff_user(
+    user: Annotated[AuthenticatedUser, Depends(require_authenticated_user)],
+) -> AuthenticatedUser:
+    if user["role"] != "staff":
+        raise HTTPException(status_code=403, detail="Staff access is required.")
+    return user
+
+
 __all__ = [
     "AuthenticatedUser",
     "authenticate_access_token",
     "get_optional_authenticated_user",
     "require_admin_user",
     "require_authenticated_user",
+    "require_staff_user",
 ]

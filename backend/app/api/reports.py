@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from app.api.waste_analysis import UPLOAD_DIR
@@ -33,7 +33,6 @@ from app.repositories.reports import (
     create_report,
     get_report,
     list_reports,
-    transition_report,
     validate_report,
 )
 from app.services.ai.image_validation import ImageValidationError, validate_image
@@ -222,6 +221,8 @@ class ReportValidation(BaseModel):
 
 class ReportAssignment(BaseModel):
     team: str = Field(min_length=1, max_length=120)
+    assignee_id: str
+    reason: str = Field(default="", max_length=2000)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -407,17 +408,16 @@ async def assign_report(
     admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
     background_tasks: BackgroundTasks,
 ) -> dict[str, object]:
+    from app.services.collection_workflow import assign, TaskConflict, TaskForbidden
     try:
-        result = await run_in_threadpool(
-            transition_report, report_id, "assign", admin["id"], assigned_team=assignment.team,
-            notify_user=channel_ready(get_settings(), "user"),
-        )
-        background_tasks.add_task(dispatch_pending_report_emails)
-        return result
-    except ReportNotFoundError as exc:
+        return await run_in_threadpool(assign, report_id, assignment.assignee_id, assignment.team,
+                                       admin["id"], assignment.reason)
+    except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValidationAlreadyDecidedError as exc:
+    except TaskConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except TaskForbidden as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -425,43 +425,9 @@ async def assign_report(
 @router.post("/{report_id}/resolution")
 async def resolve_report(
     report_id: str,
-    admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
-    background_tasks: BackgroundTasks,
-    details: str = Form(..., min_length=1, max_length=2000),
-    image: UploadFile | None = File(default=None),
+    _admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
 ) -> dict[str, object]:
-    destination: Path | None = None
-    try:
-        if image is not None:
-            try:
-                extension = validate_image_upload_metadata(image.filename, image.content_type)
-            except UploadMetadataError as exc:
-                raise HTTPException(status_code=415, detail="Use a JPG, PNG, or WEBP after-photo.") from exc
-            destination = create_unique_upload_path(UPLOAD_DIR, prefix="after", extension=extension)
-            await save_image_upload(image, destination)
-            await run_in_threadpool(validate_image, destination)
-        result = await run_in_threadpool(
-            transition_report, report_id, "resolve", admin["id"],
-            resolution_details=details, after_photo_source=destination,
-            notify_user=channel_ready(get_settings(), "user"),
-        )
-        background_tasks.add_task(dispatch_pending_report_emails)
-        return result
-    except ImageValidationError as exc:
-        raise HTTPException(status_code=400, detail=exc.public_message) from exc
-    except ValueError as exc:
-        if str(exc) == "IMAGE_TOO_LARGE":
-            raise HTTPException(status_code=413, detail=upload_size_limit_message(MAX_UPLOAD_SIZE)) from exc
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except ReportNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValidationAlreadyDecidedError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    finally:
-        if image is not None:
-            await image.close()
-        if destination is not None:
-            destination.unlink(missing_ok=True)
+    raise HTTPException(status_code=410, detail="Use staff cleanup submission and administrator verification.")
 
 
 @router.get("/files/{report_id}/{filename}", response_class=FileResponse)
@@ -469,11 +435,36 @@ async def read_report_image(
     report_id: str,
     filename: str,
     _admin: Annotated[AuthenticatedUser, Depends(require_admin_user)],
-) -> FileResponse:
+) -> Response:
     if not REPORT_ID_PATTERN.fullmatch(report_id):
         raise HTTPException(status_code=404, detail="Image not found.")
     if not REPORT_IMAGE_PATTERN.fullmatch(filename):
         raise HTTPException(status_code=404, detail="Image not found.")
+
+    if get_settings().persistence_backend == "postgres":
+        from app.services.supabase_storage import get_file
+
+        def read_private_image() -> bytes | None:
+            with report_repository._connect() as database:
+                image = database.execute(
+                    """SELECT object_key FROM report_images
+                       WHERE report_id = ? AND object_key = ?""",
+                    (report_id, f"reports/{report_id}/{filename}"),
+                ).fetchone()
+                return get_file(image["object_key"]) if image else None
+
+        try:
+            image_bytes = await run_in_threadpool(read_private_image)
+        except Exception as exc:
+            import httpx
+
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 404:
+                raise HTTPException(status_code=404, detail="Image not found.") from exc
+            raise HTTPException(status_code=503, detail="Image storage is unavailable.") from exc
+        if image_bytes is None:
+            raise HTTPException(status_code=404, detail="Image not found.")
+        return Response(image_bytes, media_type=REPORT_MEDIA_TYPES[Path(filename).suffix.lower()],
+                        headers=REPORT_MEDIA_HEADERS)
 
     report_root = report_repository.REPORT_ASSETS_DIR.resolve()
     image_path = (report_root / report_id / filename).resolve()

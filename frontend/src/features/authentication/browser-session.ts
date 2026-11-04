@@ -22,11 +22,11 @@ export async function loadBrowserSession(): Promise<UserProfile | null> {
   if (!response.ok) return null
   const value: unknown = await response.json()
   if (!value || typeof value !== 'object' || !('user_id' in value) || typeof value.user_id !== 'string'
-    || !('role' in value) || (value.role !== 'admin' && value.role !== 'user')
+    || !('role' in value) || (value.role !== 'admin' && value.role !== 'user' && value.role !== 'staff')
     || !('email' in value) || typeof value.email !== 'string'
     || !('display_name' in value) || typeof value.display_name !== 'string') return null
   return { id: value.user_id, role: value.role, email: value.email, name: value.display_name,
-    points: 0, title: value.role === 'admin' ? 'Administrator' : 'Community Member', validReports: 0 }
+    points: 0, title: value.role === 'admin' ? 'Administrator' : value.role === 'staff' ? 'Collection staff' : 'Community Member', validReports: 0 }
 }
 
 export async function revokeBrowserSession(): Promise<void> {

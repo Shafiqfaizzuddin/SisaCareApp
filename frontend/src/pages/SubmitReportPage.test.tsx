@@ -171,4 +171,38 @@ describe('streamlined waste report', () => {
     expect(mocks.submit.mock.calls[0][0].confirmed_items).toHaveLength(2)
     expect(mocks.submit.mock.calls[0][0].draft_source).toBe('template')
   })
+
+  it('carries the original analysis, citizen edit, and map pin through submission', async () => {
+    mocks.analyze.mockResolvedValue({ ...analysis, classification_summary: {
+      method: 'detection_evidence_v1', denominator_definition: 'Non-background detection observations.',
+      denominator: 2, background_excluded: 0, unknown_count: 0, uncertain_count: 0,
+      distribution: [{ category: 'Plastic', count: 1, percentage: 50 }, { category: 'Organic', count: 1, percentage: 50 }],
+      dominant_category: 'Unknown', dominant_reason: 'Tied evidence.',
+      severity: { level: 'Medium', method: 'rule_based_handling_priority_v1', reason: 'Mixed waste needs review.', is_physical_measurement: false },
+      confidence: { florence_detection_score: null, category_probability: null, explanation: 'No calibrated confidence is available.' },
+      limitations: [],
+    } })
+    await start()
+    const panel = screen.getByRole('region', { name: 'Waste material analysis' })
+    expect(panel.textContent).toContain('Plastic')
+    expect(panel.textContent).toContain('Organic')
+    expect(panel.textContent).toContain('50.0%')
+    expect(panel.textContent).toContain('Medium')
+    expect(panel.textContent).toContain('No calibrated confidence is available.')
+
+    const description = screen.getByRole('textbox', { name: 'Report description' })
+    await userEvent.clear(description)
+    await userEvent.type(description, 'Citizen corrected the description after reviewing the image.')
+    await userEvent.click(screen.getByRole('button', { name: 'Choose location' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Select pin' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm location' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Submit report' }))
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(1))
+    const payload = mocks.submit.mock.calls[0][0]
+    expect(payload.summary).toBe('Citizen corrected the description after reviewing the image.')
+    expect(payload.user_edited_fields).toContain('summary')
+    expect(payload.latitude).toBe(6.4)
+    expect(payload.longitude).toBe(100.2)
+    expect(payload.analysis_id).toBe('analysis-1')
+  })
 })

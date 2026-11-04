@@ -6,6 +6,7 @@ import {
   Settings,
   Recycle,
   BookOpen,
+  Users,
 } from 'lucide-react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Brand } from '../components/common/Brand'
@@ -32,6 +33,7 @@ export function AdminLayout() {
           </Link>
           <NavLink to="/admin/recycling-points"><Recycle size={18} />Recycling locations</NavLink>
           <NavLink to="/admin/learn"><BookOpen size={18} />Learn content</NavLink>
+          <NavLink to="/admin/staff"><Users size={18} />Staff and drivers</NavLink>
           <span className="admin-sidebar__disabled">
             <Settings size={18} />
             Settings

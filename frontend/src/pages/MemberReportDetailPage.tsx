@@ -20,6 +20,8 @@ interface TrackingReport {
   rejection_reason: string | null
   assigned_team: string | null
   resolution_details: string | null
+  resolution_seconds: number | null
+  created_at: string
   status_events: TrackingEvent[]
 }
 
@@ -52,7 +54,8 @@ export function MemberReportDetailPage() {
         {report.rejection_reason && <p>Rejection reason: {report.rejection_reason}</p>}
         {report.assigned_team && <p>Assigned team: {report.assigned_team}</p>}
         {report.resolution_details && <p>Resolution: {report.resolution_details}</p>}
-        <h2>Status history</h2><ol>{report.status_events.map((event, index) => <li key={`${event.created_at}-${index}`}>
+        {report.resolution_seconds != null && <p>Time to verified resolution: {Math.floor(report.resolution_seconds / 3600)}h {Math.floor((report.resolution_seconds % 3600) / 60)}m</p>}
+        <h2>Status history</h2><ol><li><strong>Reported</strong> · {new Date(report.created_at).toLocaleString()}</li>{report.status_events.map((event, index) => <li key={`${event.created_at}-${index}`}>
           <strong>{event.new_status.replace('_', ' ')}</strong> · {new Date(event.created_at).toLocaleString()}
           {event.reason && <p>{event.reason}</p>}
         </li>)}</ol></>}

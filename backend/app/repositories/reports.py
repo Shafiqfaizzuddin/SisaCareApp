@@ -57,16 +57,36 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _queue_email(database: sqlite3.Connection, report_id: str, event_type: str, recipient: str, now: str) -> None:
+def _queue_email(database: sqlite3.Connection, report_id: str, event_type: str, recipient: str,
+                 now: str, *, event_id: str | None = None) -> None:
+    event_key = f"{report_id}:{event_type}:{event_id}" if event_id else f"{report_id}:{event_type}"
     database.execute(
         """INSERT OR IGNORE INTO report_email_outbox
            (event_key, report_id, event_type, recipient_email, created_at)
            VALUES (?, ?, ?, ?, ?)""",
-        (f"{report_id}:{event_type}", report_id, event_type, recipient, now),
+        (event_key, report_id, event_type, recipient, now),
     )
+    if get_settings().persistence_backend == "postgres":
+        database.execute(
+            """INSERT INTO notifications
+               (report_id, recipient_id, event_type, channel, outbox_event_key)
+               SELECT r.id, u.id, ?, 'email', ? FROM reports r
+               LEFT JOIN auth.users u ON u.id::text = r.user_id
+               WHERE r.id = ? ON CONFLICT (outbox_event_key) DO NOTHING""",
+            (event_type, event_key, report_id),
+        )
+    else:
+        database.execute("""INSERT OR IGNORE INTO notifications
+            (id,report_id,recipient_id,event_type,channel,outbox_event_key,created_at)
+            SELECT ?,r.id,r.user_id,?,'email',?,? FROM reports r WHERE r.id = ?""",
+            (uuid4().hex, event_type, event_key, now, report_id))
 
 
 def _connect() -> sqlite3.Connection:
+    if get_settings().persistence_backend == "postgres":
+        from app.repositories.postgres_compat import connect
+
+        return connect()
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(DATABASE_PATH, timeout=10)
     connection.row_factory = sqlite3.Row
@@ -76,6 +96,8 @@ def _connect() -> sqlite3.Connection:
 
 def initialize_database(connection: sqlite3.Connection | None = None) -> None:
     """Create the local report tables when they do not exist."""
+    if get_settings().persistence_backend == "postgres":
+        return  # Supabase CLI migrations own PostgreSQL DDL.
     owns_connection = connection is None
     database = connection or _connect()
     try:
@@ -178,7 +200,7 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
             CREATE TABLE IF NOT EXISTS report_email_outbox (
                 event_key TEXT PRIMARY KEY,
                 report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE RESTRICT,
-                event_type TEXT NOT NULL CHECK (event_type IN ('submitted', 'in_progress', 'resolved')),
+                event_type TEXT NOT NULL CHECK (event_type IN ('submitted', 'assigned', 'in_progress', 'pending_verification', 'resolved')),
                 recipient_email TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 sent_at TEXT,
@@ -316,10 +338,64 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
         _ensure_recycling_action_columns(database)
         _ensure_waste_detection_storage(database)
         _migrate_legacy_report_detections(database)
+        _ensure_email_notification_schema(database)
         database.commit()
     finally:
         if owns_connection:
             database.close()
+
+
+def _ensure_email_notification_schema(database: sqlite3.Connection) -> None:
+    """Preserve legacy outbox rows while widening the SQLite event constraint."""
+    definition = database.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'report_email_outbox'"
+    ).fetchone()["sql"]
+    if "pending_verification" not in definition:
+        database.executescript("""
+            BEGIN IMMEDIATE;
+            ALTER TABLE report_email_outbox RENAME TO report_email_outbox_v4;
+            CREATE TABLE report_email_outbox (
+                event_key TEXT PRIMARY KEY,
+                report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE RESTRICT,
+                event_type TEXT NOT NULL CHECK (event_type IN
+                    ('submitted', 'assigned', 'in_progress', 'pending_verification', 'resolved')),
+                recipient_email TEXT NOT NULL, created_at TEXT NOT NULL, sent_at TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, claimed_at TEXT,
+                claim_token TEXT, next_attempt_at TEXT
+            );
+            INSERT INTO report_email_outbox
+                (event_key,report_id,event_type,recipient_email,created_at,sent_at,
+                 attempts,last_error,claimed_at,claim_token,next_attempt_at)
+            SELECT event_key,report_id,event_type,recipient_email,created_at,sent_at,
+                   attempts,last_error,claimed_at,claim_token,next_attempt_at
+            FROM report_email_outbox_v4;
+            DROP TABLE report_email_outbox_v4;
+            CREATE INDEX IF NOT EXISTS idx_report_email_outbox_pending
+                ON report_email_outbox(sent_at, created_at);
+            COMMIT;
+        """)
+    database.execute("""CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE RESTRICT,
+        recipient_id TEXT, event_type TEXT NOT NULL, channel TEXT NOT NULL CHECK(channel = 'email'),
+        outbox_event_key TEXT NOT NULL UNIQUE REFERENCES report_email_outbox(event_key),
+        created_at TEXT NOT NULL,
+        delivery_status TEXT NOT NULL DEFAULT 'queued'
+            CHECK(delivery_status IN ('queued','retrying','sent','failed')),
+        attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, delivered_at TEXT
+    )""")
+    database.execute("CREATE INDEX IF NOT EXISTS idx_notifications_delivery ON notifications(delivery_status, created_at)")
+    report_columns = {row["name"] for row in database.execute("PRAGMA table_info(reports)")}
+    recipient_expression = "r.user_id" if "user_id" in report_columns else "NULL"
+    database.execute(f"""INSERT OR IGNORE INTO notifications
+        (id,report_id,recipient_id,event_type,channel,outbox_event_key,created_at,
+         delivery_status,attempts,last_error,delivered_at)
+        SELECT lower(hex(randomblob(16))),o.report_id,{recipient_expression},o.event_type,'email',o.event_key,o.created_at,
+               CASE WHEN o.sent_at IS NOT NULL THEN 'sent'
+                    WHEN o.attempts >= 5 THEN 'failed'
+                    WHEN o.attempts > 0 THEN 'retrying' ELSE 'queued' END,
+               o.attempts,o.last_error,o.sent_at
+        FROM report_email_outbox o JOIN reports r ON r.id = o.report_id
+        WHERE NOT EXISTS (SELECT 1 FROM notifications n WHERE n.outbox_event_key = o.event_key)""")
 
 
 def _ensure_report_validation_columns(database: sqlite3.Connection) -> None:
@@ -379,6 +455,8 @@ def _ensure_community_report_columns(database: sqlite3.Connection) -> None:
     for name in ("assigned_team", "resolution_details", "after_photo"):
         if name not in columns:
             database.execute(f"ALTER TABLE reports ADD COLUMN {name} TEXT")
+    if "resolution_seconds" not in columns:
+        database.execute("ALTER TABLE reports ADD COLUMN resolution_seconds INTEGER")
 
 
 def _ensure_report_ai_columns(database: sqlite3.Connection) -> None:
@@ -851,10 +929,11 @@ def _deserialize_ai_analysis(
         "provider": analysis.get("provider"),
         "model_id": analysis.get("model_id"),
         "model_revision": analysis.get("model_revision"),
-          "visual_model_id": analysis.get("visual_model_id"),
+        "visual_model_id": analysis.get("visual_model_id"),
         "service_analysis_id": payload.get("service_analysis_id"),
         "raw_detections": payload.get("raw_detections") if analysis.get("provider") == "florence2" else None,
         "model_detections": payload.get("model_detections") if analysis.get("provider") == "florence2" else None,
+        "classification_summary": payload.get("classification_summary") if analysis.get("provider") == "florence2" else None,
         "scene_description": (
             raw_vlm.get("scene_description")
             if isinstance(raw_vlm, dict)
@@ -968,11 +1047,27 @@ def _migrate_legacy_report_detections(database: sqlite3.Connection) -> None:
 def _persist_draft_assets(
     draft: sqlite3.Row,
     report_id: str,
-) -> tuple[str, str, Path]:
+) -> tuple[str, str, Path | None]:
     original_source = Path(draft["original_image_path"])
     annotated_source = Path(draft["annotated_image_path"])
     if not original_source.is_file() or not annotated_source.is_file():
         raise DraftAssetError("One or more draft images are no longer available.")
+
+    if get_settings().persistence_backend == "postgres":
+        from app.services.supabase_storage import delete_file, put_file
+
+        original_name = f"original{_asset_suffix(original_source)}"
+        annotated_name = f"annotated{_asset_suffix(annotated_source)}"
+        original_key = f"reports/{report_id}/{original_name}"
+        annotated_key = f"reports/{report_id}/{annotated_name}"
+        put_file(original_key, original_source)
+        try:
+            put_file(annotated_key, annotated_source)
+        except Exception:
+            delete_file(original_key)
+            raise
+        base_url = f"{REPORT_ASSET_URL_PREFIX}/{report_id}"
+        return f"{base_url}/{original_name}", f"{base_url}/{annotated_name}", None
 
     report_directory = REPORT_ASSETS_DIR / report_id
     report_directory.mkdir(parents=True, exist_ok=False)
@@ -992,9 +1087,15 @@ def _persist_draft_assets(
 def _persist_uploaded_image(
     source: Path,
     report_id: str,
-) -> tuple[str, Path]:
+) -> tuple[str, Path | None]:
     if not source.is_file():
         raise DraftAssetError("The uploaded report image is no longer available.")
+    if get_settings().persistence_backend == "postgres":
+        from app.services.supabase_storage import put_file
+
+        original_name = f"original{_asset_suffix(source)}"
+        put_file(f"reports/{report_id}/{original_name}", source)
+        return f"{REPORT_ASSET_URL_PREFIX}/{report_id}/{original_name}", None
 
     report_directory = REPORT_ASSETS_DIR / report_id
     report_directory.mkdir(parents=True, exist_ok=False)
@@ -1163,6 +1264,35 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
             "UPDATE reports SET location_address_source = ? WHERE id = ?",
             (submission.get("location_address_source"), report_id),
         )
+        if get_settings().persistence_backend == "postgres":
+            from app.services.supabase_storage import BUCKET
+
+            image_sources = [("original", source_photo)]
+            if draft_sources is not None:
+                image_sources.append(("annotated", draft_sources[1]))
+            for image_kind, image_source in image_sources:
+                if image_source is None:
+                    continue
+                image_url = original_image if image_kind == "original" else annotated_image
+                image_key = f"reports/{report_id}/{Path(image_url).name}"
+                data = image_source.read_bytes()
+                content_type = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}[image_source.suffix.lower()]
+                database.execute(
+                    """INSERT INTO report_images
+                       (report_id, image_kind, bucket_id, object_key, content_type, sha256, byte_size)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (report_id, image_kind, BUCKET, image_key, content_type,
+                     hashlib.sha256(data).hexdigest(), len(data)),
+                )
+            database.execute(
+                """INSERT INTO ai_results
+                   (report_id, analysis_id, provider, model_id, rule_version, raw_result, reviewed_result)
+                   VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)""",
+                (report_id, analysis_id, (ai_analysis or {}).get("provider"),
+                 (ai_analysis or {}).get("model_id"), submission.get("rule_version"),
+                 json.dumps(ai_analysis) if ai_analysis is not None else None,
+                 json.dumps(confirmation) if confirmation is not None else None),
+            )
         _insert_detection_rows(
             database,
             report_id=report_id,
@@ -1185,6 +1315,15 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
         database.commit()
     except Exception:
         database.rollback()
+        if get_settings().persistence_backend == "postgres":
+            from app.services.supabase_storage import delete_file
+
+            for image_url in (original_image, annotated_image):
+                if image_url:
+                    try:
+                        delete_file(f"reports/{report_id}/{Path(image_url).name}")
+                    except Exception:
+                        pass  # Preserve the original persistence error.
         if report_directory is not None:
             shutil.rmtree(report_directory, ignore_errors=True)
         raise
@@ -1215,6 +1354,7 @@ def claim_pending_report_emails(
     now = _utc_now()
     stale = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
     token = uuid4().hex
+    lock = " FOR UPDATE OF o SKIP LOCKED" if get_settings().persistence_backend == "postgres" else ""
     with _connect() as database:
         initialize_database(database)
         database.execute("BEGIN IMMEDIATE")
@@ -1225,11 +1365,11 @@ def claim_pending_report_emails(
                FROM report_email_outbox o JOIN reports r ON r.id = o.report_id
                WHERE o.sent_at IS NULL AND o.attempts < 5
                  AND ((o.event_type = 'submitted' AND ?)
-                      OR (o.event_type IN ('in_progress', 'resolved') AND ?))
+                      OR (o.event_type IN ('assigned', 'in_progress', 'pending_verification', 'resolved') AND ?))
                  AND (o.claimed_at IS NULL OR o.claimed_at < ?)
                  AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= ?)
-               ORDER BY o.created_at LIMIT ?""",
-            (int(include_admin), int(include_user), stale, now, max(1, min(limit, 50))),
+               ORDER BY o.created_at LIMIT ?""" + lock,
+            (include_admin, include_user, stale, now, max(1, min(limit, 50))),
         ).fetchall()
         for row in rows:
             database.execute(
@@ -1244,19 +1384,25 @@ def finish_report_email(event_key: str, claim_token: str, *, error_type: str | N
     """Record SMTP outcome without storing message contents or credentials."""
     with _connect() as database:
         if error_type is None:
-            database.execute(
+            sent_at = _utc_now()
+            updated = database.execute(
                 """UPDATE report_email_outbox SET sent_at = ?, attempts = attempts + 1,
-                   last_error = NULL, claimed_at = NULL, claim_token = NULL
+                   last_error = NULL, claimed_at = NULL, claim_token = NULL, next_attempt_at = NULL
                    WHERE event_key = ? AND claim_token = ? AND sent_at IS NULL""",
-                (_utc_now(), event_key, claim_token),
+                (sent_at, event_key, claim_token),
             )
+            if updated.rowcount:
+                database.execute("""UPDATE notifications SET delivery_status = 'sent',
+                    attempts = attempts + 1, last_error = NULL, delivered_at = ?
+                    WHERE outbox_event_key = ?""", (sent_at, event_key))
         else:
             row = database.execute(
                 "SELECT attempts FROM report_email_outbox WHERE event_key = ? AND claim_token = ?",
                 (event_key, claim_token),
             ).fetchone()
             if row is not None:
-                next_attempt = (datetime.now(timezone.utc) + timedelta(
+                failed = row["attempts"] + 1 >= 5
+                next_attempt = None if failed else (datetime.now(timezone.utc) + timedelta(
                     seconds=min(60 * (2 ** row["attempts"]), 3600),
                 )).isoformat()
                 database.execute(
@@ -1265,7 +1411,51 @@ def finish_report_email(event_key: str, claim_token: str, *, error_type: str | N
                        claim_token = NULL WHERE event_key = ? AND claim_token = ?""",
                     (error_type[:100], next_attempt, event_key, claim_token),
                 )
+                database.execute("""UPDATE notifications SET delivery_status = ?,
+                    attempts = attempts + 1, last_error = ? WHERE outbox_event_key = ?""",
+                    ("failed" if failed else "retrying", error_type[:100], event_key))
         database.commit()
+
+
+def list_report_email_deliveries(*, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    if status not in {None, "queued", "retrying", "sent", "failed"}:
+        raise ValueError("Invalid delivery status.")
+    with _connect() as database:
+        initialize_database(database)
+        where = "WHERE n.delivery_status = ?" if status else ""
+        parameters = (status, max(1, min(limit, 200))) if status else (max(1, min(limit, 200)),)
+        rows = database.execute("""SELECT n.outbox_event_key,n.event_type,n.delivery_status,
+            n.attempts,n.last_error,n.delivered_at,n.created_at,
+            o.next_attempt_at,o.recipient_email,r.reference
+            FROM notifications n JOIN report_email_outbox o ON o.event_key = n.outbox_event_key
+            JOIN reports r ON r.id = n.report_id
+            """ + where + " ORDER BY n.created_at DESC LIMIT ?", parameters).fetchall()
+    result = []
+    for row in rows:
+        item = dict(row)
+        address = item.pop("recipient_email", "")
+        local, _, domain = address.partition("@")
+        item["recipient_hint"] = (local[:1] + "***@" + domain) if domain else "unavailable"
+        result.append(item)
+    return result
+
+
+def retry_failed_report_email(event_key: str) -> bool:
+    """Queue an exhausted event again after an operator fixes the delivery issue."""
+    with _connect() as database:
+        initialize_database(database)
+        database.execute("BEGIN IMMEDIATE")
+        lock = " FOR UPDATE" if get_settings().persistence_backend == "postgres" else ""
+        row = database.execute("SELECT attempts,sent_at FROM report_email_outbox WHERE event_key = ?" + lock,
+                               (event_key,)).fetchone()
+        if row is None or row["sent_at"] is not None or row["attempts"] < 5:
+            return False
+        database.execute("""UPDATE report_email_outbox SET attempts = 0,last_error = NULL,
+            next_attempt_at = NULL,claimed_at = NULL,claim_token = NULL WHERE event_key = ?""", (event_key,))
+        database.execute("""UPDATE notifications SET delivery_status = 'queued',attempts = 0,
+            last_error = NULL WHERE outbox_event_key = ?""", (event_key,))
+        database.commit()
+        return True
 
 
 def list_reports() -> list[dict[str, Any]]:
@@ -1380,7 +1570,7 @@ def get_report(report_id: str) -> dict[str, Any] | None:
         report_items = (confirmed_results.get("final_confirmed_items") or confirmed_results.get("items") or []) if isinstance(confirmed_results, dict) else []
         grouped_report_items = group_report_observations(report_items) if isinstance(report_items, list) else []
         status_events = database.execute(
-            """SELECT previous_status, new_status, reason, assigned_team,
+            """SELECT actor_id, previous_status, new_status, reason, assigned_team,
                       resolution_details, after_photo, created_at
                FROM report_status_events WHERE report_id = ? ORDER BY created_at, rowid""",
             (report_id,),
@@ -1406,6 +1596,7 @@ def get_report(report_id: str) -> dict[str, Any] | None:
         "assigned_team": report["assigned_team"],
         "resolution_details": report["resolution_details"],
         "after_photo": report["after_photo"],
+        "resolution_seconds": report["resolution_seconds"] if "resolution_seconds" in report.keys() else None,
         "status_events": [dict(event) for event in status_events],
         "validation_status": report["validation_status"],
         "reward_points": int(reward_points),
@@ -1549,7 +1740,7 @@ def get_own_report_tracking(report_id: str, user_id: str) -> dict[str, Any] | No
         initialize_database(database)
         row = database.execute(
             """SELECT id, reference, title, location, category, status, validation_status,
-                      rejection_reason, assigned_team, resolution_details, created_at, updated_at
+                      rejection_reason, assigned_team, resolution_details, resolution_seconds, created_at, updated_at
                FROM reports WHERE id = ? AND user_id = ? AND reporter_role = 'user'""",
             (report_id, user_id),
         ).fetchone()
@@ -1574,6 +1765,21 @@ def register_public_participant(user_id: str, role: str, email: str = "") -> Non
         if existing:
             database.execute("UPDATE public_participants SET role = ?, data_origin = ? WHERE user_id = ?", (role, origin, user_id))
             return
+        if get_settings().persistence_backend == "postgres":
+            database.execute(
+                """INSERT INTO profiles (user_id) SELECT id FROM auth.users
+                   WHERE id = ?::uuid ON CONFLICT DO NOTHING""",
+                (user_id,),
+            )
+            for _ in range(5):
+                inserted = database.execute(
+                    """INSERT INTO public_participants (user_id, public_name, role, data_origin)
+                       VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING RETURNING user_id""",
+                    (user_id, f"Participant {secrets.randbelow(900000) + 100000}", role, origin),
+                ).fetchone()
+                if inserted is not None:
+                    return
+            raise RuntimeError("A unique public participant name could not be assigned.")
         for _ in range(5):
             try:
                 database.execute("INSERT INTO public_participants (user_id, public_name, role, data_origin) VALUES (?, ?, ?, ?)",
@@ -1750,13 +1956,27 @@ def transition_report(
         if after_photo_source is not None:
             if action != "resolve":
                 raise ValueError("An after-photo belongs to a resolution only.")
-            destination = REPORT_ASSETS_DIR / report_id
-            destination.mkdir(parents=True, exist_ok=True)
-            copied_photo = destination / f"after{_asset_suffix(after_photo_source)}"
-            if copied_photo.exists():
-                raise ValueError("A resolution photo already exists for this report.")
-            shutil.copy2(after_photo_source, copied_photo)
-            after_photo = f"{REPORT_ASSET_URL_PREFIX}/{report_id}/{copied_photo.name}"
+            after_name = f"after{_asset_suffix(after_photo_source)}"
+            if get_settings().persistence_backend == "postgres":
+                from app.services.supabase_storage import BUCKET, put_file
+
+                after_key = f"reports/{report_id}/{after_name}"
+                content_type, digest, size = put_file(after_key, after_photo_source)
+                after_photo = f"{REPORT_ASSET_URL_PREFIX}/{report_id}/{after_name}"
+                database.execute(
+                    """INSERT INTO report_images
+                       (report_id, image_kind, bucket_id, object_key, content_type, sha256, byte_size)
+                       VALUES (?, 'after', ?, ?, ?, ?, ?)""",
+                    (report_id, BUCKET, after_key, content_type, digest, size),
+                )
+            else:
+                destination = REPORT_ASSETS_DIR / report_id
+                destination.mkdir(parents=True, exist_ok=True)
+                copied_photo = destination / after_name
+                if copied_photo.exists():
+                    raise ValueError("A resolution photo already exists for this report.")
+                shutil.copy2(after_photo_source, copied_photo)
+                after_photo = f"{REPORT_ASSET_URL_PREFIX}/{report_id}/{copied_photo.name}"
         database.execute(
             """UPDATE reports SET status = ?, assigned_team = COALESCE(?, assigned_team),
                resolution_details = COALESCE(?, resolution_details),
@@ -1773,6 +1993,16 @@ def transition_report(
              team if action == "assign" else None, details if action == "resolve" else None,
              after_photo, now),
         )
+        if get_settings().persistence_backend == "postgres" and action == "assign":
+            database.execute(
+                "UPDATE report_assignments SET ended_at = now() WHERE report_id = ? AND ended_at IS NULL",
+                (report_id,),
+            )
+            database.execute(
+                """INSERT INTO report_assignments (report_id, team_name, assigned_by)
+                   VALUES (?, ?, ?::uuid)""",
+                (report_id, team, actor_id),
+            )
         if notify_user and row["notification_email"] and row["status"] != new_status:
             _queue_email(database, report_id, new_status, row["notification_email"], now)
         database.commit()
@@ -1780,6 +2010,13 @@ def transition_report(
                 "resolution_details": details or None, "after_photo": after_photo}
     except Exception:
         database.rollback()
+        if get_settings().persistence_backend == "postgres" and after_photo_source is not None:
+            from app.services.supabase_storage import delete_file
+
+            try:
+                delete_file(f"reports/{report_id}/after{_asset_suffix(after_photo_source)}")
+            except Exception:
+                pass
         if copied_photo is not None:
             copied_photo.unlink(missing_ok=True)
         raise

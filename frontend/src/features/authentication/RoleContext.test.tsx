@@ -34,6 +34,13 @@ function VerificationProbe() {
     <span data-testid="verification-message">{message}</span></>
 }
 
+function StaffProbe() {
+  const { role, signIn } = useRole()
+  const [message, setMessage] = useState('')
+  return <><span data-testid="staff-role">{role}</span><span data-testid="staff-message">{message}</span>
+    <button onClick={() => void signIn('worker@example.com', 'password', 'staff').catch((error: Error) => setMessage(error.message))}>Staff login</button></>
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   getSession.mockResolvedValue({ data: { session: null } })
@@ -45,6 +52,8 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
 
 it('preserves password login and clears the participant on logout', async () => {
+  loadBrowserSession.mockResolvedValue({ id: 'student-1', email: 'student@example.com', role: 'user',
+    name: 'Student', points: 0, title: 'Community Member', validReports: 0 })
   signInWithPassword.mockResolvedValue({ data: { user: {
     id: 'student-1', email: 'student@example.com', email_confirmed_at: '2026-10-11T00:00:00Z',
     app_metadata: {}, user_metadata: { full_name: 'Student' },
@@ -55,6 +64,19 @@ it('preserves password login and clears the participant on logout', async () => 
   fireEvent.click(screen.getByText('Logout'))
   await waitFor(() => expect(screen.getByTestId('role').textContent).toBe('guest'))
   expect(signOut).toHaveBeenCalledOnce()
+})
+
+it('rejects a client claimed staff role when the server has no grant', async () => {
+  signInWithPassword.mockResolvedValue({ data: { user: {
+    id: 'worker-1', email: 'worker@example.com', email_confirmed_at: '2026-10-11T00:00:00Z',
+    app_metadata: {}, user_metadata: { role: 'staff' },
+  } }, error: null })
+  loadBrowserSession.mockResolvedValueOnce(null).mockResolvedValue({ id: 'worker-1', email: 'worker@example.com',
+    role: 'user', name: 'Worker', points: 0, title: 'Community Member', validReports: 0 })
+  render(<RoleProvider><StaffProbe /></RoleProvider>)
+  fireEvent.click(screen.getByText('Staff login'))
+  await waitFor(() => expect(screen.getByTestId('staff-message').textContent).toContain('staff or driver grant'))
+  expect(screen.getByTestId('staff-role').textContent).toBe('guest')
 })
 
 it('explains unconfirmed password sign-in so the user can request a new email', async () => {

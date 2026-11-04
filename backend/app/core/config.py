@@ -1,7 +1,7 @@
 from functools import lru_cache
 from ipaddress import ip_address
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -56,7 +56,10 @@ class Settings(BaseSettings):
     upload_dir: Path = Path("backend/storage/tmp/uploads")
     annotated_output_dir: Path = Path("backend/storage/tmp/annotated")
     database_path: Path = Path("backend/storage/sisacare.db")
+    persistence_backend: str = "sqlite"
+    postgres_database_url: SecretStr = SecretStr("")
     report_assets_dir: Path = Path("backend/storage/reports")
+    hotspot_forecast_database_path: Path | None = None
 
     supabase_url: str = ""
     supabase_publishable_key: str = ""
@@ -87,6 +90,8 @@ class Settings(BaseSettings):
     user_smtp_from: str = ""
     user_smtp_security: str = "starttls"
     email_public_base_url: str = "http://localhost:5173"
+    notify_citizen_on_assignment: bool = False
+    notify_citizen_on_progress: bool = False
 
 
     model_config = SettingsConfigDict(
@@ -101,12 +106,15 @@ class Settings(BaseSettings):
         "annotated_output_dir",
         "database_path",
         "report_assets_dir",
+        "hotspot_forecast_database_path",
         mode="after",
     )
     @classmethod
-    def resolve_project_path(cls, value: Path) -> Path:
+    def resolve_project_path(cls, value: Path | None) -> Path | None:
         """Resolve configured relative paths consistently from the project root."""
 
+        if value is None:
+            return None
         expanded_path = value.expanduser()
         if expanded_path.is_absolute():
             return expanded_path.resolve()
@@ -142,6 +150,19 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_service_configuration(self) -> "Settings":
+        if self.persistence_backend not in {"sqlite", "postgres"}:
+            raise ValueError("PERSISTENCE_BACKEND must be sqlite or postgres.")
+        if self.persistence_backend == "postgres":
+            database_url = self.postgres_database_url.get_secret_value()
+            parsed_database_url = urlparse(database_url)
+            if parsed_database_url.scheme not in {"postgres", "postgresql"} or not parsed_database_url.hostname:
+                raise ValueError("POSTGRES_DATABASE_URL must be a PostgreSQL connection URL.")
+            if parsed_database_url.hostname not in {"localhost", "127.0.0.1", "::1"}:
+                ssl_mode = parse_qs(parsed_database_url.query).get("sslmode", [""])[0]
+                if ssl_mode not in {"require", "verify-ca", "verify-full"}:
+                    raise ValueError("Remote POSTGRES_DATABASE_URL must require TLS (sslmode=require or stronger).")
+            if not self.supabase_url or not self.supabase_service_role_key.get_secret_value():
+                raise ValueError("PostgreSQL mode requires SUPABASE_URL and server-only SUPABASE_SERVICE_ROLE_KEY.")
         for channel in ("admin", "user"):
             if getattr(self, f"{channel}_smtp_security") not in {"starttls", "ssl", "none"}:
                 raise ValueError(f"{channel.upper()}_SMTP_SECURITY must be starttls, ssl, or none.")
