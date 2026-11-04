@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 
 from app.api.identity import router as identity_router
 from app.api.members import router as members_router
@@ -15,7 +17,7 @@ from app.api.florence_analysis import router as florence_analysis_router
 from app.api.recycling import router as recycling_router
 from app.api.education import router as education_router
 from app.api.v1.router import api_router
-from app.core.config import get_settings
+from app.core.config import PROJECT_ROOT, get_settings
 from app.core.logging import configure_logging
 from app.services.report_email import dispatch_pending_report_emails
 
@@ -64,3 +66,28 @@ app.include_router(florence_detection_router, prefix="/api/waste/florence", tags
 app.include_router(recycling_router, prefix="/api/recycling", tags=["recycling"])
 app.include_router(education_router, prefix="/api/education", tags=["education"])
 app.include_router(reports_router, prefix="/api/reports", tags=["reports"])
+
+
+class FrontendFiles(StaticFiles):
+    """Serve the built SPA while preserving real 404s for API and asset URLs."""
+
+    async def get_response(self, path: str, scope):
+        requested_path = scope["path"].lstrip("/")
+        try:
+            response = await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            response = None
+        if response is not None and response.status_code != 404:
+            return response
+        if (requested_path == "api" or requested_path.startswith("api/")
+                or "." in requested_path.rsplit("/", 1)[-1]):
+            if response is not None:
+                return response
+            raise HTTPException(status_code=404)
+        return await super().get_response("index.html", scope)
+
+
+if settings.serve_frontend:
+    app.mount("/", FrontendFiles(directory=PROJECT_ROOT / "frontend" / "dist", html=True), name="frontend")

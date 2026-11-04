@@ -142,6 +142,7 @@ export function PublicLayout() {
               Make a report <ArrowRight size={15} />
             </Link>
             <Link to="/education">Waste guide</Link>
+            <Link to="/privacy">Privacy</Link>
             <Link to="/admin/login">Administrator access</Link>
           </div>
           <p className="public-footer__meta">

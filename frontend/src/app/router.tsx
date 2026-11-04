@@ -16,6 +16,7 @@ import { SubmitReportPage } from '../pages/SubmitReportPage'
 import { UserLoginPage } from '../pages/UserLoginPage'
 import { UserSignupPage } from '../pages/UserSignupPage'
 import { PasswordResetPage } from '../pages/PasswordResetPage'
+import { PrivacyPage } from '../pages/PrivacyPage'
 
 export const router = createBrowserRouter([
   {
@@ -25,6 +26,7 @@ export const router = createBrowserRouter([
       { path: 'report', element: <RoleGuard allow={['user']} redirectTo="/login"><SubmitReportPage /></RoleGuard> },
       { path: 'report/success', element: <ReportSuccessPage /> },
       { path: 'education', element: <EducationPage /> },
+      { path: 'privacy', element: <PrivacyPage /> },
       {
         path: 'account',
         element: (
