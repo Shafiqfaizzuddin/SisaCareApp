@@ -27,6 +27,7 @@ export function StaffLoginPage() {
         <input id="staff-email" type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} required /></div>
         <div className="field"><label htmlFor="staff-password">Password</label>
         <input id="staff-password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></div>
+        <p><Link to="/password-reset">Forgot password?</Link></p>
         {error && <p role="alert" className="login-error">{error}</p>}
         <button className="button button--primary button--full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
       </form></div></section><ThemeToggle compact /></main>

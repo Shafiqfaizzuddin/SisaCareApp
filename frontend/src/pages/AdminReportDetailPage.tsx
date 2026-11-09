@@ -559,7 +559,7 @@ export function AdminReportDetailPage() {
               <input id="assigned-team" value={assignedTeam} maxLength={120} onChange={event => setAssignedTeam(event.target.value)} />
               <label htmlFor="assignee">Staff or driver</label><select id="assignee" value={assigneeId} onChange={event => setAssigneeId(event.target.value)}>
                 <option value="">Select staff account</option>{staffGrants.filter(grant => !grant.revoked_at).map(grant =>
-                  <option key={`${grant.user_id}:${grant.role}`} value={grant.user_id}>{grant.role} · {grant.user_id}</option>)}</select>
+                  <option key={`${grant.user_id}:${grant.role}`} value={grant.user_id}>{grant.display_name || grant.email || grant.user_id} · {grant.role}</option>)}</select>
               <label htmlFor="assignment-reason">Reason {status !== 'verified' ? '(required for reassignment)' : '(optional)'}</label>
               <textarea id="assignment-reason" value={workflowReason} maxLength={2000} onChange={event => setWorkflowReason(event.target.value)} />
               <button className="button button--primary" type="button" disabled={isValidating || !assignedTeam.trim() || !assigneeId || (status !== 'verified' && !workflowReason.trim())} onClick={() => void handleWorkflow('assign')}>{status === 'verified' ? 'Assign report' : 'Reassign report'}</button></div>}

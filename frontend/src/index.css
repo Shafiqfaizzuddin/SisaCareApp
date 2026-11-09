@@ -2224,7 +2224,7 @@ a:focus-visible {
 .admin-content {
   width: min(1280px, 100%);
   margin-inline: auto;
-  padding: 30px;
+  padding: 36px clamp(36px, 5vw, 72px) 48px;
   background: var(--surface-subtle);
 }
 
@@ -4800,11 +4800,17 @@ a:focus-visible {
 .staff-task-card header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
 .staff-task-card h2, .staff-task-card p { margin: 0; }
 .staff-task-card .button { align-self: flex-start; margin-top: auto; }
+.admin-staff-page { display: grid; gap: 20px; width: min(100%, 1080px); margin-inline: auto; }
+.admin-staff-page .admin-page-heading { margin-bottom: 0; }
+.admin-staff-page > .admin-panel, .analytics-panel, .analytics-grid > .admin-panel { padding: clamp(20px, 2vw, 28px); }
 .staff-grant-form { display: flex; align-items: end; gap: 1rem; flex-wrap: wrap; }
-.staff-grant-form .field { flex: 1 1 230px; }
-.staff-grant-list > div { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem 0; border-bottom: 1px solid var(--border-color, #d8e4db); }
+.staff-grant-form .field { flex: 1 1 230px; min-width: min(100%, 230px); margin-bottom: 0; }
+.staff-grant-list > div { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: .8rem 0; border-bottom: 1px solid var(--border-color, #d8e4db); }
 .staff-grant-list > div > div { display: flex; flex-direction: column; min-width: 0; }
+.staff-grant-list > div > .staff-grant-actions { flex-direction: row; flex-wrap: wrap; align-items: center; gap: .6rem; }
 .staff-grant-list small { overflow-wrap: anywhere; }
+.staff-grant-list .button { margin-left: auto; }
+.staff-grant-list .staff-grant-actions .button { margin-left: 0; }
 .staff-review-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
 .staff-proof { display: block; max-width: 100%; max-height: 360px; object-fit: contain; border-radius: .6rem; margin: 1rem 0; }
 .classification-summary { display: grid; gap: .65rem; margin: 1rem 0; }
@@ -4833,3 +4839,8 @@ a:focus-visible {
 .analytics-trend__day small { position: absolute; bottom: 0; left: 0; font-size: .65rem; white-space: nowrap; }
 .analytics-panel .location-map-shell { margin: 1rem 0; }
 .analytics-panel .location-map { min-height: 360px; }
+@media (max-width: 600px) {
+  .admin-staff-page > .admin-panel, .analytics-panel, .analytics-grid > .admin-panel { padding: 16px; }
+  .staff-grant-form .field, .staff-grant-form .button { flex-basis: 100%; }
+  .staff-grant-actions { width: 100%; }
+}

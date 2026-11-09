@@ -22,6 +22,7 @@ import { StaffLayout } from '../layouts/StaffLayout'
 import { StaffDashboardPage } from '../pages/StaffDashboardPage'
 import { StaffTaskDetailPage } from '../pages/StaffTaskDetailPage'
 import { AdminStaffPage } from '../pages/AdminStaffPage'
+import { StaffAcceptInvitePage } from '../pages/StaffAcceptInvitePage'
 
 export const router = createBrowserRouter([
   {
@@ -53,6 +54,7 @@ export const router = createBrowserRouter([
   },
   { path: 'password-reset', element: <PasswordResetPage /> },
   { path: 'staff/login', element: <StaffLoginPage /> },
+  { path: 'staff/accept-invite', element: <StaffAcceptInvitePage /> },
   { path: 'staff', element: <RoleGuard allow={['staff']} redirectTo="/staff/login"><StaffLayout /></RoleGuard>,
     children: [{ index: true, element: <StaffDashboardPage /> }, { path: 'tasks/:reportId', element: <StaffTaskDetailPage /> }] },
   {

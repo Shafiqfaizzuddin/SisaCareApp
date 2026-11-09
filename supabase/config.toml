@@ -160,7 +160,7 @@ site_url = "http://127.0.0.1:5173"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["http://127.0.0.1:5173", "http://localhost:5173"]
+additional_redirect_urls = ["http://127.0.0.1:5173", "http://localhost:5173", "http://127.0.0.1:5173/staff/accept-invite", "http://localhost:5173/staff/accept-invite"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -246,6 +246,10 @@ otp_expiry = 3600
 [auth.email.template.confirmation]
 subject = "Confirm your SisaCare.AI account"
 content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.invite]
+subject = "Your SisaCare.AI collection team invitation"
+content_path = "./supabase/templates/invite.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
