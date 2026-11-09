@@ -90,6 +90,26 @@ export function PublicLayout() {
                   <LogOut size={17} />
                 </button>
               </>
+            ) : role === 'staff' ? (
+              <>
+                <Link
+                  className="button button--quiet public-nav__staff"
+                  to="/staff"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <LayoutDashboard size={17} />
+                  Staff dashboard
+                </Link>
+                <button
+                  className="icon-button public-nav__signout"
+                  type="button"
+                  aria-label="Sign out"
+                  title="Sign out"
+                  onClick={logOut}
+                >
+                  <LogOut size={17} />
+                </button>
+              </>
             ) : (
               <>
                 <Link

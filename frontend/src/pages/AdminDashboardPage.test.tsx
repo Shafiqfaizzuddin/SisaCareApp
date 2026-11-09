@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AdminDashboardPage } from './AdminDashboardPage'
+import { AdminLayout } from '../layouts/AdminLayout'
 
 const mocks = vi.hoisted(() => ({ fetchPersistedReports: vi.fn(), fetchAnalytics: vi.fn(), fetchForecast: vi.fn(), downloadAnalytics: vi.fn() }))
 vi.mock('../features/admin-reports/admin-reports-api', () => ({ fetchPersistedReports: mocks.fetchPersistedReports }))
@@ -11,8 +12,14 @@ vi.mock('../features/admin-analytics/admin-analytics-api', () => ({ fetchAnalyti
   fetchForecast: mocks.fetchForecast, downloadAnalytics: mocks.downloadAnalytics }))
 vi.mock('../components/location/GoogleMap', () => ({ GoogleMap: ({ ariaLabel }: { ariaLabel: string }) => <div aria-label={ariaLabel} /> }))
 vi.mock('../components/admin/EmailDeliveryPanel', () => ({ EmailDeliveryPanel: () => <div>Email delivery panel</div> }))
+vi.mock('../features/authentication/useRole', () => ({ useRole: () => ({ user: { name: 'Admin', title: 'Administrator' }, signOut: vi.fn() }) }))
+vi.mock('../components/common/Brand', () => ({ Brand: () => <span>SisaCare.AI</span> }))
+vi.mock('../components/common/ThemeToggle', () => ({ ThemeToggle: () => null }))
 
 beforeEach(() => {
+  vi.stubGlobal('Option', function Option(text: string, value: string) {
+    const option = document.createElement('option'); option.text = text; option.value = value; return option
+  })
   mocks.fetchAnalytics.mockReset().mockResolvedValue({ filters: {}, generated_at: '',
     metrics: { total_submitted: 4, by_status: { resolved: 3, submitted: 1 }, by_category: { 'Hazardous Waste': 4 },
       resolved_current: 3, resolution_rate_percent: 75, verified_resolution_count: 2,
@@ -30,7 +37,7 @@ beforeEach(() => {
   reporter: 'Member', reporterRole: 'user', validationStatus: 'pending',
   }])
 })
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView })
 
 it('keeps hazardous reports in the admin list and category filter', async () => {
   render(<MemoryRouter><AdminDashboardPage /></MemoryRouter>)
@@ -38,6 +45,7 @@ it('keeps hazardous reports in the admin list and category filter', async () => 
   await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Filter by category' }), 'Hazardous Waste')
   expect(screen.getByText('SCA-HAZ-1')).toBeTruthy()
   expect(screen.getAllByText('Hazardous Waste').length).toBeGreaterThan(0)
+  expect(screen.getByRole('link', { name: 'Open report SCA-HAZ-1' }).getAttribute('href')).toBe('/admin/reports/haz-1')
 })
 
 it('shows backend metrics, filters exports, and keeps forecast separate from observed density', async () => {
@@ -50,5 +58,36 @@ it('shows backend metrics, filters exports, and keeps forecast separate from obs
   expect(mocks.downloadAnalytics).toHaveBeenCalledWith('csv', expect.objectContaining({ category: 'Hazardous Waste' }))
   await userEvent.click(screen.getByRole('button', { name: 'Forecast' }))
   expect(screen.getByLabelText('Forecast report counts map')).toBeTruthy()
+  expect(screen.getByRole('columnheader', { name: 'Predicted reports' })).toBeTruthy()
   expect(screen.getByText(/category, status, and submission date filters do not apply/)).toBeTruthy()
+})
+
+it('scrolls to the report section when Reports is clicked, including a repeat click', async () => {
+  const scroll = vi.fn()
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll })
+  render(<MemoryRouter initialEntries={['/admin']}><Routes>
+    <Route path="/admin" element={<AdminLayout />}>
+      <Route index element={<AdminDashboardPage />} />
+    </Route>
+  </Routes></MemoryRouter>)
+  const reportsLink = screen.getByRole('link', { name: 'Reports' })
+  await userEvent.click(reportsLink)
+  await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1))
+  expect(reportsLink.className).toContain('active')
+  await userEvent.click(reportsLink)
+  expect(scroll).toHaveBeenCalledTimes(2)
+})
+
+it('returns from a report detail page to the report section', async () => {
+  const scroll = vi.fn()
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll })
+  render(<MemoryRouter initialEntries={['/admin/reports/haz-1']}><Routes>
+    <Route path="/admin" element={<AdminLayout />}>
+      <Route index element={<AdminDashboardPage />} />
+      <Route path="reports/:reportId" element={<p>Report detail</p>} />
+    </Route>
+  </Routes></MemoryRouter>)
+  await userEvent.click(screen.getByRole('link', { name: 'Reports' }))
+  expect(await screen.findByRole('heading', { name: 'Review queue' })).toBeTruthy()
+  await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1))
 })

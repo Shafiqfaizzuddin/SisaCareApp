@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AppDataTable, Column } from '../common/AppDataTable'
 import { authenticatedFetch } from '../../features/authentication/authenticated-fetch'
 
 type Delivery = {
@@ -48,13 +49,16 @@ export function EmailDeliveryPanel() {
     </header>
     {data && !data.delivery_configured.citizen && <p role="status">Citizen SMTP is not configured. Resolution notifications remain queued until a sender is configured.</p>}
     {error && <p role="alert">{error}</p>}
-    {failed.length > 0 && <div className="report-table-wrap"><table className="report-table"><thead><tr>
-      <th>Report</th><th>Update</th><th>Recipient</th><th>Attempts</th><th>Failure</th><th>Action</th>
-    </tr></thead><tbody>{failed.map(item => <tr key={item.outbox_event_key}>
-      <td>{item.reference}</td><td>{item.event_type.replaceAll('_', ' ')}</td><td>{item.recipient_hint}</td>
-      <td>{item.attempts}</td><td>{item.last_error ?? 'Unknown'}</td>
-      <td><button className="button button--secondary" type="button" disabled={busy === item.outbox_event_key}
-        onClick={() => void retry(item.outbox_event_key)}>Retry</button></td>
-    </tr>)}</tbody></table></div>}
+    {failed.length > 0 && <div className="report-table-wrap"><AppDataTable data={failed} className="report-table">
+      <Column title="Report" data="reference">{(value: string) => <span>{value}</span>}</Column>
+      <Column title="Update" data="event_type">{(value: string) => <span>{value.replaceAll('_', ' ')}</span>}</Column>
+      <Column title="Recipient" data="recipient_hint">{(value: string) => <span>{value}</span>}</Column>
+      <Column title="Attempts" data="attempts" />
+      <Column title="Failure" data="last_error">{(value: string | null) => <span>{value ?? 'Unknown'}</span>}</Column>
+      <Column title="Action" data="outbox_event_key" options={{ orderable: false, searchable: false, className: 'all' }}>
+        {(eventKey: string) => <button className="button button--secondary" type="button" disabled={busy === eventKey}
+          onClick={() => void retry(eventKey)}>Retry</button>}
+      </Column>
+    </AppDataTable></div>}
   </section>
 }

@@ -6,9 +6,13 @@ import { EmailDeliveryPanel } from './EmailDeliveryPanel'
 
 const mocked = vi.hoisted(() => ({ fetch: vi.fn() }))
 vi.mock('../../features/authentication/authenticated-fetch', () => ({ authenticatedFetch: mocked.fetch }))
-afterEach(() => { cleanup(); mocked.fetch.mockReset() })
+const installOption = () => vi.stubGlobal('Option', function Option(text: string, value: string) {
+  const option = document.createElement('option'); option.text = text; option.value = value; return option
+})
+afterEach(() => { cleanup(); mocked.fetch.mockReset(); vi.unstubAllGlobals() })
 
 it('shows masked failed delivery and requeues it through the admin API', async () => {
+  installOption()
   const listing = { delivery_configured: { admin: true, citizen: true }, events: [{
     outbox_event_key: 'r1:resolved:e1', reference: 'SCA-1', event_type: 'resolved',
     delivery_status: 'failed', attempts: 5, last_error: 'OSError', next_attempt_at: null,

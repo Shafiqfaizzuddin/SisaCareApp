@@ -27,7 +27,9 @@ export function AdminLayout() {
             <LayoutDashboard size={18} />
             Overview
           </Link>
-          <Link to="/admin#reports" className={location.pathname === '/admin' && location.hash === '#reports' ? 'active' : undefined}>
+          <Link to="/admin#reports" className={location.pathname === '/admin' && location.hash === '#reports' ? 'active' : undefined}
+            onClick={() => { if (location.pathname === '/admin' && location.hash === '#reports')
+              document.getElementById('reports')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }) }}>
             <ClipboardList size={18} />
             Reports
           </Link>

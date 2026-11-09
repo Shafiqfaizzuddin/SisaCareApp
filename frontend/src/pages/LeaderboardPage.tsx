@@ -1,6 +1,7 @@
 import { Award, Crown, Medal } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { PageIntro } from '../components/common/PageIntro'
+import { AppDataTable, Column } from '../components/common/AppDataTable'
 import { useRole } from '../features/authentication/useRole'
 import { memberTitleForPoints } from '../features/authentication/member-data'
 import type { LeaderboardEntry } from '../types'
@@ -55,10 +56,16 @@ export function LeaderboardPage() {
         <span>#{entry.rank}</span><h2>{entry.name}</h2><p><Award size={14} /> {entry.title}</p>
         <strong>{entry.points} points</strong></article>)}</div>}
       <section className="leaderboard-table-panel"><header><div><h2>Community ranking</h2><p>Verified lifetime contributions; ties share a rank.</p></div><span>{total} participants</span></header>
-        <div className="leaderboard-table-wrap"><table className="leaderboard-table"><thead><tr><th>Rank</th><th>Member</th><th>Title</th><th>Valid reports</th><th>Points</th></tr></thead>
-          <tbody>{entries.map(entry => <tr className={entry.id === user?.id ? 'leaderboard-table__current' : ''} key={entry.id}>
-            <td><strong>#{entry.rank}</strong></td><td><span className="leaderboard-member"><span>{displayInitials(entry.name)}</span><strong>{entry.name}</strong>{entry.id === user?.id && <small>You</small>}</span></td>
-            <td>{entry.title}</td><td>{entry.validReports}</td><td><strong>{entry.points}</strong></td></tr>)}</tbody></table></div>
+        <div className="leaderboard-table-wrap"><AppDataTable data={entries.map(entry => ({ ...entry, isCurrent: entry.id === user?.id }))}
+          className="leaderboard-table" options={{ paging: false, searching: false, info: false, ordering: false,
+            createdRow: (row, data) => { if ('isCurrent' in data && data.isCurrent) row.classList.add('leaderboard-table__current') } }}>
+          <Column title="Rank" data="rank">{(rank: number) => <strong>#{rank}</strong>}</Column>
+          <Column title="Member" data="name">{(name: string, _type: string, entry: RankedEntry & { isCurrent: boolean }) =>
+            <span className="leaderboard-member"><span>{displayInitials(name)}</span><strong>{name}</strong>{entry.isCurrent && <small>You</small>}</span>}</Column>
+          <Column title="Title" data="title">{(title: string) => <span>{title}</span>}</Column>
+          <Column title="Valid reports" data="validReports" />
+          <Column title="Points" data="points">{(points: number) => <strong>{points}</strong>}</Column>
+        </AppDataTable></div>
         <div className="form-actions">{page > 0 && <button type="button" className="button button--secondary" onClick={() => setPage(value => value - 1)}>Previous</button>}
           {(page + 1) * 50 < total && <button type="button" className="button button--secondary" onClick={() => setPage(value => value + 1)}>Next</button>}</div>
       </section></>}

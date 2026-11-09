@@ -1,0 +1,14 @@
+.dt-container { max-width: 100%; color: var(--ink); font-size: .84rem; }
+.dt-container .dt-layout-row { gap: .8rem; flex-wrap: wrap; }
+.dt-container .dt-input { border: 1px solid var(--line-strong); border-radius: .5rem; background: var(--panel); color: var(--ink); }
+.dt-container .dt-search label, .dt-container .dt-length label, .dt-container .dt-info { color: var(--ink-soft); }
+.dt-container .dt-paging .dt-paging-button { border-radius: .45rem; color: var(--ink) !important; }
+.dt-container .dt-paging .dt-paging-button.current { background: var(--green-soft) !important; border-color: var(--green) !important; }
+.dt-container .dt-paging .dt-paging-button:focus-visible, .dt-container .dt-input:focus-visible { outline: 3px solid var(--green); outline-offset: 2px; }
+.dt-container table.dataTable { width: 100% !important; margin: 0; border-collapse: collapse; }
+.dt-container table.dataTable.report-table { min-width: 0; }
+.dt-container table.dataTable thead th { color: var(--ink-soft); background: var(--surface-subtle); }
+.dt-container table.dataTable tbody td { color: var(--ink); background: var(--panel); }
+.dt-container table.dataTable tbody tr:hover td { background: var(--surface-subtle); }
+.dt-container table.dataTable tbody tr.leaderboard-table__current td { background: var(--amber-soft); }
+@media (max-width: 600px) { .dt-container .dt-layout-cell { width: 100%; } .dt-container .dt-input { max-width: 100%; } }

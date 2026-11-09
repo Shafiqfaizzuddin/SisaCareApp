@@ -173,6 +173,9 @@ export function UserLoginPage() {
           <p className="member-login-card__signup">Don&apos;t have an account?{' '}
             <Link to="/signup">Create a SisaCare account</Link>
           </p>
+          <p className="member-login-card__signup member-login-card__role-link">
+            Staff or driver? <Link to="/staff/login">Login as Staff</Link>
+          </p>
         </section>
       </div>
       <ThemeToggle compact />

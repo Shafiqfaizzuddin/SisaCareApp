@@ -11,6 +11,8 @@ vi.mock('../features/authentication/useRole', () => ({
   useRole: () => ({ signIn, syncBrowserSession, refreshMemberData }),
 }))
 vi.mock('../features/authentication/google', () => ({ signInWithGoogle }))
+vi.mock('../components/common/Brand', () => ({ Brand: () => <a href="/" aria-label="SisaCare.AI home">SisaCare.AI</a> }))
+vi.mock('../components/common/ThemeToggle', () => ({ ThemeToggle: () => null }))
 vi.mock('../components/common/GoogleIdentityButton', () => ({
   GoogleIdentityButton: ({ onCredential, disabled }: { onCredential: (token: string) => Promise<void>; disabled: boolean }) => (
     <button type="button" disabled={disabled} onClick={() => void onCredential('test-google-token')}>
@@ -57,6 +59,7 @@ it('shows the requested form order and an accessible password toggle', () => {
   expect(screen.getByRole('button', { name: 'Hide password' }).getAttribute('aria-pressed')).toBe('true')
   expect(screen.getByRole('link', { name: 'Forgot password?' }).getAttribute('href')).toBe('/password-reset')
   expect(screen.getByRole('link', { name: 'Create a SisaCare account' }).getAttribute('href')).toBe('/signup')
+  expect(screen.getByRole('link', { name: 'Login as Staff' }).getAttribute('href')).toBe('/staff/login')
 })
 
 it('supports keyboard navigation and password visibility control', async () => {

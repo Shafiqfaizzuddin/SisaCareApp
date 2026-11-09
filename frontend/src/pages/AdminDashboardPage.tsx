@@ -1,8 +1,9 @@
 import { ArrowUpRight, CheckCircle2, Clock3, Download, Search, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { MetricCard } from '../components/admin/MetricCard'
 import { EmailDeliveryPanel } from '../components/admin/EmailDeliveryPanel'
+import { AppDataTable, Column } from '../components/common/AppDataTable'
 import { GoogleMap } from '../components/location/GoogleMap'
 import { ReportStatus } from '../components/reports/ReportStatus'
 import { downloadAnalytics, fetchAnalytics, fetchForecast } from '../features/admin-analytics/admin-analytics-api'
@@ -19,6 +20,7 @@ type StatusFilter = 'all' | ReportStatusValue
 type CategoryFilter = 'all' | WasteCategory
 
 export function AdminDashboardPage() {
+  const location = useLocation()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [category, setCategory] = useState<CategoryFilter>('all')
@@ -37,6 +39,12 @@ export function AdminDashboardPage() {
   const [layer, setLayer] = useState<'observed' | 'forecast'>('observed')
   const [periodIndex, setPeriodIndex] = useState(0)
   const [exportError, setExportError] = useState('')
+
+  useEffect(() => {
+    if (location.hash === '#reports') {
+      document.getElementById('reports')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    }
+  }, [location.hash])
 
   const filters = useMemo<AnalyticsFilters>(() => ({ start, end,
     category: category === 'all' ? '' : category, status: status === 'all' ? '' : status,
@@ -103,6 +111,9 @@ export function AdminDashboardPage() {
       .map(cell => ({ latitude: cell.center_latitude, longitude: cell.center_longitude, weight: cell.predicted_count }))
   const displayCount = (value: number | null | undefined, suffix = '') => value == null ? 'Unavailable' : `${value}${suffix}`
   const trendPeak = Math.max(1, ...(analytics?.trends ?? []).slice(-30).flatMap(day => [day.reported, day.resolved]))
+  const mapRows = (layer === 'observed' ? (analytics?.observed_heatmap ?? []).map(cell => ({ key: cell.cell_key, count: cell.count }))
+    : (forecastPeriod?.cells ?? []).filter(cell => !area || cell.cell_key === area).map(cell => ({ key: cell.cell_key, count: cell.predicted_count })))
+    .sort((a, b) => b.count - a.count).slice(0, 20)
 
   return (
     <>
@@ -180,8 +191,12 @@ export function AdminDashboardPage() {
           <p>Assignments: <strong>{metrics?.staff.task_assignments ?? 0}</strong></p>
           <p>Active: <strong>{metrics?.staff.active_assignments ?? 0}</strong></p>
           <p>Verified completions with cleanup proof: <strong>{metrics?.staff.verified_completions_with_proof ?? 0}</strong></p>
-          <div className="report-table-wrap"><table className="report-table"><thead><tr><th>Staff ID</th><th>Assigned</th><th>Active</th><th>Completed</th></tr></thead>
-            <tbody>{(metrics?.staff.by_staff ?? []).map(item => <tr key={item.staff_id}><td>{item.staff_id.slice(0, 8)}…</td><td>{item.assigned}</td><td>{item.active}</td><td>{item.verified_completions}</td></tr>)}</tbody></table></div>
+          <div className="report-table-wrap"><AppDataTable data={metrics?.staff.by_staff ?? []} className="report-table" options={{ pageLength: 5 }}>
+            <Column title="Staff ID" data="staff_id">{(id: string) => <span>{id.slice(0, 8)}…</span>}</Column>
+            <Column title="Assigned" data="assigned" />
+            <Column title="Active" data="active" />
+            <Column title="Completed" data="verified_completions" />
+          </AppDataTable></div>
         </div>
       </section>
 
@@ -208,10 +223,10 @@ export function AdminDashboardPage() {
         <GoogleMap location={null} heatPoints={heatPoints} heatTone={layer === 'observed' ? provenance === 'demo' ? 'demo' : 'observed' : provenance === 'demo' ? 'demo' : 'forecast'}
           ariaLabel={`${layer === 'observed' ? 'Observed report density' : 'Forecast report counts'} map`} />
         <p>Shaded 0.05° grid cells show {layer === 'observed' ? 'observed' : 'predicted'} report counts; darker cells have higher counts. Exact report locations and reporter details are hidden. {metrics?.missing_coordinates ?? 0} selected reports have no usable coordinates.</p>
-        <div className="report-table-wrap"><table className="report-table"><thead><tr><th>Grid area</th><th>{layer === 'observed' ? 'Observed reports' : 'Predicted reports'}</th></tr></thead>
-          <tbody>{(layer === 'observed' ? (analytics?.observed_heatmap ?? []).map(cell => ({ key: cell.cell_key, count: cell.count }))
-            : (forecastPeriod?.cells ?? []).filter(cell => !area || cell.cell_key === area).map(cell => ({ key: cell.cell_key, count: cell.predicted_count })))
-            .sort((a, b) => b.count - a.count).slice(0, 20).map(cell => <tr key={cell.key}><td>{cell.key}</td><td>{cell.count}</td></tr>)}</tbody></table></div>
+        <div className="report-table-wrap"><AppDataTable key={layer} data={mapRows} className="report-table" options={{ pageLength: 10 }}>
+          <Column title="Grid area" data="key">{(key: string) => <span>{key}</span>}</Column>
+          <Column title={layer === 'observed' ? 'Observed reports' : 'Predicted reports'} data="count" />
+        </AppDataTable></div>
       </section>
 
       <EmailDeliveryPanel />
@@ -237,46 +252,20 @@ export function AdminDashboardPage() {
 
         <p className="report-table-hint">Swipe horizontally to view all report columns.</p>
         <div className="report-table-wrap" role="region" aria-label="Recent reports table" tabIndex={0}>
-          <table className="report-table">
-            <thead>
-              <tr>
-                <th>Report</th>
-                <th>Category</th>
-                <th>Location</th>
-                <th>Submitted</th>
-                <th>Status</th>
-                <th><span className="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredReports.map((report) => (
-                <tr key={report.id}>
-                  <td>
-                    <span className="report-identity">
-                      <strong>{report.reference}</strong>
-                      <small>
-                        {report.reporterRole === 'user' ? 'Community User' : 'Legacy guest'}
-                      </small>
-                    </span>
-                  </td>
-                  <td>{categoryLabels[report.category] ?? report.category}</td>
-                  <td className="report-table__location">{report.location}</td>
-                  <td>{report.submittedAt}</td>
-                  <td><ReportStatus status={report.status} /></td>
-                  <td>
-                    <Link
-                      className="icon-button"
-                      to={`/admin/reports/${report.id}`}
-                      aria-label={`Open report ${report.reference}`}
-                      title="Open report"
-                    >
-                      <ArrowUpRight size={17} />
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <AppDataTable data={filteredReports} className="report-table" options={{ searching: false, pageLength: 10 }}>
+            <Column title="Report" data="reference" options={{ className: 'all' }}>
+              {(reference: string, _type: string, report: ReportSummary) => <span className="report-identity"><strong>{reference}</strong>
+                <small>{report.reporterRole === 'user' ? 'Community User' : 'Legacy guest'}</small></span>}
+            </Column>
+            <Column title="Category" data="category">{(value: WasteCategory) => <span>{categoryLabels[value] ?? value}</span>}</Column>
+            <Column title="Location" data="location" options={{ className: 'report-table__location' }}>{(value: string) => <span>{value}</span>}</Column>
+            <Column title="Submitted" data="submittedAt">{(value: string) => <span>{value}</span>}</Column>
+            <Column title="Status" data="status">{(value: ReportStatusValue) => <ReportStatus status={value} />}</Column>
+            <Column title="Actions" data="id" options={{ orderable: false, searchable: false, className: 'all' }}>
+              {(id: string, _type: string, report: ReportSummary) => <Link className="icon-button" to={`/admin/reports/${id}`}
+                aria-label={`Open report ${report.reference}`} title="Open report"><ArrowUpRight size={17} /></Link>}
+            </Column>
+          </AppDataTable>
           {loading && <p className="empty-state">Loading reports...</p>}
           {loadError && <div className="empty-state" role="alert">{loadError} <button type="button" onClick={() => setRefreshVersion(value => value + 1)}>Try again</button></div>}
           {!loading && !loadError && filteredReports.length === 0 && (
