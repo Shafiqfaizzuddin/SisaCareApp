@@ -77,6 +77,10 @@ html {
   scroll-behavior: smooth;
 }
 
+@media (min-width: 1024px) and (pointer: fine) {
+  html { font-size: 112.5%; }
+}
+
 body {
   min-width: 320px;
   min-height: 100vh;
