@@ -74,6 +74,8 @@ def assign(report_id: str, assignee_id: str, team: str, actor_id: str, reason: s
         db.execute("UPDATE reports SET status = 'assigned', assigned_team = ?, updated_at = ? WHERE id = ?",
                    (team, now, report_id))
         event_id = _event(db, report_id, actor_id, row["status"], "assigned", reason or f"Assigned to {team}", team=team)
+        from app.repositories.admin_notifications import queue_admin_event
+        queue_admin_event(db, report_id, event_id, now)
         if row["notification_email"] and get_settings().notify_citizen_on_assignment:
             reports._queue_email(db, report_id, "assigned", row["notification_email"], now, event_id=event_id)
         db.commit()
@@ -159,6 +161,8 @@ def change(report_id: str, action: str, actor_id: str, *, reason: str = "",
                                   "Cleanup proof verified" if action == "verify" else None)
         event_id = _event(db, report_id, actor_id, previous, current, event_reason,
                           team=assignment["team_name"], photo=photo_url)
+        from app.repositories.admin_notifications import queue_admin_event
+        queue_admin_event(db, report_id, event_id, now)
         if row["notification_email"] and (action == "verify" or
                 (action in {"start", "submit"} and get_settings().notify_citizen_on_progress)):
             reports._queue_email(db, report_id, current, row["notification_email"], now, event_id=event_id)

@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     email_public_base_url: str = "http://localhost:5173"
     notify_citizen_on_assignment: bool = False
     notify_citizen_on_progress: bool = False
+    notify_admin_on_status: bool = True
+    telegram_bot_token: SecretStr = SecretStr("")
+    telegram_admin_chat_id: str = ""
 
 
     model_config = SettingsConfigDict(
@@ -171,6 +174,10 @@ class Settings(BaseSettings):
             for channel in ("admin", "user")
         ):
             raise ValueError("SMTP encryption is required in production.")
+        if self.telegram_admin_chat_id and not self.telegram_admin_chat_id.startswith("-100"):
+            raise ValueError("TELEGRAM_ADMIN_CHAT_ID must be a private channel ID beginning with -100.")
+        if self.telegram_admin_chat_id and not self.telegram_admin_chat_id[1:].isdigit():
+            raise ValueError("TELEGRAM_ADMIN_CHAT_ID must be numeric.")
         public_url = urlparse(self.email_public_base_url)
         if (public_url.scheme not in {"http", "https"} or not public_url.hostname
                 or public_url.username or public_url.password or public_url.query

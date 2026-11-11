@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { MetricCard } from '../components/admin/MetricCard'
 import { EmailDeliveryPanel } from '../components/admin/EmailDeliveryPanel'
+import { AdminNotificationPanel } from '../components/admin/AdminNotificationPanel'
 import { AppDataTable, Column } from '../components/common/AppDataTable'
 import { GoogleMap } from '../components/location/GoogleMap'
 import { ReportStatus } from '../components/reports/ReportStatus'
@@ -230,6 +231,7 @@ export function AdminDashboardPage() {
       </section>
 
       <EmailDeliveryPanel />
+      <AdminNotificationPanel />
 
       <section className="admin-panel report-list" id="reports">
         <header className="admin-panel__heading">

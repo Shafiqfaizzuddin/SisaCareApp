@@ -47,7 +47,7 @@ from app.services.image_uploads import (
     upload_size_limit_message,
     validate_image_upload_metadata,
 )
-from app.services.report_email import channel_ready, dispatch_pending_report_emails
+from app.services.report_email import _valid_address, dispatch_pending_report_emails
 
 
 logger = logging.getLogger(__name__)
@@ -266,7 +266,7 @@ def _authorize_submission(
     submission_data["activity_affiliation"] = "unknown"
     settings = get_settings()
     submission_data["notification_email"] = user.get("email") if user.get("email_verified") is True else None
-    submission_data["admin_notification_email"] = settings.admin_notification_email if channel_ready(settings, "admin") else None
+    submission_data["admin_notification_email"] = settings.admin_notification_email if _valid_address(settings.admin_notification_email) else None
     return submission_data
 
 

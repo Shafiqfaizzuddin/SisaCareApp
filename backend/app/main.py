@@ -24,6 +24,7 @@ from app.api.v1.router import api_router
 from app.core.config import PROJECT_ROOT, get_settings
 from app.core.logging import configure_logging
 from app.services.report_email import dispatch_pending_report_emails
+from app.services.admin_notification_delivery import dispatch_pending_admin_notifications
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -39,6 +40,10 @@ async def lifespan(_app: FastAPI):
                 await asyncio.to_thread(dispatch_pending_report_emails)
             except Exception as exc:
                 logger.warning("report_email_worker_failed error_type=%s", type(exc).__name__)
+            try:
+                await asyncio.to_thread(dispatch_pending_admin_notifications)
+            except Exception as exc:
+                logger.warning("admin_notification_worker_failed error_type=%s", type(exc).__name__)
             await asyncio.sleep(60)
 
     worker = asyncio.create_task(email_worker())

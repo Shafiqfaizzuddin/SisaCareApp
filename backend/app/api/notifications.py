@@ -9,6 +9,7 @@ from fastapi.concurrency import run_in_threadpool
 from app.core.auth import AuthenticatedUser, require_admin_user
 from app.core.config import get_settings
 from app.repositories.reports import list_report_email_deliveries, retry_failed_report_email
+from app.repositories.admin_notifications import list_deliveries, retry_failed
 from app.services.report_email import channel_ready
 
 router = APIRouter()
@@ -33,3 +34,23 @@ async def retry_email(event_key: str, _admin: Admin) -> dict:
     if not await run_in_threadpool(retry_failed_report_email, event_key):
         raise HTTPException(409, "Only exhausted, unsent notifications can be retried.")
     return {"event_key": event_key, "delivery_status": "queued"}
+
+
+@router.get('/admin')
+async def admin_delivery_status(_admin: Admin,
+    status: Literal['queued', 'retrying', 'sent', 'failed'] | None = None,
+    limit: int = Query(default=100, ge=1, le=200)) -> dict:
+    settings = get_settings()
+    return {'delivery_configured': {
+        'email': channel_ready(settings, 'admin'),
+        'telegram': bool(settings.telegram_admin_chat_id and settings.telegram_bot_token.get_secret_value()),
+    }, 'events': await run_in_threadpool(list_deliveries, status=status, limit=limit)}
+
+
+@router.post('/admin/{event_key}/retry')
+async def retry_admin_delivery(event_key: str, _admin: Admin) -> dict:
+    if len(event_key) > 200:
+        raise HTTPException(422, 'Invalid event key.')
+    if not await run_in_threadpool(retry_failed, event_key):
+        raise HTTPException(409, 'Only exhausted, unsent notifications can be retried.')
+    return {'event_key': event_key, 'delivery_status': 'queued'}

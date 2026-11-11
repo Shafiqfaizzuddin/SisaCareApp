@@ -77,3 +77,5 @@ npm test
 ```
 
 Browser session cookies have server side idle and absolute limits (`SESSION_IDLE_SECONDS`, default 3600; `SESSION_ABSOLUTE_SECONDS`, default 43200). While a signed-in page is visible and the person has recently interacted with it, the browser checks the session every five minutes so active form work refreshes the idle limit. An idle or hidden page does not keep the session alive, and the absolute limit still ends it. Browser closure cannot be detected reliably when a browser restores session state; explicit sign out invalidates the server session. If Google Identity Services fails to load after expiry, the sign-in page shows a retry control instead of an empty button area.
+
+Administrator report and status alerts can also post to a private Telegram channel. Apply the PostgreSQL notification migration and configure the server-side bot token and channel ID as described in [administrator notification setup](docs/ADMIN_REPORT_NOTIFICATIONS.md).

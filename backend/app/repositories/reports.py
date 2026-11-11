@@ -339,6 +339,23 @@ def initialize_database(connection: sqlite3.Connection | None = None) -> None:
         _ensure_waste_detection_storage(database)
         _migrate_legacy_report_detections(database)
         _ensure_email_notification_schema(database)
+        database.execute("""CREATE TABLE IF NOT EXISTS admin_notification_outbox (
+            event_key TEXT PRIMARY KEY,
+            status_event_id TEXT NOT NULL REFERENCES report_status_events(id) ON DELETE RESTRICT,
+            report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE RESTRICT,
+            channel TEXT NOT NULL CHECK(channel IN ('email','telegram')),
+            recipient TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            sent_at TEXT,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            claimed_at TEXT,
+            claim_token TEXT,
+            next_attempt_at TEXT,
+            provider_message_id TEXT
+        )""")
+        database.execute("""CREATE INDEX IF NOT EXISTS idx_admin_notification_pending
+            ON admin_notification_outbox(sent_at,next_attempt_at,claimed_at)""")
         database.commit()
     finally:
         if owns_connection:
@@ -1304,14 +1321,17 @@ def create_report(submission: Mapping[str, Any]) -> dict[str, str]:
                 "UPDATE analysis_drafts SET consumed_at = ?, split_recycling_ids_json = ? WHERE id = ?",
                 (now, json.dumps(split_recycling_ids) if split_recycling_ids else None, analysis_id),
             )
+        status_event_id = uuid4().hex
         database.execute(
             """INSERT INTO report_status_events
                (id, report_id, actor_id, previous_status, new_status, created_at)
                VALUES (?, ?, ?, '', 'submitted', ?)""",
-            (uuid4().hex, report_id, submission.get("user_id") or "guest", now),
+            (status_event_id, report_id, submission.get("user_id") or "guest", now),
         )
         if admin_email := submission.get("admin_notification_email"):
             _queue_email(database, report_id, "submitted", str(admin_email), now)
+        from app.repositories.admin_notifications import queue_admin_event
+        queue_admin_event(database, report_id, status_event_id, now, include_email=False)
         database.commit()
     except Exception:
         database.rollback()
@@ -1894,13 +1914,16 @@ def validate_report(
              f"report:{report_id}", report_id),
         )
 
+        status_event_id = uuid4().hex
         database.execute(
             """INSERT INTO report_status_events
                (id, report_id, actor_id, previous_status, new_status, reason, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (uuid4().hex, report_id, reviewer_id or "municipal-admin", report["status"],
+            (status_event_id, report_id, reviewer_id or "municipal-admin", report["status"],
              report_status, rejection_reason.strip() if validation_status == "invalid" else None, now),
         )
+        from app.repositories.admin_notifications import queue_admin_event
+        queue_admin_event(database, report_id, status_event_id, now)
 
         database.commit()
         return {
@@ -1984,15 +2007,18 @@ def transition_report(
             (new_status, team if action == "assign" else None,
              details if action == "resolve" else None, after_photo, now, report_id),
         )
+        status_event_id = uuid4().hex
         database.execute(
             """INSERT INTO report_status_events
                (id, report_id, actor_id, previous_status, new_status,
                 assigned_team, resolution_details, after_photo, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (uuid4().hex, report_id, actor_id, row["status"], new_status,
+            (status_event_id, report_id, actor_id, row["status"], new_status,
              team if action == "assign" else None, details if action == "resolve" else None,
              after_photo, now),
         )
+        from app.repositories.admin_notifications import queue_admin_event
+        queue_admin_event(database, report_id, status_event_id, now)
         if get_settings().persistence_backend == "postgres" and action == "assign":
             database.execute(
                 "UPDATE report_assignments SET ended_at = now() WHERE report_id = ? AND ended_at IS NULL",
