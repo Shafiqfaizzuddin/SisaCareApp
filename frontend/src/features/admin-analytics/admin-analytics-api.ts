@@ -4,7 +4,8 @@ export type AnalyticsFilters = {
   start: string; end: string; category: string; status: string; area: string
   provenance: 'production' | 'legacy_unknown' | 'demo'
 }
-export type DensityCell = { cell_key: string; center_latitude: number; center_longitude: number; count: number }
+export type DensityCell = { cell_key: string; center_latitude: number; center_longitude: number;
+  south: number; north: number; west: number; east: number; count: number }
 export type ForecastCell = { cell_key: string; center_latitude: number; center_longitude: number; predicted_count: number }
 export type Analytics = {
   filters: Record<string, string | null>; generated_at: string

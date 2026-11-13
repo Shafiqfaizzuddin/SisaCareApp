@@ -5,7 +5,7 @@ import { MetricCard } from '../components/admin/MetricCard'
 import { EmailDeliveryPanel } from '../components/admin/EmailDeliveryPanel'
 import { AdminNotificationPanel } from '../components/admin/AdminNotificationPanel'
 import { AppDataTable, Column } from '../components/common/AppDataTable'
-import { GoogleMap } from '../components/location/GoogleMap'
+import { GoogleMap, OBSERVED_DENSITY_BANDS } from '../components/location/GoogleMap'
 import { ReportStatus } from '../components/reports/ReportStatus'
 import { downloadAnalytics, fetchAnalytics, fetchForecast } from '../features/admin-analytics/admin-analytics-api'
 import type { Analytics, AnalyticsFilters, Forecast } from '../features/admin-analytics/admin-analytics-api'
@@ -38,6 +38,7 @@ export function AdminDashboardPage() {
   const [areaOptions, setAreaOptions] = useState<string[]>([])
   const [forecast, setForecast] = useState<Forecast | null>(null)
   const [layer, setLayer] = useState<'observed' | 'forecast'>('observed')
+  const [selectedCellKey, setSelectedCellKey] = useState('')
   const [periodIndex, setPeriodIndex] = useState(0)
   const [exportError, setExportError] = useState('')
 
@@ -106,14 +107,19 @@ export function AdminDashboardPage() {
 
   const metrics = analytics?.metrics
   const forecastPeriod = forecast?.periods[periodIndex]
-  const heatPoints = layer === 'observed'
-    ? (analytics?.observed_heatmap ?? []).map(cell => ({ latitude: cell.center_latitude, longitude: cell.center_longitude, weight: cell.count }))
-    : (forecastPeriod?.cells ?? []).filter(cell => !area || cell.cell_key === area)
-      .map(cell => ({ latitude: cell.center_latitude, longitude: cell.center_longitude, weight: cell.predicted_count }))
+  const heatPoints = useMemo(() => layer === 'observed'
+    ? (analytics?.observed_heatmap ?? []).map(cell => ({ latitude: cell.center_latitude, longitude: cell.center_longitude,
+      weight: cell.count, cellKey: cell.cell_key,
+      bounds: { south: cell.south, north: cell.north, west: cell.west, east: cell.east } }))
+    : (forecastPeriod?.cells ?? []).map(cell => ({ latitude: cell.center_latitude,
+      longitude: cell.center_longitude, weight: cell.predicted_count })),
+    [layer, analytics?.observed_heatmap, forecastPeriod?.cells])
+  const selectedCell = analytics?.observed_heatmap.find(cell => cell.cell_key === selectedCellKey)
+  const mappedReportCount = (analytics?.observed_heatmap ?? []).reduce((sum, cell) => sum + cell.count, 0)
   const displayCount = (value: number | null | undefined, suffix = '') => value == null ? 'Unavailable' : `${value}${suffix}`
   const trendPeak = Math.max(1, ...(analytics?.trends ?? []).slice(-30).flatMap(day => [day.reported, day.resolved]))
   const mapRows = (layer === 'observed' ? (analytics?.observed_heatmap ?? []).map(cell => ({ key: cell.cell_key, count: cell.count }))
-    : (forecastPeriod?.cells ?? []).filter(cell => !area || cell.cell_key === area).map(cell => ({ key: cell.cell_key, count: cell.predicted_count })))
+    : (forecastPeriod?.cells ?? []).map(cell => ({ key: cell.cell_key, count: cell.predicted_count })))
     .sort((a, b) => b.count - a.count).slice(0, 20)
 
   return (
@@ -142,7 +148,7 @@ export function AdminDashboardPage() {
           <label>Data source<select value={provenance} onChange={event => { setProvenance(event.target.value as AnalyticsFilters['provenance']); setArea(''); setLayer('observed') }}>
             <option value="production">Observed production reports</option><option value="legacy_unknown">Legacy, provenance unknown</option><option value="demo">Demonstration reports</option>
           </select></label>
-          <label>Grid area<select value={area} onChange={event => setArea(event.target.value)}><option value="">All areas</option>
+          <label>Observed 1 km area<select value={area} onChange={event => { setArea(event.target.value); setSelectedCellKey('') }}><option value="">All areas</option>
             {areaOptions.map(key => <option key={key} value={key}>{key}</option>)}</select></label>
         </div>
         <p>These filters apply to analytics, the observed map, and exports. Category and status also filter the review list below.</p>
@@ -214,18 +220,27 @@ export function AdminDashboardPage() {
 
       <section className="admin-panel analytics-panel"><header className="admin-panel__heading"><div><h2>Waste density map</h2>
         <p>{layer === 'observed' ? `Observed ${provenance === 'production' ? 'production' : provenance} report counts` : `Modeled ${provenance === 'demo' ? 'synthetic demonstration' : 'production'} report counts`}</p></div>
-        <div className="analytics-actions"><button type="button" className="button button--secondary" onClick={() => setLayer('observed')}>Observed</button>
-          <button type="button" className="button button--secondary" disabled={provenance === 'legacy_unknown'} onClick={() => setLayer('forecast')}>Forecast</button></div></header>
-        {layer === 'forecast' && <><p>Forecasts are trained on all report categories; category, status, and submission date filters do not apply to this layer.</p>
+        <div className="analytics-actions"><button type="button" className="button button--secondary" onClick={() => { setLayer('observed'); setSelectedCellKey('') }}>Observed</button>
+          <button type="button" className="button button--secondary" disabled={provenance === 'legacy_unknown'} onClick={() => { setLayer('forecast'); setSelectedCellKey('') }}>Forecast</button></div></header>
+        {layer === 'forecast' && <><p>Forecasts use coarser 0.05° cells and are trained on all report categories; category, status, submission date and observed 1 km area filters do not apply to this layer.</p>
           {provenance === 'demo' && <p>The synthetic forecast uses its own reproducible demonstration dataset; it is not derived from the observed demonstration reports on this page.</p>}
           {forecast?.status === 'available' ? <label>Forecast week <select value={periodIndex} onChange={event => setPeriodIndex(Number(event.target.value))}>
             {forecast.periods.map((period, index) => <option key={period.start} value={index}>{period.start.slice(0, 10)} to {period.end.slice(0, 10)}</option>)}</select></label>
             : <p role="status">{forecast?.status === 'insufficient_data' ? 'Forecast unavailable: insufficient training history.' : forecast?.reason ?? 'No forecast is available.'}</p>}</>}
-        <GoogleMap location={null} heatPoints={heatPoints} heatTone={layer === 'observed' ? provenance === 'demo' ? 'demo' : 'observed' : provenance === 'demo' ? 'demo' : 'forecast'}
+        <GoogleMap location={null} heatPoints={heatPoints} heatTone={layer === 'observed' ? provenance === 'demo' ? 'demo' : 'observed' : provenance === 'demo' ? 'forecastDemo' : 'forecast'}
+          onHeatCellSelect={layer === 'observed' ? setSelectedCellKey : undefined} showHeatControls
           ariaLabel={`${layer === 'observed' ? 'Observed report density' : 'Forecast report counts'} map`} />
-        <p>Shaded 0.05° grid cells show {layer === 'observed' ? 'observed' : 'predicted'} report counts; darker cells have higher counts. Exact report locations and reporter details are hidden. {metrics?.missing_coordinates ?? 0} selected reports have no usable coordinates.</p>
+        {layer === 'observed' ? <>
+          <p>{mappedReportCount} reports in {(analytics?.observed_heatmap ?? []).length} mapped areas. Each shaded 1 km cell counts submitted reports in the selected filters. Colors represent report counts, not measured risk or severity. Demonstration cells have purple outlines. Exact report locations and reporter details are hidden. {metrics?.missing_coordinates ?? 0} selected reports have no usable map coordinates.</p>
+          <div className="density-legend" aria-label="Observed report count legend">{OBSERVED_DENSITY_BANDS.map(band =>
+            <span key={band.min}><i style={{ backgroundColor: band.color }} />{band.label}</span>)}</div>
+          {selectedCell && <p role="status">Selected area {selectedCell.cell_key}: {selectedCell.count} {selectedCell.count === 1 ? 'report' : 'reports'} in the selected filters.</p>}
+          {!analytics?.observed_heatmap.length && <p>No reports with usable coordinates match the selected filters.</p>}
+        </> : <p>Shaded 0.05° forecast cells show predicted report counts, not observed reports or physical waste volume. Darker cells have higher predicted counts.</p>}
         <div className="report-table-wrap"><AppDataTable key={layer} data={mapRows} className="report-table" options={{ pageLength: 10 }}>
-          <Column title="Grid area" data="key">{(key: string) => <span>{key}</span>}</Column>
+          <Column title="Grid area" data="key">{(key: string) => layer === 'observed'
+            ? <button type="button" className="density-area-button" onClick={() => setSelectedCellKey(key)}>{key}</button>
+            : <span>{key}</span>}</Column>
           <Column title={layer === 'observed' ? 'Observed reports' : 'Predicted reports'} data="count" />
         </AppDataTable></div>
       </section>
