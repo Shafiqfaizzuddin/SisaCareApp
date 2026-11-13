@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 from app.repositories import reports
-from app.services.geo_grid import grid_cell
+from app.services.observed_grid import MAX_INDEX, observed_cell
 
 
 @dataclass(frozen=True)
@@ -29,8 +29,8 @@ class Filters:
         if self.provenance not in {"production", "legacy_unknown", "demo"}:
             raise ValueError("Invalid provenance.")
         if self.area:
-            match = re.fullmatch(r"g005:(-?\d+):(-?\d+)", self.area)
-            if not match or not (-1800 <= int(match[1]) <= 1799 and -3600 <= int(match[2]) <= 3599):
+            match = re.fullmatch(r"g1km:(-?\d+):(-?\d+)", self.area)
+            if not match or not all(-MAX_INDEX - 1 <= int(index) <= MAX_INDEX for index in match.groups()):
                 raise ValueError("Invalid grid area.")
 
 
@@ -43,10 +43,10 @@ def _time(value) -> datetime | None:
         return None
 
 
-def _area(row: dict) -> tuple[str, float, float] | None:
+def _area(row: dict) -> tuple[str, float, float, float, float, float, float] | None:
     try:
         lat, lon = float(row["latitude"]), float(row["longitude"])
-        return grid_cell(lat, lon)
+        return observed_cell(lat, lon)
     except (ValueError, TypeError, KeyError):
         return None
 
@@ -120,7 +120,8 @@ def snapshot(filters: Filters) -> dict:
                 by_staff[chosen["assignee_id"]]["verified_completions"] += 1
                 completions += 1
     heat = Counter(row["area"] for row in selected if row["area"] is not None)
-    heatmap = [{"cell_key": key[0], "center_latitude": key[1], "center_longitude": key[2], "count": count}
+    heatmap = [{"cell_key": key[0], "center_latitude": key[1], "center_longitude": key[2],
+                "south": key[3], "north": key[4], "west": key[5], "east": key[6], "count": count}
                for key, count in sorted(heat.items())]
     total = len(selected)
     metrics = {"total_submitted": total, "by_status": dict(sorted(by_status.items())),

@@ -14,11 +14,14 @@ from app.main import app
 from app.repositories import reports, staff
 from app.services.admin_analytics import Filters, csv_export, snapshot
 from app.services.analytics_pdf import render_pdf
+from app.services.observed_grid import observed_cell
 
 
 @pytest.fixture
 def analytics_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(reports, "DATABASE_PATH", tmp_path / "reports.db")
+    monkeypatch.setattr("app.main.dispatch_pending_report_emails", lambda: 0)
+    monkeypatch.setattr("app.main.dispatch_pending_admin_notifications", lambda: 0)
     with reports._connect() as db:
         reports.initialize_database(db)
         staff.initialize(db)
@@ -69,6 +72,9 @@ def test_metrics_and_missing_records(analytics_db):
     assert m["staff"]["active_assignments"] == 1
     assert m["staff"]["verified_completions_with_proof"] == 1
     assert sum(cell["count"] for cell in result["observed_heatmap"]) == 3
+    assert all(cell["cell_key"].startswith("g1km:") for cell in result["observed_heatmap"])
+    assert all(cell["south"] < cell["north"] and cell["west"] < cell["east"]
+               for cell in result["observed_heatmap"])
     assert "guest_email" not in str(result)
 
 
@@ -90,6 +96,21 @@ def test_filters_empty_sets_and_csv_formula_protection(analytics_db):
     assert "Private address" not in str(parsed)
 
 
+def test_observed_kilometre_cells_keep_counts_and_boundaries(analytics_db):
+    first = observed_cell(3.071, 101.512)
+    nearby = observed_cell(3.072, 101.513)
+    assert first[0] == nearby[0]
+    assert first[3] <= 3.071 <= first[4]
+    assert first[5] <= 101.512 <= first[6]
+    cells = snapshot(Filters())["observed_heatmap"]
+    assert sum(cell["count"] for cell in cells) == 3
+    assert next(cell for cell in cells if cell["cell_key"] == first[0])["count"] == 2
+    with pytest.raises(ValueError):
+        Filters(area="g005:61:2030")
+    with pytest.raises(ValueError):
+        observed_cell(float("nan"), 101.5)
+
+
 def test_reassigned_task_without_final_proof_is_not_completed(analytics_db):
     with reports._connect() as db:
         db.execute("""INSERT INTO report_assignments
@@ -107,7 +128,7 @@ def test_pdf_content_and_authorization(analytics_db):
     assert "Submitted reports" in text and "75.0%" in text
     assert "Private address" not in text
     client = TestClient(app)
-    with client:
+    try:
         assert client.get("/api/admin/analytics").status_code == 401
         assert client.get("/api/admin/analytics/export.csv").status_code == 401
         assert client.get("/api/admin/analytics/export.pdf").status_code == 401
@@ -127,3 +148,5 @@ def test_pdf_content_and_authorization(analytics_db):
             assert pdf_response.status_code == 200 and pdf_response.content.startswith(b"%PDF")
         finally:
             app.dependency_overrides.clear()
+    finally:
+        client.close()
