@@ -65,7 +65,7 @@ def snapshot(filters: Filters) -> dict:
     with closing(reports._connect()) as db:
         raw = _rows(db, "reports", "id,reference,category,status,latitude,longitude,created_at,data_origin")
         events = _rows(db, "report_status_events", "report_id,previous_status,new_status,created_at")
-        assignments = _rows(db, "report_assignments", "id,report_id,assignee_id,team_name,assigned_at,ended_at")
+        assignments = _rows(db, "report_assignments", "id,report_id,assignee_id,assigned_at,ended_at")
         proofs = _rows(db, "cleanup_proofs", "assignment_id")
     selected = []
     invalid_dates = 0

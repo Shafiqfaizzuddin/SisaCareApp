@@ -18,8 +18,8 @@ export interface StaffGrant { user_id: string; role: 'staff' | 'driver'; granted
   verification_status: 'verified' | 'unverified' | 'unknown' }
 export interface CollectionTask {
   id: string; reference: string; title: string; summary?: string; location: string; status: string;
-  category: string; created_at: string; assigned_at?: string; team_name?: string;
-  assignment?: { assignee_id: string; team_name: string; assigned_at: string };
+  category: string; created_at: string; assigned_at?: string;
+  assignment?: { assignee_id: string; assigned_at: string };
   after_photo?: string | null;
   original_image?: string | null; annotated_image?: string | null;
   status_events?: Array<{ actor_id: string; previous_status: string; new_status: string; reason: string | null; created_at: string }>

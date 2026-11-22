@@ -11,7 +11,7 @@ def smtp_settings() -> Settings:
     return Settings(
         _env_file=None,
         admin_notification_email="admin@example.com",
-        admin_smtp_host="sandbox.smtp.mailtrap.io",
+        admin_smtp_host="smtp.example.test",
         admin_smtp_username="admin-user",
         admin_smtp_password="secret",
         admin_smtp_from="SisaCare <alerts@example.com>",

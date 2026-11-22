@@ -34,8 +34,8 @@ intact. No production Supabase role or account is changed by the code migration.
    with an authorized operator before changing any live role.
 3. Configure the actual Google OAuth client and Supabase provider. Test new,
    returning, linked-password, unverified and unsupported credentials.
-4. Configure any real municipal routing team names and service area only after
-   an authority supplies them. The application does not assume a municipal
+4. Configure any real municipal service area only after
+   an authority defines it. The application does not assume a municipal
    boundary or partnership.
 5. Review station records individually before marking them public. Historical
    campus and demo stations remain private and keep their old references.

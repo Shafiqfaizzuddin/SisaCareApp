@@ -6,8 +6,8 @@ This plan follows the static findings in [CSP650_IMPLEMENTATION_AUDIT.md](CSP650
 
 1. Confirm the course rubric's exact meaning of “classification percentages,” “predictive,” “severity/volume,” and “cleanup proof.” Record a field-level acceptance contract and sample screenshots/exports.
 2. Inventory local SQLite row counts, foreign-key relationships, image references, report statuses, draft/AI versions, and notification outbox records. Back up database and assets before migration. Keep a manifest and checksums.
-3. Define report state transitions explicitly: `reported` (map existing `submitted`), optional admin `verified` review, `assigned` (team and assignee recorded), `in_progress` (staff acceptance/start), `resolved` (staff proof submitted and admin acceptance, or clearly documented admin-only demo policy), plus `rejected`. Preserve legacy values as historical facts, not silently rewritten.
-4. Decide whether the authority is a real operations partner or a demo team; do not imply real municipal assignment. Define evidence retention, location precision, photo consent, and export access.
+3. Define report state transitions explicitly: `reported` (map existing `submitted`), optional admin `verified` review, `assigned` (one staff assignee recorded), `in_progress` (staff acceptance/start), `resolved` (staff proof submitted and admin acceptance, or clearly documented admin-only demo policy), plus `rejected`. Preserve legacy values as historical facts, not silently rewritten.
+4. Decide whether the authority is a real operations partner or a student demo; do not imply real municipal assignment. Define evidence retention, location precision, photo consent, and export access.
 
 **Gate:** approved state diagram, role/action matrix, data dictionary, migration manifest, and privacy decisions. No production migration yet.
 
@@ -18,11 +18,11 @@ This plan follows the static findings in [CSP650_IMPLEMENTATION_AUDIT.md](CSP650
 3. Implement RLS for owner-visible reports, assigned-staff-only work, and trusted admin access. Prefer a controlled server-side role table or trusted `app_metadata` grants; never derive privileges from email domain or user-editable metadata. Keep service-role credentials only on the backend. Audit grant/revocation and session refresh.
 4. Replace SQLite as the write authority via repository interfaces. Migrate in dependency order, import each asset once, preserve source IDs and original timestamps, validate counts and hashes, and perform read reconciliation. Avoid unbounded dual writes; use a brief cutover with rollback to the backed-up local state. Retain SQLite as archival/rollback data until sign-off.
 
-**Gate:** staging migrations/reconciliation pass; negative RLS tests prove citizen cross-access and staff cross-team access fail; private photo access and grant revocation are verified; no report/image loss. Confirm Supabase Database and Storage in the hosted project, not merely Auth.
+**Gate:** staging migrations/reconciliation pass; negative RLS tests prove citizen cross-access and staff access to other staff members' tasks fail; private photo access and grant revocation are verified; no report/image loss. Confirm Supabase Database and Storage in the hosted project, not merely Auth.
 
 ## Phase 2 — Staff/Driver workflow and cleanup proof
 
-1. Add trusted `staff`/`driver` permissions in backend auth/types and separate staff routes/UI. Scope assignments to a user/team and show only assigned jobs. Keep admin review/override paths explicit.
+1. Add trusted `staff`/`driver` permissions in backend auth/types and separate staff routes/UI. Assign each task to one staff account and show only that person's jobs. Keep admin review/override paths explicit.
 2. Implement server-validated transitions with expected-state checks, actor/time audit events, idempotency keys where needed, and concurrency control. Record `assigned` independently from `in_progress`; keep `verified` and `rejected` as review outcomes.
 3. Require cleanup proof for resolution: after-photo, time, location or reason for unavailable GPS, staff identity, and cleanup note. Validate type/size/image decode, private storage, and linkage to the report. Define admin acceptance/rejection or reopen behavior. Historical resolved records should be labeled “legacy proof unavailable” where appropriate, not fabricated.
 4. Update citizen tracking, admin queue, and staff task pages to reflect the same state machine. Make accessible status labels and allow admins to inspect before/after evidence.
@@ -41,7 +41,7 @@ This plan follows the static findings in [CSP650_IMPLEMENTATION_AUDIT.md](CSP650
 
 1. Start with historical density by grid/area and time window. Exclude rejected/duplicate or imprecise reports as policy dictates; protect citizen location privacy through aggregation and minimum counts. Add a time-based holdout and compare any forecasting model against a simple historical baseline. Label historical heatmaps and forecasts separately.
 2. Add admin map layers using the existing Google Map component: incident pins (restricted), density heatmap, and forecast hotspots with time horizon, sample count, and uncertainty. Provide a list/table alternative.
-3. Compute resolution metrics server-side from status events: median and percentile time from report/assignment to resolution, backlog age, reopen rate, and counts by area/category/date. Define treatment of rejected, unresolved, and legacy rows. Use date and team filters consistently across chart, table, CSV, and PDF.
+3. Compute resolution metrics server-side from status events: median and percentile time from report/assignment to resolution, backlog age, reopen rate, and counts by area/category/date. Define treatment of rejected, unresolved, and legacy rows. Use the same date and area filters across chart, table, CSV, and PDF.
 4. Extend the transactional outbox for citizen events (accepted/rejected, assigned, in progress, resolved, reopened), with delivery state and retries. Offer an in-app notification history; email remains dependent on configured delivery SMTP. Keep recipient consent/preference and private links.
 5. Add privileged server-side CSV and PDF exports with filters, generation timestamp, data provenance, row counts, safe spreadsheet cell escaping, and export audit. Cover large result sets with streaming/background generation and expiration as appropriate.
 

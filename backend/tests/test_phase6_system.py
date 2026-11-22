@@ -62,7 +62,7 @@ def test_three_role_report_to_resolution_and_exports(tmp_path: Path, monkeypatch
             assert client.post(f"/api/reports/{report_id}/validation", json={"validation_status": "valid"}).status_code == 200
             staff.set_grant(staff_id, "staff", admin_id)
             assigned = client.post(f"/api/collection/admin/tasks/{report_id}/assign",
-                                   json={"assignee_id": staff_id, "team": "North crew"})
+                                   json={"assignee_id": staff_id})
             assert assigned.status_code == 200, assigned.text
             assert client.post(f"/api/collection/tasks/{report_id}/start").status_code == 200
             assert client.post(f"/api/collection/tasks/{report_id}/submit", data={"note": "Collected"},

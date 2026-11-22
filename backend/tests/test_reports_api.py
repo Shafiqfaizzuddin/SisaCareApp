@@ -1058,7 +1058,7 @@ def test_report_api_queues_admin_and_user_status_emails(monkeypatch: pytest.Monk
     settings = Settings(
         _env_file=None,
         admin_notification_email="admin@example.com",
-        admin_smtp_host="sandbox.smtp.mailtrap.io",
+        admin_smtp_host="smtp.example.test",
         admin_smtp_from="alerts@example.com",
         user_smtp_host="smtp.example.com",
         user_smtp_from="updates@example.com",
@@ -1085,7 +1085,8 @@ def test_report_api_queues_admin_and_user_status_emails(monkeypatch: pytest.Monk
     worker_id = str(uuid4())
     staff_repository.set_grant(worker_id, "staff", str(uuid4()))
     app.dependency_overrides[require_staff_user] = lambda: {"id": worker_id, "role": "staff"}
-    assert client.post(f"/api/reports/{report_id}/assignment", json={"team": "Team A", "assignee_id": worker_id}).status_code == 200
+    assert client.post(f"/api/reports/{report_id}/assignment", json={"assignee_id": worker_id, "team": "Old crew"}).status_code == 422
+    assert client.post(f"/api/reports/{report_id}/assignment", json={"assignee_id": worker_id}).status_code == 200
     assert client.post(f"/api/collection/tasks/{report_id}/start").status_code == 200
     report_email.dispatch_pending_report_emails(settings)
     assert client.post(f"/api/collection/tasks/{report_id}/submit", data={"note": "Collected"},

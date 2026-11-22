@@ -27,7 +27,7 @@ Messages include the report reference, category, event time, and status transiti
    ```
 
    The administrator email address may be configured before SMTP is ready; its queued jobs wait for a sender. The Telegram channel ID may likewise be configured before the token; its jobs wait. Leave a destination blank to disable that channel's *new* jobs. Set `NOTIFY_ADMIN_ON_STATUS=false` to pause new status-event jobs while retaining new-report Telegram alerts. Existing queued jobs are not deleted by a configuration change.
-4. `ADMIN_SMTP_*` can remain on Mailtrap Sandbox for development, where messages **do not** reach a real Gmail inbox. Use a delivery-capable provider and verified sender if administrator email must reach a real inbox. `USER_SMTP_*` and Supabase Auth SMTP remain independent.
+4. Configure `ADMIN_SMTP_*` with a delivery-capable provider and verified sender. `USER_SMTP_*` and Supabase Auth SMTP are configured independently, even if all three use the same provider.
 5. Restart FastAPI and open the Administrator alerts section on the admin dashboard. Only authenticated administrators can call `GET /api/admin/notifications/admin?status=failed&limit=100` and `POST /api/admin/notifications/admin/{event_key}/retry`. The existing Email Delivery section remains for citizen and historical submission email jobs.
 
 ## Verification
@@ -42,4 +42,4 @@ npm test -- --run src/components/admin/AdminNotificationPanel.test.tsx src/pages
 npm run build
 ```
 
-For a real-provider rehearsal, create a report with a test citizen account; verify one submission email job and one Telegram job, then verify or reject the report and complete a staff workflow. Confirm each status-history event has one job per configured channel, the private Telegram message has a working **Open report** button, and the email HTML/plain-text link requires administrator sign-in. Check the actual provider inbox or Mailtrap capture as appropriate. Test a temporary provider outage, confirm report transitions still commit, and inspect retry/failure states in the dashboard. An SMTP `sent` state means the server accepted the message; inspect the provider's delivery log to confirm inbox receipt.
+For a real-provider rehearsal, create a report with a test citizen account; verify one submission email job and one Telegram job, then verify or reject the report and complete a staff workflow. Confirm each status-history event has one job per configured channel, the private Telegram message has a working **Open report** button, and the email HTML/plain-text link requires administrator sign-in. Check the actual recipient inbox and provider delivery log. Test a temporary provider outage, confirm report transitions still commit, and inspect retry/failure states in the dashboard. An SMTP `sent` state means the server accepted the message; inspect the provider's delivery log to confirm inbox receipt.

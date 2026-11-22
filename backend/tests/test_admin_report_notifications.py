@@ -70,9 +70,9 @@ def test_workflow_transitions_queue_events_and_conflicts_do_not(scenario):
     admin, worker = str(uuid4()), str(uuid4())
     reports.validate_report(report_id, 'valid', admin)
     staff.set_grant(worker, 'staff', admin)
-    workflow.assign(report_id, worker, 'Collection crew', admin)
+    workflow.assign(report_id, worker, admin)
     with pytest.raises(workflow.TaskConflict):
-        workflow.assign(report_id, worker, 'Collection crew', admin)
+        workflow.assign(report_id, worker, admin)
     workflow.change(report_id, 'start', worker)
     with pytest.raises(workflow.TaskConflict):
         workflow.change(report_id, 'start', worker)

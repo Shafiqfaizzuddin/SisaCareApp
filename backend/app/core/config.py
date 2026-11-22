@@ -74,8 +74,7 @@ class Settings(BaseSettings):
     session_absolute_seconds: int = Field(default=43200, ge=300, le=2592000)
     session_cookie_secure: bool = False
 
-    # Separate SMTP accounts allow the admin mock inbox to use Mailtrap while
-    # residents receive mail from an approved sender configured for delivery.
+    # Admin and resident notifications may use separate sender identities.
     admin_notification_email: str = ""
     admin_smtp_host: str = ""
     admin_smtp_port: int = Field(default=587, ge=1, le=65535)

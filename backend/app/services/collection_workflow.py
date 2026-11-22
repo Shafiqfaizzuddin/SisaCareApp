@@ -34,19 +34,17 @@ def _assignment(db, report_id: str):
 
 
 def _event(db, report_id: str, actor_id: str, previous: str, current: str,
-           reason: str | None, *, team: str | None = None, photo: str | None = None) -> str:
+           reason: str | None, *, photo: str | None = None) -> str:
     event_id = uuid4().hex
     db.execute("""INSERT INTO report_status_events
-        (id, report_id, actor_id, previous_status, new_status, reason, assigned_team, after_photo, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (event_id, report_id, actor_id, previous, current, reason, team, photo, reports._utc_now()))
+        (id, report_id, actor_id, previous_status, new_status, reason, after_photo, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (event_id, report_id, actor_id, previous, current, reason, photo, reports._utc_now()))
     return event_id
 
 
-def assign(report_id: str, assignee_id: str, team: str, actor_id: str, reason: str = "") -> dict:
-    team = team.strip(); reason = reason.strip()
-    if not team or len(team) > 120:
-        raise ValueError("Enter a team name (at most 120 characters).")
+def assign(report_id: str, assignee_id: str, actor_id: str, reason: str = "") -> dict:
+    reason = reason.strip()
     db = reports._connect()
     try:
         reports.initialize_database(db); staff.initialize(db)
@@ -69,11 +67,12 @@ def assign(report_id: str, assignee_id: str, team: str, actor_id: str, reason: s
         if existing:
             db.execute("UPDATE report_assignments SET ended_at = ? WHERE id = ?", (now, existing["id"]))
         assignment_id = str(uuid4())
+        # Keep the legacy non-null column for historical assignments; new work has no team.
         db.execute("""INSERT INTO report_assignments(id, report_id, team_name, assignee_id, assigned_by, assigned_at)
-            VALUES (?, ?, ?, ?, ?, ?)""", (assignment_id, report_id, team, assignee_id, actor_id, now))
-        db.execute("UPDATE reports SET status = 'assigned', assigned_team = ?, updated_at = ? WHERE id = ?",
-                   (team, now, report_id))
-        event_id = _event(db, report_id, actor_id, row["status"], "assigned", reason or f"Assigned to {team}", team=team)
+            VALUES (?, ?, '', ?, ?, ?)""", (assignment_id, report_id, assignee_id, actor_id, now))
+        db.execute("UPDATE reports SET status = 'assigned', assigned_team = NULL, updated_at = ? WHERE id = ?",
+                   (now, report_id))
+        event_id = _event(db, report_id, actor_id, row["status"], "assigned", reason or "Assigned to staff member")
         from app.repositories.admin_notifications import queue_admin_event
         queue_admin_event(db, report_id, event_id, now)
         if row["notification_email"] and get_settings().notify_citizen_on_assignment:
@@ -159,8 +158,7 @@ def change(report_id: str, action: str, actor_id: str, *, reason: str = "",
         event_reason = reason or (note if action == "submit" else
                                   "Collection started" if action == "start" else
                                   "Cleanup proof verified" if action == "verify" else None)
-        event_id = _event(db, report_id, actor_id, previous, current, event_reason,
-                          team=assignment["team_name"], photo=photo_url)
+        event_id = _event(db, report_id, actor_id, previous, current, event_reason, photo=photo_url)
         from app.repositories.admin_notifications import queue_admin_event
         queue_admin_event(db, report_id, event_id, now)
         if row["notification_email"] and (action == "verify" or
@@ -185,7 +183,7 @@ def tasks_for(user_id: str) -> list[dict]:
     with reports._connect() as db:
         staff.initialize(db)
         rows = db.execute("""SELECT r.id, r.reference, r.title, r.location, r.status, r.category,
-            r.created_at, a.id AS assignment_id, a.team_name, a.assigned_at
+            r.created_at, a.id AS assignment_id, a.assigned_at
             FROM report_assignments a JOIN reports r ON r.id = a.report_id
             WHERE a.assignee_id = ? AND a.ended_at IS NULL ORDER BY a.assigned_at DESC""", (user_id,)).fetchall()
         return [dict(row) for row in rows]
@@ -199,14 +197,15 @@ def task_for(report_id: str, user_id: str, *, admin: bool = False) -> dict:
             raise LookupError("Task not found.")
     report = reports.get_report(report_id)
     assert report is not None
+    assignment_details = {key: value for key, value in dict(assignment).items() if key != "team_name"}
     if admin:
-        return report | {"assignment": dict(assignment)}
+        return report | {"assignment": assignment_details}
     limited = {key: report.get(key) for key in (
         "id", "reference", "title", "summary", "location", "latitude", "longitude",
-        "category", "status", "assigned_team", "original_image", "annotated_image",
+        "category", "status", "original_image", "annotated_image",
         "after_photo", "status_events", "created_at", "updated_at")}
     for field in ("original_image", "annotated_image"):
         value = limited[field]
         if value:
             limited[field] = f"/api/collection/tasks/{report_id}/image/{Path(value).name}"
-    return limited | {"assignment": dict(assignment)}
+    return limited | {"assignment": assignment_details}

@@ -415,7 +415,7 @@ export function SubmitReportPage() {
         {applicableCategories.includes('Hazardous Waste') && <p className="review-hazard" role="status">Hazardous item present. Keep a safe distance and follow the reviewed handling guidance.</p>}
       </section>}
       <div className="form-actions">{submissionError && <div className="analysis-error form-actions__error" role="alert"><AlertCircle size={19} /><div><strong>Report not submitted</strong><p>{submissionError}</p></div></div>}
-        <p><ShieldCheck size={17} /> Your report is shared only with authorised response teams.</p>
+        <p><ShieldCheck size={17} /> Your report is shared only with authorised response staff.</p>
         <button className="button button--primary" type="submit" disabled={isAnalyzing || isSubmitting || !selectedFile || (!hasCurrentAnalysis && !manualMode) || !selectedLocation}>
           {isSubmitting ? 'Submitting report' : 'Submit report'} {isSubmitting ? <LoaderCircle className="spin" size={17} /> : <Check size={17} />}</button></div>
     </form><aside className="report-guidance"><div className="guidance-block guidance-block--warning"><AlertTriangle size={21} /><div><h2>Stay at a safe distance</h2><p>Do not touch chemicals, sharp objects, smoke, or unknown containers. Contact emergency services for immediate danger.</p></div></div>

@@ -12,7 +12,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api.waste_analysis import UPLOAD_DIR
 from app.api.reports import REPORT_IMAGE_PATTERN, REPORT_MEDIA_TYPES
@@ -57,8 +57,8 @@ class StaffInvite(BaseModel):
 
 
 class Assignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     assignee_id: str
-    team: str = Field(min_length=1, max_length=120)
     reason: str = Field(default="", max_length=2000)
 
 
@@ -209,7 +209,7 @@ async def resend_staff_verification(user_id: str,
         except ValueError:
             pass
     if grant["invited_at"]:
-        name = grant.get("display_name") or "Collection team member"
+        name = grant.get("display_name") or "Collection staff member"
         try:
             invited = await _invite_auth_user(StaffInvite(email=email, display_name=name, role=grant["role"]))
         except HTTPException as exc:
@@ -270,7 +270,7 @@ async def revoke_staff(user_id: str, role: Literal["staff", "driver"],
 @router.post("/admin/tasks/{report_id}/assign")
 async def assign_task(report_id: str, request: Assignment,
                       admin: Annotated[AuthenticatedUser, Depends(require_admin_user)]) -> dict:
-    try: return await run_in_threadpool(assign, report_id, request.assignee_id, request.team, admin["id"], request.reason)
+    try: return await run_in_threadpool(assign, report_id, request.assignee_id, admin["id"], request.reason)
     except (TaskConflict, TaskForbidden, LookupError, ValueError) as exc: raise _problem(exc) from exc
 
 

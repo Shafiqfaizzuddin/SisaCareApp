@@ -1524,12 +1524,20 @@ def get_report(report_id: str) -> dict[str, Any] | None:
     """Return one persisted report with all associated AI detections."""
     with _connect() as database:
         initialize_database(database)
+        from app.repositories import staff
+        staff.initialize(database)
         report = database.execute(
             "SELECT * FROM reports WHERE id = ?",
             (report_id,),
         ).fetchone()
         if report is None:
             return None
+        active_assignment = database.execute(
+            """SELECT assignee_id FROM report_assignments
+               WHERE report_id = ? AND ended_at IS NULL
+               ORDER BY assigned_at DESC LIMIT 1""",
+            (report_id,),
+        ).fetchone()
         detections = database.execute(
             """
             SELECT * FROM waste_detections
@@ -1614,6 +1622,7 @@ def get_report(report_id: str) -> dict[str, Any] | None:
         "site_notes": report["site_notes"],
         "status": report["status"],
         "assigned_team": report["assigned_team"],
+        "active_assignee_id": active_assignment["assignee_id"] if active_assignment else None,
         "resolution_details": report["resolution_details"],
         "after_photo": report["after_photo"],
         "resolution_seconds": report["resolution_seconds"] if "resolution_seconds" in report.keys() else None,

@@ -80,8 +80,8 @@ Tunnel routes. Do not start a second Florence worker on the same port.
   browser map-load check on `sisacare.online`. Photo analysis does not depend
   on Maps.
 - The API startup script sets `EMAIL_PUBLIC_BASE_URL` to the HTTPS domain.
-  Mailtrap Sandbox captures admin messages; actual user email delivery still
-  requires a delivery-capable `USER_SMTP_*` account.
+  Real admin and user email delivery requires verified sender addresses and
+  delivery-capable `ADMIN_SMTP_*` and `USER_SMTP_*` settings.
 
 ## Demo checks
 

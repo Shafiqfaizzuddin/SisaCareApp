@@ -28,7 +28,6 @@ export function StaffTaskDetailPage() {
       <ReportStatus status={task.status as Status} /></div></header>
       <div className="report-detail-grid"><div className="report-detail-main"><section className="admin-panel">
         <h2>Collection details</h2><p>{task.summary}</p><p><strong>Location:</strong> {task.location}</p>
-        <p><strong>Team:</strong> {task.assignment?.team_name}</p>
         {task.original_image && <img className="staff-proof" src={task.original_image} alt="Reported waste before collection" />}
       </section><section className="admin-panel"><h2>Progress</h2>
         {task.status === 'assigned' && <button className="button button--primary" disabled={busy} onClick={() => void act('start')}>Start collection</button>}

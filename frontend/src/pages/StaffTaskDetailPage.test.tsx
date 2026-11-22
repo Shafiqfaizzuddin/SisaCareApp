@@ -11,7 +11,7 @@ vi.mock('../features/collection/collection-api', () => api)
 const task = {
   id: 'report-1', reference: 'SCA-1', title: 'Park cleanup', summary: 'Plastic at the entrance',
   location: 'Community Hall', category: 'Recyclable Waste', created_at: '2026-10-01T00:00:00Z',
-  assignment: { assignee_id: 'staff-1', team_name: 'North crew', assigned_at: '2026-10-02T00:00:00Z' },
+  assignment: { assignee_id: 'staff-1', assigned_at: '2026-10-02T00:00:00Z' },
   status_events: [],
 }
 

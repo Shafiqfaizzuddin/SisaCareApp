@@ -20,7 +20,7 @@ export function HomePage() {
             <p className="eyebrow">Community waste reporting</p>
             <h1>Report illegal dumping. Protect your neighbourhood.</h1>
             <p className="home-hero__lead">
-              Send clear evidence and location details to help local teams assess
+              Send clear evidence and location details to help local staff assess
               waste sites and coordinate a faster response.
             </p>
             <div className="home-hero__actions">
@@ -54,7 +54,7 @@ export function HomePage() {
               </span>
               <span>
                 <strong>Community action starts with a clear report</strong>
-                Photos and accurate locations help teams prioritise safely.
+                Photos and accurate locations help staff prioritise safely.
               </span>
             </figcaption>
           </figure>
@@ -69,7 +69,7 @@ export function HomePage() {
               <h2>Three steps from sighting to action</h2>
             </div>
             <p>
-              Good evidence helps response teams understand the site before they
+              Good evidence helps response staff understand the site before they
               arrive.
             </p>
           </div>
@@ -88,7 +88,7 @@ export function HomePage() {
                 <MapPin size={21} />
               </div>
               <h3>Confirm the location</h3>
-              <p>Add an address or landmark so the response team can find it.</p>
+              <p>Add an address or landmark so the assigned staff member can find it.</p>
             </article>
             <article className="process-card">
               <span>03</span>

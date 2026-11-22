@@ -15,14 +15,15 @@ afterEach(cleanup)
 it('shows only tasks returned for the signed-in staff member and refreshes them', async () => {
   listMyTasks.mockResolvedValueOnce([
     { id: 'report-1', reference: 'SCA-1', title: 'Park cleanup', location: 'North park', category: 'Plastic',
-      status: 'assigned', created_at: '2026-11-09T00:00:00Z', assigned_at: '2026-11-09T01:00:00Z', team_name: 'North crew' },
+      status: 'assigned', created_at: '2026-11-09T00:00:00Z', assigned_at: '2026-11-09T01:00:00Z' },
     { id: 'report-2', reference: 'SCA-2', title: 'River cleanup', location: 'River walk', category: 'Glass',
-      status: 'in_progress', created_at: '2026-11-09T00:00:00Z', assigned_at: '2026-11-09T02:00:00Z', team_name: 'North crew' },
+      status: 'in_progress', created_at: '2026-11-09T00:00:00Z', assigned_at: '2026-11-09T02:00:00Z' },
   ]).mockResolvedValueOnce([])
   render(<MemoryRouter><StaffDashboardPage /></MemoryRouter>)
   expect(await screen.findByRole('heading', { name: 'Staff dashboard' })).toBeTruthy()
   expect(await screen.findByText('Park cleanup')).toBeTruthy()
-  expect(screen.getByText('Plastic · North crew')).toBeTruthy()
+  expect(screen.getByText('Plastic')).toBeTruthy()
+  expect(screen.queryByText(/crew|team/i)).toBeNull()
   expect(screen.getAllByRole('link', { name: 'View task' })[0].getAttribute('href')).toBe('/staff/tasks/report-1')
   expect(screen.getByLabelText('My task summary').textContent).toContain('2Active tasks')
   await userEvent.click(screen.getByRole('button', { name: 'Refresh tasks' }))

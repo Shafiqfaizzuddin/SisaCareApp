@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AdminReportDetail } from '../types'
@@ -10,11 +11,20 @@ import { AdminReportDetailPage } from './AdminReportDetailPage'
 const pageMocks = vi.hoisted(() => ({
   fetchPersistedReport: vi.fn(),
   validatePersistedReport: vi.fn(),
+  assignPersistedReport: vi.fn(),
+  listStaff: vi.fn(),
+  reviewTask: vi.fn(),
 }))
 
 vi.mock('../features/admin-reports/admin-reports-api', () => ({
   fetchPersistedReport: pageMocks.fetchPersistedReport,
   validatePersistedReport: pageMocks.validatePersistedReport,
+  assignPersistedReport: pageMocks.assignPersistedReport,
+}))
+
+vi.mock('../features/collection/collection-api', () => ({
+  listStaff: pageMocks.listStaff,
+  reviewTask: pageMocks.reviewTask,
 }))
 
 vi.mock('../components/location/GoogleMap', () => ({
@@ -94,6 +104,10 @@ const REPORT: AdminReportDetail = {
 beforeEach(() => {
   pageMocks.fetchPersistedReport.mockReset()
   pageMocks.validatePersistedReport.mockReset()
+  pageMocks.assignPersistedReport.mockReset()
+  pageMocks.listStaff.mockReset()
+  pageMocks.listStaff.mockResolvedValue([])
+  pageMocks.reviewTask.mockReset()
   pageMocks.fetchPersistedReport.mockResolvedValue(REPORT)
   vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
 })
@@ -104,6 +118,23 @@ afterEach(() => {
 })
 
 describe('AdminReportDetailPage', () => {
+  it('assigns a verified report to an individual staff member without a team field', async () => {
+    pageMocks.fetchPersistedReport.mockResolvedValue({
+      ...REPORT, status: 'verified', validationStatus: 'valid', activeAssigneeId: null,
+    })
+    pageMocks.listStaff.mockResolvedValue([{ user_id: 'staff-1', role: 'staff', revoked_at: null, display_name: 'Alex Staff' }])
+    pageMocks.assignPersistedReport.mockResolvedValue(undefined)
+    render(<MemoryRouter initialEntries={['/admin/reports/stored-report']}><Routes>
+      <Route path="/admin/reports/:reportId" element={<AdminReportDetailPage />} />
+    </Routes></MemoryRouter>)
+    const selector = await screen.findByLabelText('Assign to staff member or driver')
+    expect(screen.queryByLabelText(/assign to team/i)).toBeNull()
+    expect((screen.getByRole('button', { name: 'Assign report' }) as HTMLButtonElement).disabled).toBe(true)
+    await userEvent.selectOptions(selector, 'staff-1')
+    await userEvent.click(screen.getByRole('button', { name: 'Assign report' }))
+    await waitFor(() => expect(pageMocks.assignPersistedReport).toHaveBeenCalledWith('stored-report', 'staff-1', ''))
+  })
+
   it('shows persisted evidence, grouped AI facts, final text, draft, and location', async () => {
     render(
       <MemoryRouter initialEntries={['/admin/reports/stored-report']}>

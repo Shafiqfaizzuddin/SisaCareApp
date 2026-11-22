@@ -42,7 +42,7 @@ def _settings(**values) -> Settings:
 
 def _complete(task):
     report_id, admin, worker, proof, _ = task
-    workflow.assign(report_id, worker, "Crew", admin)
+    workflow.assign(report_id, worker, admin)
     workflow.change(report_id, "start", worker)
     workflow.change(report_id, "submit", worker, proof_source=proof, note="Cleaned")
     return workflow.change(report_id, "verify", admin)
@@ -78,8 +78,8 @@ def test_optional_updates_and_reassignment_use_distinct_event_keys(task, monkeyp
         notify_citizen_on_assignment=True, notify_citizen_on_progress=True))
     report_id, admin, worker, proof, _ = task
     other = str(uuid4()); staff.set_grant(other, "driver", admin)
-    workflow.assign(report_id, worker, "Crew A", admin)
-    workflow.assign(report_id, other, "Crew B", admin, reason="Shift changed")
+    workflow.assign(report_id, worker, admin)
+    workflow.assign(report_id, other, admin, reason="Shift changed")
     workflow.change(report_id, "start", other)
     workflow.change(report_id, "submit", other, proof_source=proof, note="Cleaned")
     workflow.change(report_id, "verify", admin)
@@ -164,10 +164,10 @@ def test_legacy_sqlite_outbox_rows_are_preserved(tmp_path: Path, monkeypatch):
 def test_unauthorized_or_conflicting_transitions_do_not_queue_email(task, monkeypatch):
     monkeypatch.setattr(workflow, "get_settings", lambda: _settings(notify_citizen_on_assignment=True))
     report_id, admin, worker, _, _ = task
-    with pytest.raises(workflow.TaskForbidden): workflow.assign(report_id, str(uuid4()), "Crew", admin)
+    with pytest.raises(workflow.TaskForbidden): workflow.assign(report_id, str(uuid4()), admin)
     with reports._connect() as db:
         assert db.execute("SELECT COUNT(*) FROM report_email_outbox").fetchone()[0] == 0
-    workflow.assign(report_id, worker, "Crew", admin)
+    workflow.assign(report_id, worker, admin)
     with pytest.raises(workflow.TaskConflict): workflow.change(report_id, "verify", admin)
     with reports._connect() as db:
         assert db.execute("SELECT event_type FROM report_email_outbox").fetchall()[0][0] == "assigned"

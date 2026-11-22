@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.api.waste_analysis import UPLOAD_DIR
 from app.core.config import get_settings
@@ -220,7 +220,7 @@ class ReportValidation(BaseModel):
 
 
 class ReportAssignment(BaseModel):
-    team: str = Field(min_length=1, max_length=120)
+    model_config = ConfigDict(extra="forbid")
     assignee_id: str
     reason: str = Field(default="", max_length=2000)
 
@@ -410,7 +410,7 @@ async def assign_report(
 ) -> dict[str, object]:
     from app.services.collection_workflow import assign, TaskConflict, TaskForbidden
     try:
-        return await run_in_threadpool(assign, report_id, assignment.assignee_id, assignment.team,
+        return await run_in_threadpool(assign, report_id, assignment.assignee_id,
                                        admin["id"], assignment.reason)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

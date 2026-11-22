@@ -31,7 +31,7 @@ export function StaffDashboardPage() {
     {!loading && !error && tasks.length === 0 && <div className="empty-state">No active assignments yet. New reports will appear here when an administrator assigns them to you.</div>}
     {!loading && !error && <div className="staff-task-grid">{tasks.map(task => <article key={task.id} className="admin-panel staff-task-card">
       <header><span>{task.reference}</span><ReportStatus status={task.status as Status} /></header>
-      <h2>{task.title}</h2><p>{task.location}</p><small>{task.category} · {task.team_name}</small>
+      <h2>{task.title}</h2><p>{task.location}</p><small>{task.category}</small>
       <small>Assigned {new Date(task.assigned_at ?? task.created_at).toLocaleString()}</small>
       <Link className="button button--primary" to={`/staff/tasks/${task.id}`}>View task</Link>
     </article>)}</div>}</>

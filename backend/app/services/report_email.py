@@ -59,9 +59,9 @@ def build_report_message(event: dict[str, str], settings: Settings) -> EmailMess
     elif kind in {"assigned", "in_progress", "pending_verification"}:
         subject = f"Report {reference}: {status_label}"
         heading = f"Your report is {status_label.lower()}"
-        lead = {"assigned": "A collection team has been assigned to your report.",
-                "in_progress": "The collection team has started work on your report.",
-                "pending_verification": "The collection team submitted cleanup proof for administrator review."}[kind]
+        lead = {"assigned": "A staff member has been assigned to your report.",
+                "in_progress": "The assigned staff member has started work on your report.",
+                "pending_verification": "The assigned staff member submitted cleanup proof for administrator review."}[kind]
         url = f"{settings.email_public_base_url.rstrip('/')}/account/reports/{quote(event['report_id'], safe='')}"
         button = "View report"
         extra = ""

@@ -293,6 +293,7 @@ export interface AdminReportDetail {
   validationStatus: ValidationStatus
   rewardPoints: number
   assignedTeam?: string | null
+  activeAssigneeId?: string | null
   resolutionDetails?: string | null
   resolutionSeconds?: number | null
   afterPhoto?: string | null

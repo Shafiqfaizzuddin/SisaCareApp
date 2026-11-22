@@ -55,7 +55,7 @@ export function StaffAcceptInvitePage() {
   }
 
   return <main className="login-page"><section className="login-context"><Brand /><div>
-    <p className="eyebrow">Collection team</p><h1>Welcome to SisaCare.AI.</h1>
+    <p className="eyebrow">Collection staff</p><h1>Welcome to SisaCare.AI.</h1>
     <p>Set a password for your invited staff or driver account.</p>
   </div></section><section className="login-panel"><div className="login-form-wrap">
     <div className="login-heading"><h2>Accept your invitation</h2>{email && <p>Account: {email}</p>}</div>

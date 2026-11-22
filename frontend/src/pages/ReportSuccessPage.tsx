@@ -55,7 +55,7 @@ export function ReportSuccessPage() {
             <span><Clock3 size={19} /></span>
             <div>
               <strong>Response planning</strong>
-              <p>Municipal administrators assess the report and assign a response team.</p>
+              <p>Municipal administrators assess the report and assign a staff member.</p>
             </div>
           </div>
         </div>

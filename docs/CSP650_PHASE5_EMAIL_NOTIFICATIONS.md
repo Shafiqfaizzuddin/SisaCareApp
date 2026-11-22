@@ -40,7 +40,7 @@ NOTIFY_CITIZEN_ON_ASSIGNMENT=false
 NOTIFY_CITIZEN_ON_PROGRESS=false
 ```
 
-`USER_SMTP_HOST` may point to Mailtrap Sandbox in local development; sandbox messages appear in Mailtrap and do not reach citizen inboxes. For a real-delivery rehearsal, use a provider account authorized to send to external mailboxes. The existing separate `ADMIN_SMTP_*` channel can remain on Mailtrap while `USER_SMTP_*` uses the real provider. A blank user host pauses delivery but retains queued citizen events. Production configuration requires encrypted SMTP and an HTTPS public URL. Never commit actual credentials, place them in `VITE_*` variables, or send them to browser code.
+Use a transactional SMTP provider authorized to deliver to external mailboxes for both `ADMIN_SMTP_*` and `USER_SMTP_*`. A blank user host pauses delivery but retains queued citizen events. Production configuration requires encrypted SMTP and an HTTPS public URL. Never commit actual credentials, place them in `VITE_*` variables, or send them to browser code.
 
 ## Automated verification
 

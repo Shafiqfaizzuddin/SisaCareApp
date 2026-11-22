@@ -40,7 +40,13 @@ def workflow_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 def test_positive_collection_and_verified_resolution(workflow_db) -> None:
     report_id, admin, worker, _, tmp_path = workflow_db
-    assert workflow.assign(report_id, worker, "North crew", admin)["status"] == "assigned"
+    assert workflow.assign(report_id, worker, admin)["status"] == "assigned"
+    with reports._connect() as db:
+        saved = db.execute("SELECT status, assigned_team FROM reports WHERE id = ?", (report_id,)).fetchone()
+        active = db.execute("SELECT assignee_id, team_name FROM report_assignments WHERE report_id = ?", (report_id,)).fetchone()
+        assert tuple(saved) == ("assigned", None)
+        assert tuple(active) == (worker, "")  # Legacy column remains for old records.
+    assert reports.get_report(report_id)["active_assignee_id"] == worker
     assert workflow.change(report_id, "start", worker)["status"] == "in_progress"
     photo = tmp_path / "proof.jpg"; photo.write_bytes(b"validated by the API")
     assert workflow.change(report_id, "submit", worker, proof_source=photo, note="Waste removed")["status"] == "pending_verification"
@@ -57,9 +63,9 @@ def test_positive_collection_and_verified_resolution(workflow_db) -> None:
 
 def test_duplicate_assignment_wrong_owner_and_missing_proof(workflow_db) -> None:
     report_id, admin, worker, other, _ = workflow_db
-    with pytest.raises(workflow.TaskForbidden): workflow.assign(report_id, str(uuid4()), "Crew", admin)
-    workflow.assign(report_id, worker, "Crew", admin)
-    with pytest.raises(workflow.TaskConflict): workflow.assign(report_id, worker, "Crew", admin)
+    with pytest.raises(workflow.TaskForbidden): workflow.assign(report_id, str(uuid4()), admin)
+    workflow.assign(report_id, worker, admin)
+    with pytest.raises(workflow.TaskConflict): workflow.assign(report_id, worker, admin)
     with pytest.raises(workflow.TaskForbidden): workflow.change(report_id, "start", other)
     with pytest.raises(LookupError): workflow.task_for(report_id, other)
     workflow.change(report_id, "start", worker)
@@ -71,7 +77,7 @@ def test_concurrent_assignment_has_one_active_owner(workflow_db) -> None:
     report_id, admin, worker, other, _ = workflow_db
     def attempt(user_id: str) -> str:
         try:
-            workflow.assign(report_id, user_id, "Crew", admin)
+            workflow.assign(report_id, user_id, admin)
             return "assigned"
         except (workflow.TaskConflict, ValueError):
             return "rejected"
@@ -85,7 +91,7 @@ def test_concurrent_assignment_has_one_active_owner(workflow_db) -> None:
 
 def test_cleanup_proof_cannot_reference_another_assignee(workflow_db) -> None:
     report_id, admin, worker, other, _ = workflow_db
-    assignment = workflow.assign(report_id, worker, "Crew", admin)
+    assignment = workflow.assign(report_id, worker, admin)
     with reports._connect() as db:
         with pytest.raises(sqlite3.IntegrityError):
             db.execute("""INSERT INTO cleanup_proofs
@@ -96,23 +102,40 @@ def test_cleanup_proof_cannot_reference_another_assignee(workflow_db) -> None:
 
 def test_reassignment_requires_reason_and_revokes_old_task_access(workflow_db) -> None:
     report_id, admin, worker, other, _ = workflow_db
-    workflow.assign(report_id, worker, "Crew A", admin)
+    workflow.assign(report_id, worker, admin)
     with pytest.raises(ValueError, match="reason"):
-        workflow.assign(report_id, other, "Crew B", admin)
-    workflow.assign(report_id, other, "Crew B", admin, "Crew A unavailable")
+        workflow.assign(report_id, other, admin)
+    workflow.assign(report_id, other, admin, "Staff member unavailable")
     with pytest.raises(LookupError): workflow.task_for(report_id, worker)
     assert workflow.task_for(report_id, other)["assignment"]["assignee_id"] == other
     with reports._connect() as db:
         assert db.execute("SELECT COUNT(*) FROM report_assignments WHERE report_id = ?", (report_id,)).fetchone()[0] == 2
         history = db.execute("SELECT previous_status, new_status, reason FROM report_status_events WHERE report_id = ? ORDER BY created_at, rowid", (report_id,)).fetchall()
-        assert history[-1]["reason"] == "Crew A unavailable"
+        assert history[-1]["reason"] == "Staff member unavailable"
         assert history[-1]["previous_status"] == history[-1]["new_status"] == "assigned"
+
+
+def test_legacy_team_history_survives_individual_reassignment(workflow_db) -> None:
+    report_id, admin, worker, other, _ = workflow_db
+    with reports._connect() as db:
+        db.execute("UPDATE reports SET assigned_team = 'Old crew' WHERE id = ?", (report_id,))
+        db.execute("""INSERT INTO report_status_events
+            (id, report_id, actor_id, previous_status, new_status, assigned_team, created_at)
+            VALUES (?, ?, ?, 'verified', 'assigned', 'Old crew', ?)""",
+            (uuid4().hex, report_id, admin, reports._utc_now()))
+    workflow.assign(report_id, worker, admin)
+    workflow.assign(report_id, other, admin, reason="Staff schedule changed")
+    with reports._connect() as db:
+        assert db.execute("SELECT assigned_team FROM reports WHERE id = ?", (report_id,)).fetchone()[0] is None
+        history = db.execute("SELECT assigned_team FROM report_status_events WHERE report_id = ? ORDER BY rowid", (report_id,)).fetchall()
+        assert [row[0] for row in history] == ["Old crew", None, None]
+        assert db.execute("SELECT assignee_id FROM report_assignments WHERE ended_at IS NULL AND report_id = ?", (report_id,)).fetchone()[0] == other
 
 
 def test_rework_preserves_history_and_requires_new_proof(workflow_db) -> None:
     report_id, admin, worker, _, tmp_path = workflow_db
     proof = tmp_path / "proof.png"; proof.write_bytes(b"validated by the API")
-    workflow.assign(report_id, worker, "Crew", admin)
+    workflow.assign(report_id, worker, admin)
     workflow.change(report_id, "start", worker)
     workflow.change(report_id, "submit", worker, proof_source=proof, note="First collection")
     with pytest.raises(ValueError, match="reason"): workflow.change(report_id, "rework", admin)
@@ -127,7 +150,7 @@ def test_citizen_tracking_sees_collection_status_and_history(workflow_db) -> Non
     report_id, admin, worker, _, _ = workflow_db
     with reports._connect() as db:
         owner = db.execute("SELECT user_id FROM reports WHERE id = ?", (report_id,)).fetchone()[0]
-    workflow.assign(report_id, worker, "Crew", admin)
+    workflow.assign(report_id, worker, admin)
     tracking = reports.get_own_report_tracking(report_id, owner)
     assert tracking is not None and tracking["status"] == "assigned"
     assert tracking["status_events"][-1]["new_status"] == "assigned"
@@ -141,9 +164,24 @@ def test_citizen_cannot_grant_assign_or_verify(workflow_db) -> None:
     try:
         with TestClient(app) as client:
             assert client.post('/api/collection/admin/staff/grants', json={"user_id": str(uuid4()), "role": "staff"}).status_code == 403
-            assert client.post(f'/api/collection/admin/tasks/{report_id}/assign', json={"assignee_id": str(uuid4()), "team": "Crew"}).status_code == 403
+            assert client.post(f'/api/collection/admin/tasks/{report_id}/assign', json={"assignee_id": str(uuid4())}).status_code == 403
             assert client.post(f'/api/collection/admin/tasks/{report_id}/verify', json={"reason": ""}).status_code == 403
             assert client.get('/api/collection/tasks').status_code == 403
+    finally: app.dependency_overrides.clear()
+
+
+def test_admin_assignment_accepts_staff_id_without_team(workflow_db) -> None:
+    report_id, admin, worker, _, _ = workflow_db
+    app.dependency_overrides[require_admin_user] = lambda: {"id": admin, "role": "admin"}
+    try:
+        with TestClient(app) as client:
+            path = f"/api/collection/admin/tasks/{report_id}/assign"
+            assert client.post(path, json={"assignee_id": worker, "team": "Old crew"}).status_code == 422
+            assigned = client.post(path, json={"assignee_id": worker})
+            assert assigned.status_code == 200, assigned.text
+            task = workflow.task_for(report_id, worker)
+            assert task["assignment"]["assignee_id"] == worker
+            assert "team_name" not in task["assignment"]
     finally: app.dependency_overrides.clear()
 
 
@@ -169,7 +207,7 @@ def test_admin_staff_grant_and_revoke_routes(workflow_db, monkeypatch: pytest.Mo
 def test_unassigned_staff_cannot_read_proof(workflow_db, monkeypatch: pytest.MonkeyPatch) -> None:
     report_id, admin, worker, other, tmp_path = workflow_db
     proof = tmp_path / "proof.jpg"; proof.write_bytes(b"validated by the API")
-    workflow.assign(report_id, worker, "Crew", admin)
+    workflow.assign(report_id, worker, admin)
     workflow.change(report_id, "start", worker)
     workflow.change(report_id, "submit", worker, proof_source=proof, note="Done")
     with reports._connect() as db:
@@ -183,7 +221,7 @@ def test_unassigned_staff_cannot_read_proof(workflow_db, monkeypatch: pytest.Mon
 
 def test_cleanup_upload_rejects_type_and_missing_photo(workflow_db) -> None:
     report_id, admin, worker, _, _ = workflow_db
-    workflow.assign(report_id, worker, "Crew", admin)
+    workflow.assign(report_id, worker, admin)
     workflow.change(report_id, "start", worker)
     app.dependency_overrides[require_staff_user] = lambda: {"id": worker, "role": "staff"}
     try:
@@ -200,7 +238,7 @@ def test_cleanup_upload_rejects_type_and_missing_photo(workflow_db) -> None:
 
 def test_revoked_grant_blocks_active_task(workflow_db) -> None:
     report_id, admin, worker, _, _ = workflow_db
-    workflow.assign(report_id, worker, "Crew", admin)
+    workflow.assign(report_id, worker, admin)
     staff.set_grant(worker, "staff", admin, revoke=True)
     with pytest.raises(workflow.TaskForbidden): workflow.change(report_id, "start", worker)
 

@@ -193,6 +193,7 @@ export async function fetchPersistedReport(
     rewardPoints:
       typeof value.reward_points === 'number' ? value.reward_points : 0,
     assignedTeam: typeof value.assigned_team === 'string' ? value.assigned_team : null,
+    activeAssigneeId: typeof value.active_assignee_id === 'string' ? value.active_assignee_id : null,
     resolutionDetails: typeof value.resolution_details === 'string' ? value.resolution_details : null,
     resolutionSeconds: typeof value.resolution_seconds === 'number' ? value.resolution_seconds : null,
     afterPhoto: typeof value.after_photo === 'string' ? value.after_photo : null,
@@ -313,9 +314,9 @@ export async function validatePersistedReport(
   }
 }
 
-export async function assignPersistedReport(reportId: string, team: string, assigneeId: string, reason = ''): Promise<void> {
+export async function assignPersistedReport(reportId: string, assigneeId: string, reason = ''): Promise<void> {
   const response = await authenticatedFetch(`${REPORT_SUBMISSION_URL}/${encodeURIComponent(reportId)}/assignment`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ team, assignee_id: assigneeId, reason }),
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assignee_id: assigneeId, reason }),
   })
   const value: unknown = await response.json()
   if (!response.ok) throw new Error(isObject(value) && typeof value.detail === 'string' ? value.detail : 'Assignment failed.')

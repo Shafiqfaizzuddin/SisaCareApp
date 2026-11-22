@@ -144,7 +144,6 @@ export function AdminReportDetailPage() {
   const [isValidating, setIsValidating] = useState(false)
   const [validationError, setValidationError] = useState('')
   const [rejectionReason, setRejectionReason] = useState('')
-  const [assignedTeam, setAssignedTeam] = useState('')
   const [assigneeId, setAssigneeId] = useState('')
   const [staffGrants, setStaffGrants] = useState<StaffGrant[]>([])
   const [workflowReason, setWorkflowReason] = useState('')
@@ -166,6 +165,7 @@ export function AdminReportDetailPage() {
     if (!persistedReport) return
     setStatus(persistedReport.status)
     setValidationStatus(persistedReport.validationStatus)
+    setAssigneeId(persistedReport.activeAssigneeId ?? '')
   }, [persistedReport])
 
   useEffect(
@@ -206,7 +206,7 @@ export function AdminReportDetailPage() {
     setIsValidating(true)
     setValidationError('')
     try {
-      if (action === 'assign') await assignPersistedReport(report.id, assignedTeam, assigneeId, workflowReason)
+      if (action === 'assign') await assignPersistedReport(report.id, assigneeId, workflowReason)
       else await reviewTask(report.id, action, workflowReason)
       setPersistedReport(await fetchPersistedReport(report.id))
     } catch (error) {
@@ -320,7 +320,7 @@ export function AdminReportDetailPage() {
               <p>AI suggestions and user edits are shown separately from municipal verification.</p>
               <p>Overall category: {persistedReport.category}</p>
               {persistedReport.confirmedItems.some((item) => item.category === 'Hazardous Waste') &&
-                <p className="review-hazard" role="status">Hazardous item confirmed. Review handling and arrange an appropriate response team.</p>}
+                <p className="review-hazard" role="status">Hazardous item confirmed. Review handling and assign an appropriate staff member.</p>}
               {persistedReport.groupedReportItems.length > 0 && <ul>{persistedReport.groupedReportItems.map((group, index) => <li key={`${group.canonical_name}-${index}`}>
                 {group.display_name} — {group.category ?? 'Needs assessment'} ({group.material}) · {group.detection_count} detections
                 {group.uncertainty_reason && <small> · {group.uncertainty_reason}</small>}
@@ -555,15 +555,14 @@ export function AdminReportDetailPage() {
 
           {validationStatus === 'valid' && status !== 'resolved' && status !== 'rejected' && <section className="admin-panel validation-panel">
             <h2>Municipal response</h2>
-            {(status === 'verified' || status === 'assigned' || status === 'in_progress') && <div className="field"><label htmlFor="assigned-team">Assign to team</label>
-              <input id="assigned-team" value={assignedTeam} maxLength={120} onChange={event => setAssignedTeam(event.target.value)} />
-              <label htmlFor="assignee">Staff or driver</label><select id="assignee" value={assigneeId} onChange={event => setAssigneeId(event.target.value)}>
+            {(status === 'verified' || status === 'assigned' || status === 'in_progress') && <div className="field">
+              <label htmlFor="assignee">Assign to staff member or driver</label><select id="assignee" value={assigneeId} onChange={event => setAssigneeId(event.target.value)}>
                 <option value="">Select staff account</option>{staffGrants.filter(grant => !grant.revoked_at).map(grant =>
                   <option key={`${grant.user_id}:${grant.role}`} value={grant.user_id}>{grant.display_name || grant.email || grant.user_id} · {grant.role}</option>)}</select>
               <label htmlFor="assignment-reason">Reason {status !== 'verified' ? '(required for reassignment)' : '(optional)'}</label>
               <textarea id="assignment-reason" value={workflowReason} maxLength={2000} onChange={event => setWorkflowReason(event.target.value)} />
-              <button className="button button--primary" type="button" disabled={isValidating || !assignedTeam.trim() || !assigneeId || (status !== 'verified' && !workflowReason.trim())} onClick={() => void handleWorkflow('assign')}>{status === 'verified' ? 'Assign report' : 'Reassign report'}</button></div>}
-            {status === 'in_progress' && <p>Collection in progress with {persistedReport?.assignedTeam}.</p>}
+              <button className="button button--primary" type="button" disabled={isValidating || !assigneeId || assigneeId === persistedReport?.activeAssigneeId || (status !== 'verified' && !workflowReason.trim())} onClick={() => void handleWorkflow('assign')}>{status === 'verified' ? 'Assign report' : 'Reassign report'}</button></div>}
+            {(status === 'assigned' || status === 'in_progress' || status === 'pending_verification') && persistedReport?.activeAssigneeId && <p>Assigned to {staffGrants.find(grant => grant.user_id === persistedReport.activeAssigneeId)?.display_name || staffGrants.find(grant => grant.user_id === persistedReport.activeAssigneeId)?.email || 'staff member'}.</p>}
             {status === 'pending_verification' && <div className="field"><p>Review the cleanup proof and collection note in the history below.</p>
               {persistedReport?.afterPhoto && <img className="staff-proof" src={persistedReport.afterPhoto} alt="Cleanup proof awaiting verification" />}
               <label htmlFor="review-reason">Verification note or rework reason</label>
@@ -619,7 +618,7 @@ export function AdminReportDetailPage() {
               </li>
               {persistedReport?.statusEvents?.map((event, index) => <li key={`${event.createdAt}-${index}`}>
                 <span><CheckCircle2 size={15} /></span><div><strong>{event.newStatus.replace('_', ' ')}</strong>
-                <small>{event.createdAt}{event.actorId ? ` · Actor ${event.actorId}` : ''}{event.reason ? ` · ${event.reason}` : ''}{event.assignedTeam ? ` · ${event.assignedTeam}` : ''}</small></div>
+                <small>{event.createdAt}{event.actorId ? ` · Actor ${event.actorId}` : ''}{event.reason ? ` · ${event.reason}` : ''}</small></div>
               </li>)}
             </ol>
           </section>
